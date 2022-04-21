@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e
+set -ex
 
 DL="${DL:-/tmp/dl}"
 DEP_DIR_PREFIX=$PWD/deps
@@ -33,8 +33,8 @@ download_deps()
     if [ -z "$NO_OPENSSL" ]; then
         rm -rf openssl
         portfile_url=https://raw.githubusercontent.com/microsoft/vcpkg/master/ports/openssl/portfile.cmake
-        osslver=$(wget -q -O- "$portfile_url" | grep -oP '\bOPENSSL_VERSION\s+\S+' | cut -d' ' -f2 | tr -d ')' | tr . _)
-        git clone --single-branch --branch "OpenSSL_$osslver" https://github.com/openssl/openssl.git
+        osslver=$(wget -q -O- "$portfile_url" | grep -oP '\bOPENSSL_VERSION\s+\S+' | cut -d' ' -f2 | tr -d ')')
+        git clone --single-branch --branch "openssl-$osslver" https://github.com/openssl/openssl.git
     fi
 
     rm -rf tap-windows6
@@ -114,8 +114,8 @@ build_openssl()
 
     [ "$ARCH" == "x86_64" ] && OUT="mingw64" || OUT="mingw"
     make clean || true
-    ./Configure --prefix=$DEP_DIR_PREFIX-$ARCH no-idea no-mdc2 no-rc5 shared $OUT --cross-compile-prefix=$ARCH-w64-mingw32-
-    make && make -j1 install || true
+    ./Configure --prefix=$DEP_DIR_PREFIX-$ARCH --libdir=lib no-idea no-mdc2 no-rc5 shared $OUT --cross-compile-prefix=$ARCH-w64-mingw32-
+    make && make install
 
     popd
 }
