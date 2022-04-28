@@ -52,7 +52,7 @@
 #include <openvpn/tun/linux/client/sitnl.hpp>
 #elif ENABLE_OVPNDCOWIN
 #include <openvpn/dco/key.hpp>
-#include <ovpn-dco-win/uapi.h>
+#include <openvpn/dco/ovpn-dco.h>
 #else
 #error either ENABLE_KOVPN, ENABLE_OVPNDCO or ENABLE_OVPNDCOWIN must be defined
 #endif
@@ -66,8 +66,6 @@ namespace DCOTransport {
 enum {
   OVPN_PEER_ID_UNDEF = 0x00FFFFFF,
 };
-
-OPENVPN_EXCEPTION(dco_error);
 
 class ClientConfig : public DCO,
                      public TransportClientFactory,
