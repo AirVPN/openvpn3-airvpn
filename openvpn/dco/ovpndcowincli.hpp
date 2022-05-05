@@ -53,6 +53,8 @@ public:
   }
 
   bool transport_send_const(const Buffer &buf) override {
+    if (halt)
+      return false;
     return send_(buf);
   }
 
@@ -77,10 +79,19 @@ public:
     dc_settings.set_factory(CryptoDCFactory::Ptr(new KoRekey::Factory(
         dc_settings.factory(), this, config->transport.frame)));
 
+    set_keepalive_();
+    start_vpn_();
+
     tun_parent->tun_connected();
   }
 
   std::string tun_name() const override { return "ovpn-dco-win"; }
+
+  void adjust_mss(int mss) override
+  {
+    OVPN_SET_PEER peer {-1, -1, mss};
+    dco_ioctl_(OVPN_IOCTL_SET_PEER, &peer, sizeof(peer));
+  }
 
   IP::Addr server_endpoint_addr() const override {
     return IP::Addr::from_asio(endpoint_.address());
@@ -97,9 +108,7 @@ public:
 
     switch (rktype) {
     case CryptoDCInstance::ACTIVATE_PRIMARY:
-      add_keepalive_();
       add_crypto_(rktype, key());
-      start_vpn_();
       break;
 
     case CryptoDCInstance::NEW_SECONDARY:
@@ -276,7 +285,7 @@ protected:
     }
   }
 
-  void add_keepalive_() {
+  void set_keepalive_() {
     if (!transport_parent->is_keepalive_enabled())
       return;
 
@@ -285,26 +294,18 @@ protected:
 
     // since userspace doesn't know anything about presense or
     // absense of data channel traffic, ping should be handled in kernel
-    transport_parent->disable_keepalive(keepalive_interval,
-					keepalive_timeout);
+    transport_parent->disable_keepalive(keepalive_interval, keepalive_timeout);
 
     if (config->ping_restart_override)
       keepalive_timeout = config->ping_restart_override;
 
     // enable keepalive in kernel
-    OVPN_SET_PEER peer = {};
-    peer.KeepaliveInterval = static_cast<LONG>(keepalive_interval);
-    peer.KeepaliveTimeout  = static_cast<LONG>(keepalive_timeout);
-
+    OVPN_SET_PEER peer{static_cast<LONG>(keepalive_interval), static_cast<LONG>(keepalive_timeout), -1};
     dco_ioctl_(OVPN_IOCTL_SET_PEER, &peer, sizeof(peer));
   }
 
   void add_crypto_(const CryptoDCInstance::RekeyType type,
                    const KoRekey::KeyConfig *kc) {
-    if (kc->cipher_alg != OVPN_CIPHER_ALG_AES_GCM) {
-      throw ErrorCode(Error::TUN_SETUP_FAILED, true, "unsupported cipher for DCO");
-    }
-
     OVPN_CRYPTO_DATA data;
     ZeroMemory(&data, sizeof(data));
 
@@ -320,7 +321,7 @@ protected:
 
     data.KeyId = kc->key_id;
     data.PeerId = kc->remote_peer_id;
-    data.CipherAlg = OVPN_CIPHER_ALG::OVPN_CIPHER_ALG_AES_GCM;
+    data.CipherAlg = (OVPN_CIPHER_ALG)kc->cipher_alg;
     data.KeySlot = (type == CryptoDCInstance::ACTIVATE_PRIMARY
       ? OVPN_KEY_SLOT::OVPN_KEY_SLOT_PRIMARY
       : OVPN_KEY_SLOT::OVPN_KEY_SLOT_SECONDARY);
@@ -334,7 +335,6 @@ protected:
     std::ostringstream os;
     tun_setup_->establish(*po_, Win::module_name(), NULL, os, NULL);
     OPENVPN_LOG_STRING(os.str());
-
   }
 
   void swap_keys_() { dco_ioctl_(OVPN_IOCTL_SWAP_KEYS); }

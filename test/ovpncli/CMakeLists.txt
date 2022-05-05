@@ -46,13 +46,10 @@ if (WIN32)
                                                     OVPNAGENT_DISABLE_PATH_CHECK)
 
     if (${CLI_OVPNDCOWIN})
-        find_path(OVPN_DCO_WIN_INCLUDE_DIRS "ovpn-dco-win/uapi.h")
-
         target_compile_definitions(ovpncliagent PRIVATE ENABLE_OVPNDCOWIN)
-        target_include_directories(ovpncliagent PRIVATE ${OVPN_DCO_WIN_INCLUDE_DIRS})
-
         target_compile_definitions(ovpncli PRIVATE ENABLE_OVPNDCOWIN)
-        target_include_directories(ovpncli PRIVATE ${OVPN_DCO_WIN_INCLUDE_DIRS})
+        target_link_libraries(ovpncli "bcrypt.lib")
+        target_link_libraries(ovpncliagent "bcrypt.lib")
     endif()
 endif ()
 

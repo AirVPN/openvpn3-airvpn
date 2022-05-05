@@ -397,7 +397,6 @@ namespace openvpn {
       std::string cipher;
       int ping;
       int ping_restart;
-
     };
 
     // returned by some methods as a status/error indication

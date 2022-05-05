@@ -387,9 +387,12 @@ namespace openvpn {
 	  if (buf.size())
 	    {
 	      const ProtoContext::Config& c = Base::conf();
-	      if (c.mss_inter > 0 && buf.size() > c.mss_inter)
+	      // when calculating mss, we take IPv4 and TCP headers into account
+	      // here we need to add it back since we check the whole IP packet size, not just TCP payload
+	      size_t mss_no_tcp_ip_encap = (size_t)c.mss_fix + (20 + 20);
+	      if (c.mss_fix > 0 && buf.size() > mss_no_tcp_ip_encap)
 		{
-		  Ptb::generate_icmp_ptb(buf, c.mss_inter);
+		  Ptb::generate_icmp_ptb(buf, mss_no_tcp_ip_encap);
 		  tun->tun_send(buf);
 		}
 	      else
@@ -613,6 +616,9 @@ namespace openvpn {
 
 		// initialize data channel after pushed options have been processed
 		Base::init_data_channel();
+
+		// we got pushed options and initializated crypto - now we can push mss to dco
+		tun->adjust_mss(conf().mss_fix);
 
 		// Allow ProtoContext to suggest an alignment adjustment
 		// hint for transport layer.
