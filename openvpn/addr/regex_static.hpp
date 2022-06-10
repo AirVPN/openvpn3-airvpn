@@ -4,7 +4,7 @@
 //               packet encryption, packet authentication, and
 //               packet compression.
 //
-//    Copyright (C) 2012-2020 OpenVPN Inc.
+//    Copyright (C) 2012-2022 OpenVPN Inc.
 //
 //    This program is free software: you can redistribute it and/or modify
 //    it under the terms of the GNU Affero General Public License Version 3
@@ -19,31 +19,33 @@
 //    along with this program in the COPYING file.
 //    If not, see <http://www.gnu.org/licenses/>.
 
-#ifndef OPENVPN_PKI_EPKIBASE_H
-#define OPENVPN_PKI_EPKIBASE_H
+// Static regexes for validation of IP addresses
 
-#include <string>
+#pragma once
+
+#include <regex>
+
+#include <openvpn/common/extern.hpp>
+#include <openvpn/addr/regex.hpp>
 
 namespace openvpn {
+  namespace IP {
+    OPENVPN_EXTERN const std::regex re_v4(v4_regex(), std::regex_constants::ECMAScript | std::regex_constants::nosubs);
+    OPENVPN_EXTERN const std::regex re_v6(v6_regex(), std::regex_constants::ECMAScript | std::regex_constants::nosubs);
 
-  // Abstract base class used to provide an interface where core SSL implementation
-  // can use an external private key.
-  class ExternalPKIBase
-  {
-  public:
-    // Sign data (base64) and return signature as sig (base64).
-    // Return true on success or false on error.
-	virtual bool sign(const std::string& data, std::string& sig, const std::string& algorithm,
-			  		  const std::string& hashalg, const std::string& saltlen) = 0;
+    inline bool is_ipv4_address(const std::string& host)
+    {
+      return std::regex_match(host, IP::re_v4);
+    }
 
-    virtual ~ExternalPKIBase() {}
-  };
+    inline bool is_ipv6_address(const std::string& host)
+    {
+      return std::regex_match(host, IP::re_v6);
+    }
 
-  class ExternalPKIImpl
-  {
-  public:
-    virtual ~ExternalPKIImpl() = default;
-  };
-};
-
-#endif
+    inline bool is_ip_address(const std::string& host)
+    {
+      return is_ipv4_address(host) || is_ipv6_address(host);
+    }
+  }
+}

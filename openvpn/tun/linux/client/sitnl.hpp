@@ -36,10 +36,12 @@
 #include <openvpn/addr/route.hpp>
 
 
+#ifndef OPENVPN_LOG_RTNL
 #ifdef DEBUG_RTNL
 #define OPENVPN_LOG_RTNL(_x) OPENVPN_LOG(_x)
 #else
 #define OPENVPN_LOG_RTNL(_x)
+#endif
 #endif
 
 namespace openvpn {
@@ -456,10 +458,12 @@ out:
 	      switch (res->family)
 	      {
 		case AF_INET:
-		  route = IP::Route(IPv4::Addr::from_bytes_net(bytestr).to_string() + "/" + std::to_string(r->rtm_dst_len));
+		  route = IP::Route(IP::Addr::from_ipv4(IPv4::Addr::from_bytes_net(bytestr)), r->rtm_dst_len);
+		  route.validate_prefix_length("SITNL route4");
 		  break;
 		case AF_INET6:
-		  route = IP::Route(IPv6::Addr::from_byte_string(bytestr).to_string() + "/" + std::to_string(r->rtm_dst_len));
+		  route = IP::Route(IP::Addr::from_ipv6(IPv6::Addr::from_byte_string(bytestr)), r->rtm_dst_len);
+		  route.validate_prefix_length("SITNL route6");
 		  break;
 	      }
 	    }
@@ -486,6 +490,8 @@ out:
 
 	  rta = RTA_NEXT(rta, len);
 	}
+
+	OPENVPN_LOG_RTNL(__func__ << ": ROUTE " << route.to_string() << " metric=" << metric << " ifindex=" << ifindex << " proto=" << int(r->rtm_protocol) << " scope=" << int(r->rtm_scope) << " type=" << int(r->rtm_type) << " table=" << int(r->rtm_table));
 
 	if (!gw.defined() || ifindex <= 0)
 	{
@@ -601,6 +607,99 @@ out:
 	}
 
 err:
+	return ret;
+      }
+
+      /* state info for sitnl_iface_addr_save() */
+      typedef struct
+      {
+	sa_family_t family;
+	__u32 ifindex;
+	IP::Route route;
+      } iface_addr_res_t;
+
+      static int
+      sitnl_iface_addr_save(struct nlmsghdr *n, void *arg)
+      {
+	iface_addr_res_t *res = (iface_addr_res_t *)arg;
+	struct ifaddrmsg *ifa = (struct ifaddrmsg *)NLMSG_DATA(n);
+	struct rtattr *rta = IFA_RTA(ifa);
+	int len = n->nlmsg_len - NLMSG_LENGTH(sizeof(*ifa));
+	IP::Route route;
+	struct ifaddrmsg save = {};
+
+	while (RTA_OK(rta, len))
+	{
+	  switch (rta->rta_type)
+	  {
+	  case IFA_ADDRESS:
+	    /* interface address */
+	    {
+	      const unsigned char *bytestr = (unsigned char *)RTA_DATA(rta);
+	      switch (res->family)
+	      {
+		case AF_INET:
+		  route = IP::Route(IP::Addr::from_ipv4(IPv4::Addr::from_bytes_net(bytestr)), ifa->ifa_prefixlen);
+		  save = *ifa;
+		  OPENVPN_LOG_RTNL(__func__ << ": ADD4 " << route.to_string() << " family=" << int(ifa->ifa_family) << " prefixlen=" << int(ifa->ifa_prefixlen) << " flags=" << int(ifa->ifa_flags) << " scope=" << int(ifa->ifa_scope) << " index=" << int(ifa->ifa_index));
+		  break;
+		case AF_INET6:
+		  route = IP::Route(IP::Addr::from_ipv6(IPv6::Addr::from_byte_string(bytestr)), ifa->ifa_prefixlen);
+		  save = *ifa;
+		  OPENVPN_LOG_RTNL(__func__ << ": ADDR6 " << route.to_string() << " family=" << int(ifa->ifa_family) << " prefixlen=" << int(ifa->ifa_prefixlen) << " flags=" << int(ifa->ifa_flags) << " scope=" << int(ifa->ifa_scope) << " index=" << int(ifa->ifa_index));
+		  break;
+	      }
+	    }
+	    break;
+	  }
+
+	  rta = RTA_NEXT(rta, len);
+	}
+
+	if (!res->route.defined() && save.ifa_index == res->ifindex)
+	  {
+	    res->route = route;
+	    OPENVPN_LOG_RTNL(__func__ << ": MATCH " << route.to_string() << " ifindex=" << save.ifa_index);
+	  }
+	return 0;
+      }
+
+      /**
+       * Return interface primary address/netmask given interface index.
+       * @param ifindex interface to probe
+       * @param family address family
+       * @param [out] address/netmask of interface
+       * @return success if 0, error if < 0
+       */
+      static int
+      sitnl_iface_addr(const int ifindex,
+		       const int family,
+		       IP::Route& route)
+      {
+	struct sitnl_route_req req = { };
+	req.n.nlmsg_len = NLMSG_LENGTH(sizeof(req.r));
+	req.n.nlmsg_type = RTM_GETADDR;
+	req.n.nlmsg_flags = NLM_F_REQUEST;
+
+	iface_addr_res_t res;
+	res.ifindex = ifindex;
+	res.family = req.r.rtm_family = family;
+
+	req.n.nlmsg_flags |= NLM_F_DUMP;
+
+	const int ret = sitnl_send(&req.n, 0, 0, sitnl_iface_addr_save, &res);
+	if (ret >= 0 && res.route.defined())
+	{
+	  /* save result in output variables */
+	  route = res.route;
+
+	  OPENVPN_LOG(__func__ << " result: route " << res.route.to_string() << " ifindex=" << res.ifindex);
+	}
+	else
+	{
+	  OPENVPN_LOG(__func__ << ": failed to retrieve addr, err=" << ret);
+	}
+
 	return ret;
       }
 
@@ -837,6 +936,28 @@ err:
 	}
 
 	return ret;
+      }
+
+      /**
+       * @brief Get interface address/netmask
+       *
+       * @param iface interface to probe
+       * @param family address family
+       * @return interface primary address/subnet or undefined route if error
+       */
+      static IP::Route
+      net_iface_addr(const std::string& iface,
+		     const int family)
+      {
+	unsigned int ifindex = if_nametoindex(iface.c_str());
+	if (ifindex)
+	  {
+	    IP::Route route;
+	    const int ret = sitnl_iface_addr(ifindex, family, route);
+	    if (ret == 0)
+	      return route;
+	  }
+	return IP::Route();
       }
 
       /**

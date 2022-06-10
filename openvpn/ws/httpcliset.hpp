@@ -543,7 +543,7 @@ namespace openvpn {
 	  cs->new_request(ts);
 	  if (sps)
 	    {
-	      while (cs->clients.size())
+	      while (cs->clients.size() && !io_context->stopped())
 		io_context->run_one();
 	    }
 	  else
@@ -556,7 +556,7 @@ namespace openvpn {
 	    io_context->poll();   // execute completion handlers
 	    throw;
 	  }
-	if (sps)
+	if (sps && !io_context->stopped())
 	  ts->hsc.persist_io_context(std::move(io_context));
       }
 
@@ -742,6 +742,7 @@ namespace openvpn {
 	    ts->error_recovery->retry(*ts, t);
 
 	  // init and attach HTTPStateContainer
+	  //OPENVPN_LOG("******* HTTPStateContainer alive=" << ts->alive() << " error_retry=" << error_retry << " n_clients=" << parent->clients.size());
 	  if (!ts->alive())
 	    ts->hsc.construct(parent->io_context, ts->http_config);
 	  ts->hsc.attach(this);
@@ -894,7 +895,8 @@ namespace openvpn {
 	    else
 	      {
 		// failed
-		if (++n_retries >= ts->max_retries)
+		++n_retries;
+		if (ts->max_retries && n_retries >= ts->max_retries)
 		  {
 		    // fail -- no more retries
 		    done(false, false);
