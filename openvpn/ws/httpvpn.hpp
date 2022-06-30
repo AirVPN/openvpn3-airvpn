@@ -61,7 +61,7 @@ namespace openvpn {
       }
 
       template <typename HOST>
-      Json::Value client_update_host(HOST& host)
+      Json::Value client_update_host(HOST& host) const
       {
 	Json::Value root = json::parse_from_file(connection_info_fn);
 	set_host_field(host.local_addr, root, "vpn_ip4", connection_info_fn);
@@ -101,6 +101,13 @@ namespace openvpn {
 	  }
 	else
 	  return IP::Addr(listen_item.addr, listen_item.directive);
+      }
+
+      // returns the "client-ip" directive pushed by the server
+      IP::Addr client_ip() const
+      {
+	const Json::Value root = json::parse_from_file(connection_info_fn);
+	return IP::Addr(json::get_string_ref(root, "client_ip", connection_info_fn), connection_info_fn);
       }
 
       std::string to_string() const

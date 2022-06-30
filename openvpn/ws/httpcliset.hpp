@@ -355,6 +355,7 @@ namespace openvpn {
 	WS::Client::Config::Ptr http_config;
 	WS::Client::Host host;
 	unsigned int max_retries = 1;
+	bool retry_on_http_4xx = false;
 	int debug_level = 2;
 	Time::Duration delayed_start;
 	Time::Duration retry_duration = Time::Duration::seconds(5);
@@ -528,9 +529,29 @@ namespace openvpn {
 	  });
 	ts->preserve_http_state = sps;
 	if (sps)
-	  io_context = ts->hsc.acquire_io_context();
+	  {
+	    io_context = ts->hsc.acquire_io_context();
+	    if (io_context)
+	      {
+		if (io_context->stopped())
+		  {
+		    //OPENVPN_LOG("RESTART IO_CONTEXT");
+		    io_context->restart();
+		  }
+		else
+		  {
+		    //OPENVPN_LOG("GET IO_CONTEXT");
+		  }
+	      }
+	  }
 	if (!io_context)
-	  io_context.reset(new openvpn_io::io_context(1));
+	  {
+	    if (sps)
+	      {
+		//OPENVPN_LOG("NEW IO_CONTEXT");
+	      }
+	    io_context.reset(new openvpn_io::io_context(1));
+	  }
 	ClientSet::Ptr cs;
 	try {
 	  AsioStopScope scope(*io_context, stop, [&]() {
@@ -556,8 +577,11 @@ namespace openvpn {
 	    io_context->poll();   // execute completion handlers
 	    throw;
 	  }
-	if (sps && !io_context->stopped())
-	  ts->hsc.persist_io_context(std::move(io_context));
+	if (sps)
+	  {
+	    //OPENVPN_LOG("PUT IO_CONTEXT");
+	    ts->hsc.persist_io_context(std::move(io_context));
+	  }
       }
 
       static void run_synchronous(Function<void(ClientSet::Ptr)> job,
@@ -742,7 +766,8 @@ namespace openvpn {
 	    ts->error_recovery->retry(*ts, t);
 
 	  // init and attach HTTPStateContainer
-	  //OPENVPN_LOG("******* HTTPStateContainer alive=" << ts->alive() << " error_retry=" << error_retry << " n_clients=" << parent->clients.size());
+	  if (ts->debug_level >= 3)
+	    OPENVPN_LOG("HTTPStateContainer alive=" << ts->alive() << " error_retry=" << error_retry << " n_clients=" << parent->clients.size());
 	  if (!ts->alive())
 	    ts->hsc.construct(parent->io_context, ts->http_config);
 	  ts->hsc.attach(this);
@@ -854,22 +879,38 @@ namespace openvpn {
 	{
 	  Transaction& t = trans();
 	  try {
+	    // save status
+	    t.status = status;
+	    t.description = description;
+
+	    // status value should reflect HTTP status
+	    const int http_status = hd.reply().status_code;
+	    if (t.status == WS::Client::Status::E_SUCCESS && http_status_should_retry(http_status))
+	      {
+		switch (http_status)
+		  {
+		  case 400:
+		    t.status = WS::Client::Status::E_BAD_REQUEST;
+		    break;
+		  default:
+		    t.status = WS::Client::Status::E_HTTP;
+		    break;
+		  }
+		t.description = std::to_string(http_status) + ' ' + WS::Client::Status::error_str(t.status);
+	      }
+
 	    // debug output
 	    if (ts->debug_level >= 2)
 	      {
 		std::ostringstream os;
 		os << "----- DONE -----\n";
 		os << "    " << title() << '\n';
-		os << "    STATUS: " << WS::Client::Status::error_str(status) << '\n';
-		os << "    DESCRIPTION: " << description << '\n';
+		os << "    STATUS: " << WS::Client::Status::error_str(t.status) << '\n';
+		os << "    DESCRIPTION: " << t.description << '\n';
 		OPENVPN_LOG_STRING(os.str());
 	      }
 
-	    // save status
-	    t.status = status;
-	    t.description = description;
-
-	    if (status == WS::Client::Status::E_SUCCESS && !http_status_should_retry(hd.reply().status_code))
+	    if (t.status == WS::Client::Status::E_SUCCESS)
 	      {
 		// uncompress if server sent gzip-compressed data
 		if (hd.reply().headers.get_value_trim("content-encoding") == "gzip")
@@ -907,7 +948,7 @@ namespace openvpn {
 		    close_http(false, false);
 
 		    // special case -- no delay after TCP EOF on first retry
-		    if (status == WS::Client::Status::E_EOF_TCP && n_retries == 1)
+		    if (t.status == WS::Client::Status::E_EOF_TCP && n_retries == 1)
 		      post_next_request();
 		    else
 		      reconnect_schedule(true);
@@ -945,7 +986,7 @@ namespace openvpn {
 
 	bool http_status_should_retry(const int status) const
 	{
-	  return status >= 500 && status < 600;
+	  return status >= (ts->retry_on_http_4xx ? 400 : 500) && status < 600;
 	}
 
 	ClientSet* parent;

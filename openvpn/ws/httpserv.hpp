@@ -57,7 +57,7 @@
 #include <openvpn/ws/websocket.hpp>
 #include <openvpn/server/listenlist.hpp>
 
-#ifdef VPN_CONNECTION_PROFILES
+#ifdef VPN_BINDING_PROFILES
 #include <openvpn/ws/httpvpn.hpp>
 #endif
 
@@ -504,6 +504,8 @@ namespace openvpn {
 	    if (halt)
 	      return;
 	    halt = true;
+	    if (!http_stop_called)
+	      http_stop(Status::E_SUCCESS, "stop");
 	    http_destroy();
 	    timeout_timer.cancel();
 	    if (link)
@@ -710,6 +712,7 @@ namespace openvpn {
 	  void error_handler(const int errcode, const std::string& err)
 	  {
 	    const bool shutdown = http_stop(errcode, err);
+	    http_stop_called = true;
 	    stop(true, shutdown);
 	  }
 
@@ -766,6 +769,8 @@ namespace openvpn {
 	  LinkImpl::Ptr link;
 	  bool keepalive = false;
 	  bool handoff = false;
+	  bool http_stop_called = false;
+
 #ifdef OPENVPN_POLYSOCK_SUPPORTS_ALT_ROUTING
 	  bool is_alt_routing_ = false;
 #endif
@@ -828,7 +833,7 @@ namespace openvpn {
 		    Acceptor::TCP::Ptr a(new Acceptor::TCP(io_context));
 
 		    // parse address/port of local endpoint
-#ifdef VPN_CONNECTION_PROFILES
+#ifdef VPN_BINDING_PROFILES
 		    const IP::Addr ip_addr = ViaVPN::server_local_addr(listen_item, via_vpn_gw(listen_item.proto));
 #else
 		    const IP::Addr ip_addr(listen_item.addr, listen_item.directive);
@@ -1088,7 +1093,7 @@ namespace openvpn {
 	  return true;
 	}
 
-#ifdef VPN_CONNECTION_PROFILES
+#ifdef VPN_BINDING_PROFILES
 	static ViaVPN::GatewayType via_vpn_gw(const Protocol& proto)
 	{
 	  switch (proto())

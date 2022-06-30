@@ -74,9 +74,9 @@
 #include <openvpn/ws/httpcreds.hpp>
 #include <openvpn/ws/websocket.hpp>
 
-#ifdef VPN_CONNECTION_PROFILES
+#ifdef VPN_BINDING_PROFILES
 #ifdef USE_ASYNC_RESOLVE
-#error VPN_CONNECTION_PROFILES and USE_ASYNC_RESOLVE cannot be used together
+#error VPN_BINDING_PROFILES and USE_ASYNC_RESOLVE cannot be used together
 #endif
 #include <openvpn/ws/httpvpn.hpp>
 #include <openvpn/dns/dnscli.hpp>
@@ -125,6 +125,7 @@ namespace openvpn {
 	  E_KEEPALIVE_TIMEOUT,
 	  E_SHUTDOWN,
 	  E_ABORTED,
+	  E_HOST_UPDATE,
 	  E_BOGON, // simulated fault injection for testing
 
 	  N_ERRORS
@@ -152,6 +153,7 @@ namespace openvpn {
 	    "E_KEEPALIVE_TIMEOUT",
 	    "E_SHUTDOWN",
 	    "E_ABORTED",
+	    "E_HOST_UPDATE",
 	    "E_BOGON",
 	  };
 
@@ -231,8 +233,8 @@ namespace openvpn {
 	std::string local_addr_alt;  // alt local addr for different IP version (optional)
 	std::string local_port;      // bind to local port (optional)
 
-#ifdef VPN_CONNECTION_PROFILES
-	// use a VPN client connection profile to obtain hint
+#ifdef VPN_BINDING_PROFILES
+	// use a VPN binding profile to obtain hint
 	// and local_addr and possibly DNS resolvers as well
 	ViaVPN::Ptr via_vpn;
 #endif
@@ -451,7 +453,7 @@ namespace openvpn {
 #else
 	      resolver.cancel();
 #endif
-#ifdef VPN_CONNECTION_PROFILES
+#ifdef VPN_BINDING_PROFILES
 	      if (alt_resolve)
 		alt_resolve->stop();
 #endif
@@ -670,8 +672,8 @@ namespace openvpn {
 	    // get new Host object
 	    host = http_host();
 
-#ifdef VPN_CONNECTION_PROFILES
-	    // support VPN client connection profile
+#ifdef VPN_BINDING_PROFILES
+	    // support VPN binding profile
 	    Json::Value via_vpn_conf;
 	    if (host.via_vpn)
 	      via_vpn_conf = host.via_vpn->client_update_host(host);
@@ -755,7 +757,7 @@ namespace openvpn {
 #ifdef USE_ASYNC_RESOLVE
 		async_resolve_name(host.host_transport(), host.port);
 #else
-#ifdef VPN_CONNECTION_PROFILES
+#ifdef VPN_BINDING_PROFILES
 		if (via_vpn_conf)
 		  {
 		    DNSClient::ResolverList::Ptr resolver_list(new DNSClient::ResolverList(via_vpn_conf));
@@ -1365,7 +1367,7 @@ namespace openvpn {
 #ifndef USE_ASYNC_RESOLVE
 	openvpn_io::ip::tcp::resolver resolver;
 #endif
-#ifdef VPN_CONNECTION_PROFILES
+#ifdef VPN_BINDING_PROFILES
 	DNSClient::Context::Ptr alt_resolve;
 #endif
 	Host host;
