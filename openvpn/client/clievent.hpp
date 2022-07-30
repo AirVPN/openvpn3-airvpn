@@ -359,7 +359,7 @@ namespace openvpn {
 	    << " (" << server_ip << ") via " << client_ip << '/' << server_proto
 	    << " on " << tun_name << '/' << vpn_ip4 << '/' << vpn_ip6
 	    << " gw=[" << vpn_gw4 << '/' << vpn_gw6 << ']'
-	    << " mtu=" << vpn_mtu;
+	    << " mtu=" << vpn_mtu
         << " cipher=" << cipher;
 	return out.str();
       }
