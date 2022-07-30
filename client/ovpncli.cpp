@@ -238,6 +238,7 @@ namespace openvpn {
 		ci.ping = c->ping;
 		ci.ping_restart = c->ping_restart;
 		ci.defined = true;
+		ci.vpnMtu = c->vpn_mtu;
 		return;
 	      }
 	  }
