@@ -174,6 +174,7 @@ namespace openvpn {
       //CONTROL_HARD_RESET_SERVER_V1 = 2,   // (obsolete) initial key from server, forget previous state
       CONTROL_SOFT_RESET_V1 =        3,   // new key, graceful transition from old to new key
       CONTROL_V1 =                   4,   // control channel packet (usually TLS ciphertext)
+      CONTROL_WKC_V1 =               11,  // control channel packet with wrapped client key appended
       ACK_V1 =                       5,   // acknowledgement for packets received
       DATA_V1 =                      6,   // data channel packet with 1-byte header
       DATA_V2 =                      9,   // data channel packet with 4-byte header
@@ -224,8 +225,23 @@ namespace openvpn {
        IV_PROTO_DATA_V2=(1<<1),
        IV_PROTO_REQUEST_PUSH=(1<<2),
        IV_PROTO_TLS_KEY_EXPORT=(1<<3),
-       IV_PROTO_AUTH_PENDING_KW=(1<<4)
+       IV_PROTO_AUTH_PENDING_KW=(1<<4),
+       IV_PROTO_NCP_P2P=(1<<5), // not implemented
+       IV_PROTO_DNS_OPTION=(1<<6),
+       IV_PROTO_CC_EXIT_NOTIFY=(1<<7), // not implemented
+       IV_PROTO_AUTH_FAIL_TEMP=(1<<8)
     };
+
+    enum tlv_types : uint16_t
+    {
+        EARLY_NEG_FLAGS = 0x0001
+    };
+
+    enum early_neg_flags : uint16_t
+    {
+        EARLY_NEG_FLAG_RESEND_WKC = 0x0001
+    };
+
     static unsigned int opcode_extract(const unsigned int op)
     {
       return op >> OPCODE_SHIFT;
@@ -964,7 +980,9 @@ namespace openvpn {
 
 	unsigned int iv_proto = IV_PROTO_DATA_V2
 	  | IV_PROTO_REQUEST_PUSH
-	  | IV_PROTO_AUTH_PENDING_KW;
+	  | IV_PROTO_AUTH_PENDING_KW
+	  | IV_PROTO_DNS_OPTION
+	  | IV_PROTO_AUTH_FAIL_TEMP;
 
 	if (SSLLib::SSLAPI::support_key_material_export())
 	  {
@@ -1202,6 +1220,7 @@ namespace openvpn {
 		    break;
 		  }
 		case CONTROL_HARD_RESET_SERVER_V2:
+                case CONTROL_WKC_V1:
 		  {
 		    if (proto.is_server())
 		      return;
@@ -1252,6 +1271,8 @@ namespace openvpn {
 	  return "CONTROL_HARD_RESET_CLIENT_V3";
 	case CONTROL_HARD_RESET_SERVER_V2:
 	  return "CONTROL_HARD_RESET_SERVER_V2";
+        case CONTROL_WKC_V1:
+          return "CONTROL_WKC_V1";
 	}
       return nullptr;
     }
@@ -1291,7 +1312,7 @@ namespace openvpn {
 	      out << " SRC_PSID=" << src_psid.str();
 	    }
 
-	    if (tls_wrap_mode == TLS_CRYPT)
+	    if (tls_wrap_mode == TLS_CRYPT || tls_wrap_mode == TLS_CRYPT_V2)
 	      {
 		PacketID pid;
 		pid.read(b, PacketID::LONG_FORM);
@@ -1299,9 +1320,7 @@ namespace openvpn {
 
 		const unsigned char *hmac = b.read_alloc(hmac_size);
 		out << " HMAC=" << render_hex(hmac, hmac_size);
-
-		// nothing else to print as the content is encrypted beyond this point
-		out << " TLS-CRYPT ENCRYPTED";
+                out << " TLS-CRYPT ENCRYPTED PAYLOAD=" << b.size() << " bytes";
 	      }
 	    else
 	      {
@@ -1334,9 +1353,9 @@ namespace openvpn {
 
 	        if (opcode != ACK_V1)
 	          out << " MSG_ID=" << ReliableAck::read_id(b);
-	      }
-	    if (opcode != ACK_V1)
-	      out << " SIZE=" << b.size() << '/' << orig_size;
+
+	        out << " SIZE=" << b.size() << '/' << orig_size;
+            }
 	  }
 #ifdef OPENVPN_DEBUG_PROTO_DUMP
 	out << '\n' << string::trim_crlf_copy(dump_hex(buf));
@@ -1353,7 +1372,7 @@ namespace openvpn {
 
     // used for reading/writing authentication strings (username, password, etc.)
 
-    static void write_string_length(const size_t size, Buffer& buf)
+    static void write_uint16_length(const size_t size, Buffer& buf)
     {
       if (size > 0xFFFF)
 	throw proto_error("auth_string_overflow");
@@ -1361,7 +1380,7 @@ namespace openvpn {
       buf.write((const unsigned char *)&net_size, sizeof(net_size));
     }
 
-    static size_t read_string_length(Buffer& buf)
+    static size_t read_uint16_length(Buffer& buf)
     {
       if (buf.size())
 	{
@@ -1379,18 +1398,18 @@ namespace openvpn {
       const size_t len = str.length();
       if (len)
 	{
-	  write_string_length(len+1, buf);
+          write_uint16_length(len + 1, buf);
 	  buf.write((const unsigned char *)str.c_str(), len);
 	  buf.null_terminate();
 	}
       else
-	write_string_length(0, buf);
+          write_uint16_length(0, buf);
     }
 
     template <typename S>
     static S read_auth_string(Buffer& buf)
     {
-      const size_t len = read_string_length(buf);
+      const size_t len = read_uint16_length(buf);
       if (len)
 	{
 	  const char *data = (const char *) buf.read_alloc(len);
@@ -1433,13 +1452,13 @@ namespace openvpn {
 
     static unsigned char *skip_string(Buffer& buf)
     {
-      const size_t len = read_string_length(buf);
+      const size_t len = read_uint16_length(buf);
       return buf.read_alloc(len);
     }
 
     static void write_empty_string(Buffer& buf)
     {
-      write_string_length(0, buf);
+        write_uint16_length(0, buf);
     }
 
     // Packet structure for managing network packets, passed as a template
@@ -1481,7 +1500,11 @@ namespace openvpn {
 	frame.prepare(context, *buf);
       }
 
-      bool is_raw() const { return opcode != CONTROL_V1; }
+      /**
+       * This returns if this packet type has a payload that should considered
+       * to be TLS ciphertext/TLS packet
+       */
+      bool contains_tls_ciphertext() const { return opcode == CONTROL_V1 || opcode == CONTROL_WKC_V1; }
       operator bool() const { return bool(buf); }
       const BufferPtr& buffer_ptr() { return buf; }
       const Buffer& buffer() const { return *buf; }
@@ -2460,23 +2483,70 @@ namespace openvpn {
 	raw_send(std::move(pkt));
       }
 
-      void raw_recv(Packet&& raw_pkt)  // called by ProtoStackBase
+      bool parse_early_negotiation(const Packet &pkt)
       {
-	if (raw_pkt.buf->empty() &&
-	    raw_pkt.opcode == initial_op(false, proto.tls_wrap_mode == TLS_CRYPT_V2))
-	  {
-	    switch (state)
-	      {
-	      case C_WAIT_RESET:
-		//send_reset(); // fixme -- possibly not needed
-		set_state(C_WAIT_RESET_ACK);
-		break;
-	      case S_WAIT_RESET:
-		send_reset();
-		set_state(S_WAIT_RESET_ACK);
-		break;
-	      }
-	  }
+          /* The data in the early negotiation packet is structured as
+           * TLV (type, length, value) */
+
+          Buffer buf = pkt.buffer();
+          while(!buf.empty())
+          {
+             if(buf.size() < 4)
+             {
+                 /* Buffer does not have enough bytes for type (uint16) and length (uint16) */
+                 return false;
+             }
+
+             uint16_t type = read_uint16_length(buf);
+             uint16_t len = read_uint16_length(buf);
+
+             /* TLV defines a length that is larger than the remainder in the buffer.  */
+            if (buf.size() < len)
+                return false;
+
+             if (type == EARLY_NEG_FLAGS)
+             {
+                 if (len != 2)
+                     return false;
+                 uint16_t flags = read_uint16_length(buf);
+
+                 if (flags & EARLY_NEG_FLAG_RESEND_WKC)
+                 {
+                     resend_wkc = true;
+                 }
+             }
+             else
+             {
+                 /* skip over unknown types. We rather ignore undefined TLV to
+                  * not needing to add bits initial reset message (where space
+                  * is really tight) for optional features. */
+                 buf.advance(len);
+             }
+
+          }
+          return true;
+      }
+
+
+      void raw_recv(Packet &&raw_pkt) // called by ProtoStackBase
+      {
+          if (raw_pkt.opcode == initial_op(false, proto.tls_wrap_mode == TLS_CRYPT_V2))
+          {
+              switch (state)
+              {
+              case C_WAIT_RESET:
+                  set_state(C_WAIT_RESET_ACK);
+                  if (!parse_early_negotiation(raw_pkt))
+                  {
+                    invalidate(Error::EARLY_NEG_INVALID);
+                  }
+                  break;
+              case S_WAIT_RESET:
+                  send_reset();
+                  set_state(S_WAIT_RESET_ACK);
+                  break;
+              }
+          }
       }
 
       void app_recv(BufferPtr&& to_app_buf) // called by ProtoStackBase
@@ -2723,19 +2793,19 @@ namespace openvpn {
 	const size_t data_offset = TLSCryptContext::hmac_offset + proto.hmac_size;
 
 	// encrypt the content of 'buf' (packet payload) into 'work'
-	const size_t decrypt_bytes = proto.tls_crypt_send->encrypt(work.c_data() + TLSCryptContext::hmac_offset,
+	const size_t encrypt_bytes = proto.tls_crypt_send->encrypt(work.c_data() + TLSCryptContext::hmac_offset,
 								   work.data() + data_offset,
 								   work.max_size() - data_offset,
 								   buf.c_data(), buf.size());
-	if (!decrypt_bytes)
+	if (!encrypt_bytes)
 	  {
 	    buf.reset_size();
 	    return;
 	  }
-	work.inc_size(decrypt_bytes);
+	work.inc_size(encrypt_bytes);
 
 	// append WKc to wrapped packet for tls-crypt-v2
-	if ((opcode == CONTROL_HARD_RESET_CLIENT_V3)
+	if ((opcode == CONTROL_HARD_RESET_CLIENT_V3 || opcode == CONTROL_WKC_V1)
 	    && (proto.tls_wrap_mode == TLS_CRYPT_V2))
 	  proto.tls_crypt_append_wkc(work);
 
@@ -2779,7 +2849,13 @@ namespace openvpn {
 	prepend_dest_psid_and_acks(buf);
 
 	// generate message head
-	gen_head(pkt.opcode, buf);
+        int opcode = pkt.opcode;
+        if (id == 1 && resend_wkc)
+        {
+            opcode = CONTROL_WKC_V1;
+        }
+
+	gen_head(opcode, buf);
       }
 
       void generate_ack(Packet& pkt) // called by ProtoStackBase
@@ -3165,6 +3241,8 @@ namespace openvpn {
       unsigned int crypto_flags;
       int remote_peer_id; // -1 to disable
       bool enable_op32;
+      /** early negotiation enabled resending of wrapped tls-crypt-v2 client key with third packet of the three-way handshake */
+      bool resend_wkc = false;
       bool dirty;
       bool key_limit_renegotiation_fired;
       bool is_reliable;
@@ -3452,6 +3530,7 @@ namespace openvpn {
       upcoming_key_id = 0;
 
       unsigned int key_dir;
+      const PacketID::id_t EARLY_NEG_START = 0x0f000000;
 
       // tls-auth initialization
       switch (tls_wrap_mode)
@@ -3470,8 +3549,10 @@ namespace openvpn {
 	      reset_tls_crypt_server(c);
 	    else
 	      reset_tls_crypt(c, c.tls_key);
-	    // init tls_crypt packet ID
-	    ta_pid_send.init(PacketID::LONG_FORM);
+           /** tls-auth/tls-crypt packet id. We start with a different id here
+            * to indicate EARLY_NEG_START/CONTROL_WKC_V1 support */
+            // init tls_crypt packet ID
+	    ta_pid_send.init(PacketID::LONG_FORM, EARLY_NEG_START);
 	    ta_pid_recv.init(c.pid_mode, PacketID::LONG_FORM, "SSL-CC", 0, stats);
 	    break;
 	  case TLS_AUTH:

@@ -91,6 +91,7 @@ namespace openvpn {
       PROXY_NEED_CREDS,    // HTTP proxy needs credentials
       BAD_DC_CIPHER_ERROR, // Bad cipher algorhitm for data channel
       BAD_DC_DIGEST_ERROR, // Bad digest algorhitm for data channel
+      EARLY_NEG_INVALID,   // Early protoctol negotiation information invalid/parse error
 
       // key event errors
       KEV_NEGOTIATE_ERROR,
@@ -173,8 +174,9 @@ namespace openvpn {
 	"KEY_STATE_ERROR",
 	"PROXY_ERROR",
 	"PROXY_NEED_CREDS",
-    "BAD_DC_CIPHER_ERROR",
-    "BAD_DC_DIGEST_ERROR",
+        "BAD_DC_CIPHER_ERROR",
+        "BAD_DC_DIGEST_ERROR",
+        "EARLY_NEG_INVALID",
 	"KEV_NEGOTIATE_ERROR",
 	"KEV_PENDING_ERROR",
 	"N_KEV_EXPIRE",
