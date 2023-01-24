@@ -633,6 +633,8 @@ namespace openvpn {
 
       state = new Private::ClientState();
       state->proto_context_options.reset(new ProtoContextOptions());
+
+      pushedOptions = nullptr;
     }
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClientHelper::parse_config(const Config& config, EvalConfig& eval, OptionList& options)
@@ -1215,6 +1217,8 @@ namespace openvpn {
       // prepare to start reactor
       connect_pre_run();
       state->enable_foreign_thread_access();
+      
+      pushedOptions = client_options->pushed_options();
     }
 
     OPENVPN_CLIENT_EXPORT Status OpenVPNClient::status_from_exception(const std::exception& e)
@@ -1560,6 +1564,11 @@ namespace openvpn {
       return ret;
     }
 
+    OPENVPN_CLIENT_EXPORT OptionList::FilterBase::Ptr OpenVPNClient::pushed_options()
+    {
+        return pushedOptions;
+    }
+            
     OPENVPN_CLIENT_EXPORT OpenVPNClient::~OpenVPNClient()
     {
       delete state;

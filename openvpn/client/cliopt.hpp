@@ -1085,6 +1085,8 @@ namespace openvpn {
     ClientEvent::Queue& events() { return *cli_events; }
     ClientLifeCycle* lifecycle() { return client_lifecycle.get(); }
 
+    OptionList::FilterBase::Ptr pushed_options() { return pushed_options_filter; }
+
     int conn_timeout() const { return conn_timeout_; }
 
     bool asio_work_always_on() const { return asio_work_always_on_; }

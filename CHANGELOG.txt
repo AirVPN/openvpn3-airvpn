@@ -1,3 +1,17 @@
+Changelog 3.8.3 AirVPN - Release date: 2x January 2023 by ProMIND
+
+- [ProMIND] [2023/01/20] openvpn/client/cliopt.hpp: added method pushed_options()
+
+- [ProMIND] [2023/01/20] client/ovpncli.hpp: added member OpenVPNClient::pushedOptions
+                                             added method OpenVPNClient::pushed_options()
+
+- [ProMIND] [2023/01/30] client/ovpncli.cpp: implemented method OpenVPNClient::pushed_options()
+                                             OpenVPNClient::connect_setup() assigned client_options->pushed_options() to pushedOptions;
+
+
+*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
+
+
 Changelog 3.8.2 AirVPN - Release date: 30 March 2022 by ProMIND
 
 - [ProMIND] [2022/03/30] openvpn/error/error.hpp: added BAD_DC_CIPHER_ERROR and

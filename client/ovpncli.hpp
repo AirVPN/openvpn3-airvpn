@@ -28,6 +28,13 @@
 #include <vector>
 #include <utility>
 
+#ifndef OPENVPN_LOG
+
+#include <openvpn/log/lognull.hpp>
+
+#endif
+    
+#include <openvpn/common/options.hpp>
 #include <openvpn/tun/builder/base.hpp>
 #include <openvpn/tun/extern/fw.hpp>
 #include <openvpn/pki/epkibase.hpp>
@@ -573,6 +580,9 @@ namespace openvpn {
 
       // Returns SSL version
       static std::string ssl_library_version();
+      
+      static OptionList::FilterBase::Ptr pushed_options();
+      
 private:
       static MergeConfig build_merge_config(const ProfileMerge&);
 
@@ -701,6 +711,8 @@ private:
       // Returns SSL version
       static std::string ssl_library_version();
 
+      OptionList::FilterBase::Ptr pushed_options();
+
       // Hide protected methods/data from SWIG
 #ifdef SWIGJAVA
     private:
@@ -718,6 +730,7 @@ private:
       virtual Stop* get_async_stop();
 
       Private::ClientState* state;
+      OptionList::FilterBase::Ptr pushedOptions;
 
     private:
       void connect_setup(Status&, bool&);
