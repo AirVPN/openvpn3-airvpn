@@ -92,7 +92,12 @@ namespace openvpn {
     };
 
   public:
-    enum class Advance { None, Addr, Remote };
+    enum class Advance
+    {
+        None,
+        Addr,
+        Remote
+    };
 
     struct Item;
 
@@ -225,7 +230,8 @@ namespace openvpn {
     {
       explicit Directives(const std::string& conn_tag = "")
 	: connection(conn_tag.length() ? conn_tag : "connection")
-      {}
+        {
+        }
 
       const std::string connection;
       const std::string remote = "remote";
@@ -236,12 +242,27 @@ namespace openvpn {
     // Used to index into remote list items and their address(es).
     struct Index
     {
-      void reset() { item_ = item_addr_ = 0; }
-      void reset_item_addr() { item_addr_ = 0; }
-      void set_item(const size_t i) { item_ = i; }
+        void reset()
+        {
+            item_ = item_addr_ = 0;
+        }
+        void reset_item_addr()
+        {
+            item_addr_ = 0;
+        }
+        void set_item(const size_t i)
+        {
+            item_ = i;
+        }
 
-      size_t item() const { return item_; }
-      size_t item_addr() const { return item_addr_; }
+        size_t item() const
+        {
+            return item_;
+        }
+        size_t item_addr() const
+        {
+            return item_addr_;
+        }
 
       // return true if item index was incremented
       bool increment(const Advance type, const size_t item_len, const size_t addr_len)
@@ -428,7 +449,8 @@ namespace openvpn {
     }
 
     // RemoteList flags
-    enum {
+    enum
+    {
       WARN_UNSUPPORTED=1<<0,
       CONN_BLOCK_ONLY=1<<1,
       CONN_BLOCK_OMIT_UNDEF=1<<2,
@@ -441,9 +463,8 @@ namespace openvpn {
 	       const unsigned int flags,
 	       ConnBlockFactory* conn_block_factory,
 	       RandomAPI::Ptr rng_arg)
-      : random_hostname(opt.exists("remote-random-hostname"))
-      , directives(connection_tag)
-      , rng(rng_arg)
+        : random_hostname(opt.exists("remote-random-hostname")),
+          directives(connection_tag), rng(rng_arg)
     {
       process_cache_lifetime(opt);
 
@@ -463,7 +484,8 @@ namespace openvpn {
 	  {
 	    for (OptionList::IndexList::const_iterator i = conn->begin(); i != conn->end(); ++i)
 	      {
-		try {
+                    try
+                    {
 		  const Option& o = opt[*i];
 		  o.touch();
 		  const std::string& conn_block_text = o.get(1, Option::MULTILINE);
@@ -682,10 +704,16 @@ namespace openvpn {
     }
 
     // return true if object has at least one connection entry
-    bool defined() const { return list.size() > 0; }
+    bool defined() const
+    {
+      return list.size() > 0;
+    }
 
     // return remote list size
-    size_t size() const { return list.size(); }
+    size_t size() const
+    {
+      return list.size();
+    }
 
     Item::Ptr get_item(const size_t index) const
     {
@@ -1004,6 +1032,6 @@ namespace openvpn {
     RandomAPI::Ptr rng;
   };
 
-}
+} // namespace openvpn
 
 #endif

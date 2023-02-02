@@ -193,7 +193,10 @@ namespace openvpn {
     public:
       typedef RCPtr<MyClientEvents> Ptr;
 
-      MyClientEvents(OpenVPNClient* parent_arg) : parent(parent_arg) {}
+    MyClientEvents(OpenVPNClient *parent_arg)
+        : parent(parent_arg)
+    {
+    }
 
       virtual void add_event(ClientEvent::Base::Ptr event) override
       {
@@ -258,7 +261,10 @@ namespace openvpn {
     class MySocketProtect : public SocketProtect
     {
     public:
-      MySocketProtect() : parent(nullptr) {}
+    MySocketProtect()
+        : parent(nullptr)
+    {
+    }
 
       void set_parent(OpenVPNClient* parent_arg)
       {
@@ -299,7 +305,10 @@ namespace openvpn {
     class MyReconnectNotify : public ReconnectNotify
     {
     public:
-      MyReconnectNotify() : parent(nullptr) {}
+    MyReconnectNotify()
+        : parent(nullptr)
+    {
+    }
 
       void set_parent(OpenVPNClient* parent_arg)
       {
@@ -342,7 +351,8 @@ namespace openvpn {
 	  {
 	    const std::string title = "remote-override";
 	    ClientAPI::RemoteOverride ro;
-	    try {
+            try
+            {
 	      parent->remote_override(ro);
 	    }
 	    catch (const std::exception& e)
@@ -409,8 +419,7 @@ namespace openvpn {
 			   catch (...)
 			     {
 			     }
-			   schedule();
-			 });
+			   schedule(); });
       }
 
     private:
@@ -527,7 +536,9 @@ namespace openvpn {
 	  remote_override.set_parent(parent);
 	}
 
-	ClientState() {}
+    ClientState()
+    {
+    }
 
 	~ClientState()
 	{
@@ -592,15 +603,15 @@ namespace openvpn {
 
 	void setup_async_stop_scopes()
 	{
-	  stop_scope_local.reset(new AsioStopScope(*io_context(), async_stop_local(), [this]() {
+        stop_scope_local.reset(new AsioStopScope(*io_context(), async_stop_local(), [this]()
+                                                 {
 	      OPENVPN_ASYNC_HANDLER;
-	      session->graceful_stop();
-	    }));
+	      session->graceful_stop(); }));
 
-	  stop_scope_global.reset(new AsioStopScope(*io_context(), async_stop_global(), [this]() {
+        stop_scope_global.reset(new AsioStopScope(*io_context(), async_stop_global(), [this]()
+                                                  {
 	      OPENVPN_ASYNC_HANDLER;
-	      trigger_async_stop_local();
-	    }));
+	      trigger_async_stop_local(); }));
 	}
 
       private:
@@ -620,7 +631,7 @@ namespace openvpn {
 
 	std::atomic<bool> foreign_thread_ready{false};
       };
-    };
+}; // namespace Private
 
     OPENVPN_CLIENT_EXPORT OpenVPNClient::OpenVPNClient()
     {
@@ -639,7 +650,8 @@ namespace openvpn {
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClientHelper::parse_config(const Config& config, EvalConfig& eval, OptionList& options)
     {
-      try {
+    try
+    {
 	// validate proto_override
 	if (!config.protoOverride.empty())
 	  Protocol::parse(config.protoOverride, Protocol::NO_SUFFIX);
@@ -767,7 +779,8 @@ namespace openvpn {
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::parse_extras(const Config& config, EvalConfig& eval)
     {
-      try {
+    try
+    {
 	state->server_override = config.serverOverride;
 	state->port_override = config.portOverride;
 	state->conn_timeout = config.connTimeout;
@@ -853,9 +866,9 @@ namespace openvpn {
 	}
     }
 
-    OpenVPNClientHelper::OpenVPNClientHelper() : init(new InitProcess::Init())
+OpenVPNClientHelper::OpenVPNClientHelper()
+    : init(new InitProcess::Init())
     {
-
     }
 
     OpenVPNClientHelper::~OpenVPNClientHelper()
@@ -871,15 +884,22 @@ namespace openvpn {
     OPENVPN_CLIENT_EXPORT MergeConfig OpenVPNClientHelper::merge_config(const std::string& path,
 									bool follow_references)
     {
-      ProfileMerge pm(path, "ovpn", "", follow_references ? ProfileMerge::FOLLOW_PARTIAL : ProfileMerge::FOLLOW_NONE,
-		      ProfileParseLimits::MAX_LINE_SIZE, ProfileParseLimits::MAX_PROFILE_SIZE);
+    ProfileMerge pm(path,
+                    "ovpn",
+                    "",
+                    follow_references ? ProfileMerge::FOLLOW_PARTIAL : ProfileMerge::FOLLOW_NONE,
+                    ProfileParseLimits::MAX_LINE_SIZE,
+                    ProfileParseLimits::MAX_PROFILE_SIZE);
       return build_merge_config(pm);
     }
 
     OPENVPN_CLIENT_EXPORT MergeConfig OpenVPNClientHelper::merge_config_string(const std::string& config_content)
     {
-      ProfileMergeFromString pm(config_content, "", ProfileMerge::FOLLOW_NONE,
-				ProfileParseLimits::MAX_LINE_SIZE, ProfileParseLimits::MAX_PROFILE_SIZE);
+    ProfileMergeFromString pm(config_content,
+                              "",
+                              ProfileMerge::FOLLOW_NONE,
+                              ProfileParseLimits::MAX_LINE_SIZE,
+                              ProfileParseLimits::MAX_PROFILE_SIZE);
       return build_merge_config(pm);
     }
 
@@ -926,7 +946,8 @@ namespace openvpn {
     OPENVPN_CLIENT_EXPORT Status OpenVPNClient::provide_creds(const ProvideCreds& creds)
     {
       Status ret;
-      try {
+    try
+    {
 	ClientCreds::Ptr cc = new ClientCreds();
 	cc->set_username(creds.username);
 	cc->set_password(creds.password);
@@ -953,7 +974,8 @@ namespace openvpn {
 
     OPENVPN_CLIENT_EXPORT bool OpenVPNClientHelper::parse_dynamic_challenge(const std::string& cookie, DynamicChallenge& dc)
     {
-      try {
+    try
+    {
 	ChallengeResponse cr(cookie);
 	dc.challenge = cr.get_challenge_text();
 	dc.echo = cr.get_echo();
@@ -1022,12 +1044,12 @@ namespace openvpn {
     {
       Status status;
       bool session_started = false;
-      try {
+    try
+    {
 	connect_attach();
 #if defined(OPENVPN_OVPNCLI_ASYNC_SETUP)
-	openvpn_io::post(*state->io_context(), [this]() {
-	    do_connect_async();
-	  });
+        openvpn_io::post(*state->io_context(), [this]()
+                         { do_connect_async(); });
 #else
 	connect_setup(status, session_started);
 #endif
@@ -1044,7 +1066,8 @@ namespace openvpn {
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::do_connect_async()
     {
-      enum StopType {
+    enum StopType
+    {
 	NONE,
 	SESSION,
 	EXPLICIT,
@@ -1052,7 +1075,8 @@ namespace openvpn {
       StopType stop_type = NONE;
       Status status;
       bool session_started = false;
-      try {
+    try
+    {
 	connect_setup(status, session_started);
       }
       catch (const std::exception& e)
@@ -1186,7 +1210,8 @@ namespace openvpn {
       if (state->options.exists("allow-name-constraints"))
 	{
 	  ClientEvent::Base::Ptr ev = new ClientEvent::UnsupportedFeature("allow-name-constraints",
-									  "Always verified correctly with OpenSSL", false);
+                                                                        "Always verified correctly with OpenSSL",
+                                                                        false);
 	  state->events->add_event(std::move(ev));
 	}
 #endif
@@ -1310,8 +1335,11 @@ namespace openvpn {
 	}
     }
 
-    OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string& data, std::string& sig, const std::string& algorithm,
-												   const std::string& hashalg, const std::string& saltlen)
+OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &data,
+                                               std::string &sig,
+                                               const std::string &algorithm,
+                                               const std::string &hashalg,
+                                               const std::string &saltlen)
     {
       ExternalPKISignRequest req;
       req.data = data;
@@ -1573,5 +1601,5 @@ namespace openvpn {
     {
       delete state;
     }
-  }
-}
+} // namespace ClientAPI
+} // namespace openvpn

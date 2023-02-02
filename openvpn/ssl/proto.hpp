@@ -129,6 +129,7 @@ namespace openvpn {
   // utility namespace for ProtoContext
   namespace proto_context_private {
     namespace {
+// clang-format off
       const unsigned char auth_prefix[] = { 0, 0, 0, 0, 2 }; // CONST GLOBAL
 
       const unsigned char keepalive_message[] = {    // CONST GLOBAL
@@ -136,7 +137,8 @@ namespace openvpn {
 	0x07, 0xed, 0x2d, 0x0a, 0x98, 0x1f, 0xc7, 0x48
       };
 
-      enum {
+      enum
+      {
 	KEEPALIVE_FIRST_BYTE = 0x2a  // first byte of keepalive message
       };
 
@@ -152,19 +154,22 @@ namespace openvpn {
 	0x2d, 0x56, 0xb8, 0xd3, 0xaf, 0xc5, 0x45, 0x9c,
 	6 // OCC_EXIT
       };
+// clang-format on
 
-      enum {
+enum
+{
 	EXPLICIT_EXIT_NOTIFY_FIRST_BYTE = 0x28  // first byte of exit message
       };
-    }
-  }
+} // namespace
+} // namespace proto_context_private
 
   class ProtoContext
   {
   protected:
     static constexpr size_t APP_MSG_MAX = 65536;
 
-    enum {
+    enum
+    {
       // packet opcode (high 5 bits) and key-id (low 3 bits) are combined in one byte
       KEY_ID_MASK =             0x07,
       OPCODE_SHIFT =            3,
@@ -381,8 +386,10 @@ namespace openvpn {
       // instead of possible modifications caused by NCP
       std::string initial_options;
 
-      void load(const OptionList& opt, const ProtoContextOptions& pco,
-		const int default_key_direction, const bool server)
+        void load(const OptionList &opt,
+                  const ProtoContextOptions &pco,
+                  const int default_key_direction,
+                  const bool server)
       {
 	// first set defaults
 	handshake_window = Time::Duration::seconds(60);
@@ -458,11 +465,9 @@ namespace openvpn {
 	  // data channel cipher
           {
           const Option *o = opt.get_ptr("cipher");
-
           if(o)
           {
               const std::string& cipher_name = o->get(1, 128);
-
               if(cipher_name != "none")
                   cipher = CryptoAlgs::lookup(cipher_name);
           }
@@ -485,16 +490,16 @@ namespace openvpn {
 	  dc.set_cipher(cipher);
 	  dc.set_digest(digest);
 
-      const Option* option_ncp_disable = opt.get_ptr("ncp-disable");
+	  const Option* option_ncp_disable = opt.get_ptr("ncp-disable");
 
-      if(!option_ncp_disable)
-      {
-          dc.set_ncp_enabled(true);
-      }
-      else
-      {
-          dc.set_ncp_enabled(false);
-      }
+	  if(!option_ncp_disable)
+	  {
+	      dc.set_ncp_enabled(true);
+	  }
+	  else
+	  {
+	      dc.set_ncp_enabled(false);
+	  }
 
 	  // tls-auth
 	  {
@@ -665,7 +670,8 @@ namespace openvpn {
 	{
 	  // cipher
 	  std::string new_cipher;
-	  try {
+                try
+                {
 	    const Option *o = opt.get_ptr("cipher");
 	    if (o)
 	      {
@@ -681,7 +687,8 @@ namespace openvpn {
 
 	  // digest
 	  std::string new_digest;
-	  try {
+                try
+                {
 	    const Option *o = opt.get_ptr("auth");
 	    if (o)
 	      {
@@ -698,7 +705,8 @@ namespace openvpn {
 
 	  // tls key-derivation method
 	  std::string key_method;
-	  try {
+                try
+                {
 	      const Option *o = opt.get_ptr("key-derivation");
 	      if (o)
 		{
@@ -750,7 +758,8 @@ namespace openvpn {
 
 	// compression
 	std::string new_comp;
-	try {
+            try
+            {
 	  const Option *o;
 	  o = opt.get_ptr("compress");
 	  if (o)
@@ -798,7 +807,8 @@ namespace openvpn {
 	  }
 
 	// peer ID
-	try {
+            try
+            {
 	  const Option *o = opt.get_ptr("peer-id");
 	  if (o)
 	    {
@@ -817,7 +827,8 @@ namespace openvpn {
 	    OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed peer-id: " << e.what());
 	  }
 
-	try {
+            try
+            {
 	  // load parameters that can be present in both config file or pushed options
 	  load_common(opt, pco, LOAD_COMMON_CLIENT_PUSHED);
 	}
@@ -881,33 +892,33 @@ namespace openvpn {
 	set_pid_mode(false);
       }
 
-    void set_cipher(const CryptoAlgs::Type c)
-    {
-        if(c > CryptoAlgs::Type::NONE && c < CryptoAlgs::Type::SIZE)
-            dc.set_cipher(c);
-        else
-            proto_option_error("set_cipher: illegal cipher type");
-    }
+      void set_cipher(const CryptoAlgs::Type c)
+      {
+	  if(c > CryptoAlgs::Type::NONE && c < CryptoAlgs::Type::SIZE)
+	      dc.set_cipher(c);
+	  else
+	      proto_option_error("set_cipher: illegal cipher type");
+      }
 
-    void set_cipher_override(const CryptoAlgs::Type c)
-    {
-        if(c >= CryptoAlgs::Type::NONE && c < CryptoAlgs::Type::SIZE)
-            cipher_override = c;
-        else
-            proto_option_error("set_cipher_override: illegal cipher type");
-    }
+      void set_cipher_override(const CryptoAlgs::Type c)
+      {
+	  if(c >= CryptoAlgs::Type::NONE && c < CryptoAlgs::Type::SIZE)
+	      cipher_override = c;
+	  else
+	      proto_option_error("set_cipher_override: illegal cipher type");
+      }
 
-    void set_ncp_disable(const bool disabled)
-    {
-        if(dc.ncp_enabled() && disabled == true)
-        {
-            // ncp disable override
-            
-            ncp_disable = disabled;
+      void set_ncp_disable(const bool disabled)
+      {
+	  if(dc.ncp_enabled() && disabled == true)
+	  {
+	      // ncp disable override
+	    
+	      ncp_disable = disabled;
 
-            dc.set_ncp_enabled(false);
-        }
-    }
+	      dc.set_ncp_enabled(false);
+	  }
+      }
 
       void set_tls_auth_digest(const CryptoAlgs::Type digest)
       {
@@ -1019,10 +1030,10 @@ namespace openvpn {
 	out << "IV_VER=" << OPENVPN_VERSION << '\n';
 	out << "IV_PLAT=" << platform_name() << '\n';
 
-    if(dc.ncp_enabled())
-    {
-        out << "IV_NCP=2\n"; // negotiable crypto parameters V2
-    }
+	if(dc.ncp_enabled())
+	{
+	    out << "IV_NCP=2\n"; // negotiable crypto parameters V2
+	}
 
 	out << "IV_TCPNL=1\n"; // supports TCP non-linear packet ID
 	out << "IV_PROTO=" << std::to_string(iv_proto) << '\n';
@@ -1064,19 +1075,19 @@ namespace openvpn {
 	 *
 	 */
 
-    /*
+	/* disabled (master)
 
 	out << "IV_CIPHERS=";
-	CryptoAlgs::for_each([&out](CryptoAlgs::Type type, const CryptoAlgs::Alg& alg) -> bool {
+            CryptoAlgs::for_each([&out](CryptoAlgs::Type type, const CryptoAlgs::Alg &alg) -> bool
+                                 {
 	  if (!CryptoAlgs::defined(type) || !alg.dc_cipher())
 	    return false;
 	  out << alg.name() << ':';
-	  return true;
-	});
+	  return true; });
 	out.seekp(-1, std::ios_base::cur);
 	out << "\n";
 
-    */
+	*/
 
 	compstr = comp_ctx.peer_info_string();
 
@@ -1089,7 +1100,8 @@ namespace openvpn {
 	if (relay_mode)
 	  out << "IV_RELAY=1\n";
 	const std::string ret = out.str();
-	OPENVPN_LOG_PROTO("Peer Info:" << std::endl << ret);
+            OPENVPN_LOG_PROTO("Peer Info:" << std::endl
+                                           << ret);
 	return ret;
       }
 
@@ -1102,9 +1114,9 @@ namespace openvpn {
 	{
 	  /* since often configuration lack BF-CBC, we hardcode the overhead for BF-CBC to avoid
 	   * trying to load BF-CBC, which is not available anymore in modern crypto libraries */
-	  dc_overhead = CryptoAlgs::size(dc.digest()) +       // HMAC
-	      		64/8 +       // Cipher IV
-	      		64/8;       // worst-case PKCS#7 padding expansion (blocksize)
+                dc_overhead = CryptoAlgs::size(dc.digest()) // HMAC
+                              + 64 / 8                      // Cipher IV
+                              + 64 / 8;                     // worst-case PKCS#7 padding expansion (blocksize)
 	}
 	else
 	{
@@ -1119,14 +1131,16 @@ namespace openvpn {
       }
 
     private:
-      enum LoadCommonType {
+        enum LoadCommonType
+        {
 	LOAD_COMMON_SERVER,
 	LOAD_COMMON_CLIENT,
 	LOAD_COMMON_CLIENT_PUSHED,
       };
 
       // load parameters that can be present in both config file or pushed options
-      void load_common(const OptionList& opt, const ProtoContextOptions& pco,
+        void load_common(const OptionList &opt,
+                         const ProtoContextOptions &pco,
 		       const LoadCommonType type)
       {
 	// duration parms
@@ -1185,7 +1199,8 @@ namespace openvpn {
     {
       friend class ProtoContext;
 
-      enum {
+        enum
+        {
 	DEFINED=1<<0,     // packet is valid (otherwise invalid)
 	CONTROL=1<<1,     // packet for control channel (otherwise for data channel)
 	SECONDARY=1<<2,   // packet is associated with secondary KeyContext (otherwise primary)
@@ -1193,12 +1208,27 @@ namespace openvpn {
       };
 
     public:
-      bool is_defined() const { return flags & DEFINED; }
-      bool is_control() const { return (flags & (CONTROL|DEFINED)) == (CONTROL|DEFINED); }
-      bool is_data()    const { return (flags & (CONTROL|DEFINED)) == DEFINED; }
-      bool is_soft_reset() const { return (flags & (CONTROL|DEFINED|SECONDARY|SOFT_RESET))
-	                                        == (CONTROL|DEFINED|SECONDARY|SOFT_RESET); }
-      int peer_id() const { return peer_id_; }
+        bool is_defined() const
+        {
+            return flags & DEFINED;
+        }
+        bool is_control() const
+        {
+            return (flags & (CONTROL | DEFINED)) == (CONTROL | DEFINED);
+        }
+        bool is_data() const
+        {
+            return (flags & (CONTROL | DEFINED)) == DEFINED;
+        }
+        bool is_soft_reset() const
+        {
+            return (flags & (CONTROL | DEFINED | SECONDARY | SOFT_RESET))
+                   == (CONTROL | DEFINED | SECONDARY | SOFT_RESET);
+        }
+        int peer_id() const
+        {
+            return peer_id_;
+        }
 
     private:
       PacketType(const Buffer& buf, class ProtoContext& proto)
@@ -1307,7 +1337,8 @@ namespace openvpn {
     std::string dump_packet(const Buffer& buf)
     {
       std::ostringstream out;
-      try {
+        try
+        {
 	Buffer b(buf);
 	const size_t orig_size = b.size();
 	const unsigned int op = b.pop_front();
@@ -1385,7 +1416,8 @@ namespace openvpn {
             }
 	  }
 #ifdef OPENVPN_DEBUG_PROTO_DUMP
-	out << '\n' << string::trim_crlf_copy(dump_hex(buf));
+            out << '\n'
+                << string::trim_crlf_copy(dump_hex(buf));
 #endif
       }
       catch (const std::exception& e)
@@ -1396,7 +1428,6 @@ namespace openvpn {
     }
 
   protected:
-
     // used for reading/writing authentication strings (username, password, etc.)
 
     static void write_uint16_length(const size_t size, Buffer& buf)
@@ -1531,10 +1562,22 @@ namespace openvpn {
        * This returns if this packet type has a payload that should considered
        * to be TLS ciphertext/TLS packet
        */
-      bool contains_tls_ciphertext() const { return opcode == CONTROL_V1 || opcode == CONTROL_WKC_V1; }
-      operator bool() const { return bool(buf); }
-      const BufferPtr& buffer_ptr() { return buf; }
-      const Buffer& buffer() const { return *buf; }
+        bool contains_tls_ciphertext() const
+        {
+            return opcode == CONTROL_V1 || opcode == CONTROL_WKC_V1;
+        }
+        operator bool() const
+        {
+            return bool(buf);
+        }
+        const BufferPtr &buffer_ptr()
+        {
+            return buf;
+        }
+        const Buffer &buffer() const
+        {
+            return *buf;
+        }
 
     private:
       void reset_non_buf()
@@ -1562,15 +1605,18 @@ namespace openvpn {
       using Base::xmit_acks;
 
       // ProtoStackBase member functions
-      using Base::start_handshake;
       using Base::raw_send;
       using Base::send_pending_acks;
+        using Base::start_handshake;
 
       // Helper for handling deferred data channel setup,
       // for example if cipher/digest are pushed.
       struct DataChannelKey
       {
-	DataChannelKey() : rekey_defined(false) {}
+            DataChannelKey()
+                : rekey_defined(false)
+            {
+            }
 
 	OpenVPNStaticKey key;
 	bool rekey_defined;
@@ -1601,7 +1647,8 @@ namespace openvpn {
       // wiped (including a secondary key that exists due to
       // demotion of a previous primary key that has been marked
       // for expiration).
-      enum EventType {
+        enum EventType
+        {
 	KEV_NONE,
 
 	// KeyContext has reached the ACTIVE state, occurs on both
@@ -1669,8 +1716,10 @@ namespace openvpn {
 
       KeyContext(ProtoContext& p, const bool initiator)
 	: Base(*p.config->ssl_factory,
-	       p.config->now, p.config->tls_timeout,
-	       p.config->frame, p.stats),
+                   p.config->now,
+                   p.config->tls_timeout,
+                   p.config->frame,
+                   p.stats),
 	  proto(p),
 	  state(STATE_UNDEF),
 	  crypto_flags(0),
@@ -1803,7 +1852,8 @@ namespace openvpn {
       // data channel decrypt
       void decrypt(BufferAllocated& buf)
       {
-	try {
+            try
+            {
 	  if (state >= ACTIVE
 	      && (crypto_flags & CryptoDCInstance::CRYPTO_DEFINED)
 	      && !invalidated())
@@ -1888,24 +1938,45 @@ namespace openvpn {
       }
 
       // get KEV_x event
-      EventType get_event() const { return current_event; }
+        EventType get_event() const
+        {
+            return current_event;
+        }
 
       // clear KEV_x event
-      void reset_event() { current_event = KEV_NONE; }
+        void reset_event()
+        {
+            current_event = KEV_NONE;
+        }
 
       // was session invalidated by an exception?
-      bool invalidated() const { return Base::invalidated(); }
+        bool invalidated() const
+        {
+            return Base::invalidated();
+        }
 
       // Reason for invalidation
-      Error::Type invalidation_reason() const { return Base::invalidation_reason(); }
+        Error::Type invalidation_reason() const
+        {
+            return Base::invalidation_reason();
+        }
 
       // our Key ID in the OpenVPN protocol
-      unsigned int key_id() const { return key_id_; }
+        unsigned int key_id() const
+        {
+            return key_id_;
+        }
 
       // indicates that data channel is keyed and ready to encrypt/decrypt packets
-      bool data_channel_ready() const { return state >= ACTIVE; }
+        bool data_channel_ready() const
+        {
+            return state >= ACTIVE;
+        }
 
-      bool is_dirty() const { return dirty; }
+        bool is_dirty() const
+        {
+            return dirty;
+        }
 
       // notification from parent of rekey operation
       void rekey(const CryptoDCInstance::RekeyType type)
@@ -1921,7 +1992,10 @@ namespace openvpn {
       }
 
       // time that our state transitioned to ACTIVE
-      Time reached_active() const { return reached_active_time_; }
+        Time reached_active() const
+        {
+            return reached_active_time_;
+        }
 
       // transmit a keepalive message to peer
       void send_keepalive()
@@ -1966,7 +2040,8 @@ namespace openvpn {
       // validate the integrity of a packet
       static bool validate(const Buffer& net_buf, ProtoContext& proto, TimePtr now)
       {
-	try {
+            try
+            {
 	  Buffer recv(net_buf);
 
 	  switch (proto.tls_wrap_mode)
@@ -2013,7 +2088,8 @@ namespace openvpn {
 	    tlsprf->generate_key_expansion(dck->key, proto.psid_self, proto.psid_peer);
 	  }
 	tlsprf->erase();
-	OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix() << " KEY " << CryptoAlgs::name(proto.config->dc.key_derivation())
+            OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix()
+                                      << " KEY " << CryptoAlgs::name(proto.config->dc.key_derivation())
 					<< " " << proto.mode().str() << ' ' << dck->key.render());
 
 	if (data_channel_key)
@@ -2060,12 +2136,13 @@ namespace openvpn {
 	if (CryptoAlgs::mode(c.dc.cipher()) == CryptoAlgs::CBC_HMAC)
 	  payload_overhead += PacketID::size(PacketID::SHORT_FORM);
 
-	// account for IPv4 and TCP headers of the payload, mssfix method will add 20 extra bytes if payload is IPv6
+            // account for IPv4 and TCP headers of the payload, mssfix method
+            // will add 20 extra bytes if payload is IPv6
 	payload_overhead += 20 + 20;
 
-	int overhead = c.protocol.extra_transport_bytes() +
-	  (enable_op32 ? OP_SIZE_V2 : 1) +
-	  c.dc.context().encap_overhead();
+            int overhead = c.protocol.extra_transport_bytes()
+                           + (enable_op32 ? OP_SIZE_V2 : 1)
+                           + c.dc.context().encap_overhead();
 
 	// in CBC mode, the packet id is part of the payload size / overhead
 	if (CryptoAlgs::mode(c.dc.cipher()) != CryptoAlgs::CBC_HMAC)
@@ -2073,16 +2150,22 @@ namespace openvpn {
 
 	if (c.mss_parms.mtu)
 	  {
-	    overhead += c.protocol.is_ipv6() ? sizeof(struct IPv6Header) : sizeof(struct IPv4Header);
-	    overhead += proto.is_tcp() ? sizeof(struct TCPHeader) : sizeof(struct UDPHeader);
+                overhead += c.protocol.is_ipv6()
+                                ? sizeof(struct IPv6Header)
+                                : sizeof(struct IPv4Header);
+                overhead += proto.is_tcp()
+                                ? sizeof(struct TCPHeader)
+                                : sizeof(struct UDPHeader);
 	  }
 
 	int target = c.mss_parms.mssfix - overhead;
 	if (CryptoAlgs::mode(c.dc.cipher()) == CryptoAlgs::CBC_HMAC)
 	  {
-	    // openvpn3 crypto includes blocksize in overhead, but we can be a bit smarter here
-	    // and instead make sure that resulting ciphertext size (which is always multiple blocksize)
-	    // is not larger than target by running down target to the nearest multiple of multiple and substracting 1.
+                // openvpn3 crypto includes blocksize in overhead, but we can
+                // be a bit smarter here and instead make sure that resulting
+                // ciphertext size (which is always multiple blocksize) is not
+                // larger than target by running down target to the nearest
+                // multiple of multiple and substracting 1.
 
 	    int block_size = CryptoAlgs::block_size(c.dc.cipher());
 	    target += block_size;
@@ -2091,8 +2174,11 @@ namespace openvpn {
 	  }
 
 	c.mss_fix = target - payload_overhead;
-	OPENVPN_LOG("mssfix=" << c.mss_fix << " (upper bound=" << c.mss_parms.mssfix << ", overhead=" <<
-	  overhead << ", payload_overhead=" << payload_overhead << ", target=" << target << ")");
+            OPENVPN_LOG("mssfix=" << c.mss_fix
+                                  << " (upper bound=" << c.mss_parms.mssfix
+                                  << ", overhead=" << overhead
+                                  << ", payload_overhead=" << payload_overhead
+                                  << ", target=" << target << ")");
       }
 
       // Initialize the components of the OpenVPN data channel protocol
@@ -2115,7 +2201,8 @@ namespace openvpn {
 	    DataLimit::Parameters dp;
 	    dp.encrypt_red_limit = OPENVPN_BS64_DATA_LIMIT;
 	    dp.decrypt_red_limit = OPENVPN_BS64_DATA_LIMIT;
-	    OPENVPN_LOG_PROTO("Per-Key Data Limit: " << dp.encrypt_red_limit << '/' << dp.decrypt_red_limit);
+                OPENVPN_LOG_PROTO("Per-Key Data Limit: "
+                                  << dp.encrypt_red_limit << '/' << dp.decrypt_red_limit);
 	    data_limit.reset(new DataLimit(dp));
 	  }
 
@@ -2135,7 +2222,8 @@ namespace openvpn {
 	crypto->init_pid(PacketID::SHORT_FORM,
 			 c.pid_mode,
 			 PacketID::SHORT_FORM,
-			 "DATA", int(key_id_),
+                             "DATA",
+                             int(key_id_),
 			 proto.stats);
 
 	crypto->init_remote_peer_id(c.remote_peer_id);
@@ -2185,12 +2273,15 @@ namespace openvpn {
 	// verify HMAC
 	{
 	  recv.advance(proto.hmac_size);
-	  if (!proto.ta_hmac_recv->ovpn_hmac_cmp(orig_data, orig_size,
+                if (!proto.ta_hmac_recv->ovpn_hmac_cmp(orig_data,
+                                                       orig_size,
 						 1 + ProtoSessionID::SIZE,
 						 proto.hmac_size,
 						 PacketID::size(PacketID::LONG_FORM)))
+                {
 	    return false;
 	}
+            }
 
 	// verify source PSID
 	if (!proto.psid_peer.match(src_psid))
@@ -2242,8 +2333,10 @@ namespace openvpn {
 
 	// decrypt payload from 'recv' into 'work'
 	const size_t decrypt_bytes = proto.tls_crypt_recv->decrypt(orig_data + head_size,
-								   work.data(), work.max_size(),
-								   recv.c_data(), recv.size());
+                                                                       work.data(),
+                                                                       work.max_size(),
+                                                                       recv.c_data(),
+                                                                       recv.size());
 	if (!decrypt_bytes)
 	  return false;
 
@@ -2252,7 +2345,8 @@ namespace openvpn {
 	// verify HMAC
 	if (!proto.tls_crypt_recv->hmac_cmp(orig_data,
 					    TLSCryptContext::hmac_offset,
-					    work.c_data(), work.size()))
+                                                work.c_data(),
+                                                work.size()))
 	  return false;
 
 	// verify source PSID
@@ -2350,19 +2444,26 @@ namespace openvpn {
 
       void set_state(const int newstate)
       {
-	OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix() << " KeyContext[" << key_id_ << "] " << state_string(state) << " -> " << state_string(newstate));
+            OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix()
+                                      << " KeyContext[" << key_id_ << "] "
+                                      << state_string(state) << " -> " << state_string(newstate));
 	state = newstate;
       }
 
       void set_event(const EventType current)
       {
-	OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix() << " KeyContext[" << key_id_ << "] " << event_type_string(current));
+            OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix()
+                                      << " KeyContext[" << key_id_ << "] "
+                                      << event_type_string(current));
 	current_event = current;
       }
 
       void set_event(const EventType current, const EventType next, const Time& next_time)
       {
-	OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix() << " KeyContext[" << key_id_ << "] " << event_type_string(current) << " -> " << event_type_string(next) << '(' << seconds_until(next_time) << ')');
+            OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix()
+                                      << " KeyContext[" << key_id_ << "] "
+                                      << event_type_string(current) << " -> " << event_type_string(next)
+                                      << '(' << seconds_until(next_time) << ')');
 	current_event = current;
 	next_event = next;
 	next_event_time = next_time;
@@ -2390,11 +2491,17 @@ namespace openvpn {
 	    // If secondary, queue the renegotiation request until
 	    // key reaches primary.
 	    if (next_event == KEV_BECOME_PRIMARY) // secondary key before transition to primary?
-	      set_event(KEV_RENEGOTIATE_QUEUE);   // reneg request crosses over to primary, doesn't wipe next_event (KEV_BECOME_PRIMARY)
+                {
+                    // reneg request crosses over to primary,
+                    // doesn't wipe next_event (KEV_BECOME_PRIMARY)
+                    set_event(KEV_RENEGOTIATE_QUEUE);
+                }
 	    else
+                {
 	      key_limit_reneg(KEV_RENEGOTIATE, *now);
 	  }
       }
+        }
 
       // Handle data-limited keys such as Blowfish and other 64-bit block-size ciphers.
       void data_limit_add(const DataLimit::Mode mode, const size_t size)
@@ -2407,7 +2514,10 @@ namespace openvpn {
       // Handle a DataLimit event.
       void data_limit_event(const DataLimit::Mode mode, const DataLimit::State state)
       {
-	OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix() << " DATA LIMIT " << DataLimit::mode_str(mode) << ' ' << DataLimit::state_str(state) << " key_id=" << key_id_);
+            OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix()
+                                      << " DATA LIMIT " << DataLimit::mode_str(mode)
+                                      << ' ' << DataLimit::state_str(state)
+                                      << " key_id=" << key_id_);
 
 	// State values:
 	//   DataLimit::Green -- first packet received and decrypted.
@@ -2429,7 +2539,10 @@ namespace openvpn {
       // 4. no data received yet from peer on this key.
       bool data_limit_defer() const
       {
-	return !proto.is_server() && data_limit && key_id_ && !data_limit->is_decrypt_green();
+            return !proto.is_server()
+                   && data_limit
+                   && key_id_
+                   && !data_limit->is_decrypt_green();
       }
 
       // General expiration set when key hits data limit threshold.
@@ -2440,7 +2553,9 @@ namespace openvpn {
 
       void active_event()
       {
-	set_event(KEV_ACTIVE, KEV_BECOME_PRIMARY, reached_active() + proto.config->become_primary);
+            set_event(KEV_ACTIVE,
+                      KEV_BECOME_PRIMARY,
+                      reached_active() + proto.config->become_primary);
       }
 
       void process_next_event()
@@ -2453,7 +2568,9 @@ namespace openvpn {
 		if (data_limit_defer())
 		  set_event(KEV_NONE, KEV_PRIMARY_PENDING, data_limit_expire());
 		else
-		  set_event(KEV_BECOME_PRIMARY, KEV_RENEGOTIATE, construct_time + proto.config->renegotiate);
+                        set_event(KEV_BECOME_PRIMARY,
+                                  KEV_RENEGOTIATE,
+                                  construct_time + proto.config->renegotiate);
 		break;
 	      case KEV_RENEGOTIATE:
 	      case KEV_RENEGOTIATE_FORCE:
@@ -2546,7 +2663,6 @@ namespace openvpn {
                   * is really tight) for optional features. */
                  buf.advance(len);
              }
-
           }
           return true;
       }
@@ -2596,7 +2712,9 @@ namespace openvpn {
 		set_state(S_WAIT_AUTH_ACK);
 	      }
 	    break;
-	  case S_WAIT_AUTH_ACK: // rare case where client receives auth, goes ACTIVE, but the ACK response is dropped
+            case S_WAIT_AUTH_ACK:
+                // rare case where client receives auth, goes ACTIVE,
+                // but the ACK response is dropped
 	  case ACTIVE:
 	    if (bcc.advance_to_null()) // does composed buffer contain terminating null char?
 	      proto.app_recv(key_id_, bcc.get());
@@ -2790,7 +2908,8 @@ namespace openvpn {
 	buf.push_front(op_compose(opcode, key_id_));
 
 	// write hmac
-	proto.ta_hmac_send->ovpn_hmac_gen(buf.data(), buf.size(),
+            proto.ta_hmac_send->ovpn_hmac_gen(buf.data(),
+                                              buf.size(),
 					  1 + ProtoSessionID::SIZE,
 					  proto.hmac_size,
 					  PacketID::size(PacketID::LONG_FORM));
@@ -2811,8 +2930,10 @@ namespace openvpn {
 
 	// compute HMAC using header fields (from 'work') and plaintext
 	// payload (from 'buf')
-	proto.tls_crypt_send->hmac_gen(work.data(), TLSCryptContext::hmac_offset,
-				       buf.c_data(), buf.size());
+            proto.tls_crypt_send->hmac_gen(work.data(),
+                                           TLSCryptContext::hmac_offset,
+                                           buf.c_data(),
+                                           buf.size());
 
 	const size_t data_offset = TLSCryptContext::hmac_offset + proto.hmac_size;
 
@@ -2820,7 +2941,8 @@ namespace openvpn {
 	const size_t encrypt_bytes = proto.tls_crypt_send->encrypt(work.c_data() + TLSCryptContext::hmac_offset,
 								   work.data() + data_offset,
 								   work.max_size() - data_offset,
-								   buf.c_data(), buf.size());
+                                                                       buf.c_data(),
+                                                                       buf.size());
 	if (!encrypt_bytes)
 	  {
 	    buf.reset_size();
@@ -2935,7 +3057,8 @@ namespace openvpn {
 		// was packet accepted by reliable receive object?
 		if (rflags & ReliableRecv::IN_WINDOW)
 		  {
-		    proto.ta_pid_recv.test_add (pid, t, true); // remember tls_auth packet ID so that it can't be replayed
+                        // remember tls_auth packet ID so that it can't be replaye
+                        proto.ta_pid_recv.test_add(pid, t, true);
 		    return true;
 		  }
 	      }
@@ -2943,18 +3066,19 @@ namespace openvpn {
 	      {
 		proto.stats->error (Error::REPLAY_ERROR);
 		if (pid.is_valid ())
-		  xmit_acks.push_back (id); // even replayed packets must be ACKed or protocol could deadlock
+                        // even replayed packets must be ACKed or protocol could deadlock
+                        xmit_acks.push_back(id);
 	      }
 	  }
 	else
 	  {
 	    if (pid_ok)
-	      proto.ta_pid_recv.test_add (pid, t, true); // remember tls_auth packet ID of ACK packet to prevent replay
+                    // remember tls_auth packet ID of ACK packet to prevent replay
+                    proto.ta_pid_recv.test_add(pid, t, true);
 	    else
 	      proto.stats->error (Error::REPLAY_ERROR);
 	  }
 	return false;
-
       }
 
       bool decapsulate_tls_auth(Packet &pkt)
@@ -2972,7 +3096,8 @@ namespace openvpn {
 	// verify HMAC
 	{
 	  recv.advance (proto.hmac_size);
-	  if (!proto.ta_hmac_recv->ovpn_hmac_cmp(orig_data, orig_size,
+                if (!proto.ta_hmac_recv->ovpn_hmac_cmp(orig_data,
+                                                       orig_size,
 						 1 + ProtoSessionID::SIZE,
 						 proto.hmac_size,
 						 PacketID::size (PacketID::LONG_FORM)))
@@ -3013,8 +3138,10 @@ namespace openvpn {
 	proto.config->frame->prepare(Frame::DECRYPT_WORK, work);
 
 	const size_t decrypt_bytes = proto.tls_crypt_recv->decrypt(orig_data + TLSCryptContext::hmac_offset,
-								   work.data(), work.max_size(),
-								   recv.c_data(), recv.size());
+                                                                       work.data(),
+                                                                       work.max_size(),
+                                                                       recv.c_data(),
+                                                                       recv.size());
 	if (!decrypt_bytes)
 	  {
 	    proto.stats->error(Error::DECRYPT_ERROR);
@@ -3026,8 +3153,10 @@ namespace openvpn {
 	work.inc_size(decrypt_bytes);
 
 	// verify HMAC
-	if (!proto.tls_crypt_recv->hmac_cmp(orig_data, TLSCryptContext::hmac_offset,
-					    work.c_data(), work.size()))
+            if (!proto.tls_crypt_recv->hmac_cmp(orig_data,
+                                                TLSCryptContext::hmac_offset,
+                                                work.c_data(),
+                                                work.size()))
 	  {
 	    proto.stats->error(Error::HMAC_ERROR);
 	    if (proto.is_tcp())
@@ -3099,12 +3228,12 @@ namespace openvpn {
 	const unsigned char *orig_data = recv.data();
 	const size_t orig_size = recv.size();
 	const size_t hmac_size = proto.config->tls_crypt_context->digest_size();
-	const size_t tls_frame_size = 1 + ProtoSessionID::SIZE +
-				      PacketID::size(PacketID::LONG_FORM) +
-				      hmac_size +
+            const size_t tls_frame_size = 1 + ProtoSessionID::SIZE
+                                          + PacketID::size(PacketID::LONG_FORM)
+                                          + hmac_size
 				      // the following is the tls-crypt payload
-				      sizeof(char) +  // length of ACK array
-				      sizeof(id_t); // reliable ID
+                                          + sizeof(char)  // length of ACK array
+                                          + sizeof(id_t); // reliable ID
 
 	// check that at least the authentication tag ``T`` is present
 	if (orig_size < (tls_frame_size + hmac_size))
@@ -3140,7 +3269,8 @@ namespace openvpn {
 	    return false;
 	  }
 
-	if (!proto.tls_crypt_server->hmac_cmp(wkc_raw, 0,
+            if (!proto.tls_crypt_server->hmac_cmp(wkc_raw,
+                                                  0,
 					      plaintext.c_data(),
 					      plaintext.size()))
 	  {
@@ -3181,7 +3311,8 @@ namespace openvpn {
 
       bool decapsulate(Packet& pkt) // called by ProtoStackBase
       {
-	try {
+            try
+            {
 	  switch (proto.tls_wrap_mode)
 	  {
 	    case TLS_AUTH:
@@ -3265,7 +3396,9 @@ namespace openvpn {
       unsigned int crypto_flags;
       int remote_peer_id; // -1 to disable
       bool enable_op32;
-      /** early negotiation enabled resending of wrapped tls-crypt-v2 client key with third packet of the three-way handshake */
+        /* early negotiation enabled resending of wrapped tls-crypt-v2 client key
+         * with third packet of the three-way handshake
+         */
       bool resend_wkc = false;
       bool dirty;
       bool key_limit_renegotiation_fired;
@@ -3318,7 +3451,9 @@ namespace openvpn {
 	if (c.key_direction >= 0)
 	  {
 	    // key-direction is 0 or 1
-	    const unsigned int key_dir = c.key_direction ? OpenVPNStaticKey::INVERSE : OpenVPNStaticKey::NORMAL;
+                const unsigned int key_dir = c.key_direction
+                                                 ? OpenVPNStaticKey::INVERSE
+                                                 : OpenVPNStaticKey::NORMAL;
 	    ta_hmac_recv->init(c.tls_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::DECRYPT | key_dir));
 	  }
 	else
@@ -3339,7 +3474,8 @@ namespace openvpn {
 	    if (opcode_extract(op) != reset_op || key_id_extract(op) != 0)
 	      return false;
 
-	    return ta_hmac_recv->ovpn_hmac_cmp(net_buf.c_data(), net_buf.size(),
+                return ta_hmac_recv->ovpn_hmac_cmp(net_buf.c_data(),
+                                                   net_buf.size(),
 					       1 + ProtoSessionID::SIZE,
 					       ta_hmac_recv->output_size(),
 					       PacketID::size(PacketID::LONG_FORM));
@@ -3400,7 +3536,8 @@ namespace openvpn {
 
 	    // decrypt payload from 'net_buf' into 'work'
 	    const size_t decrypt_bytes = tls_crypt_recv->decrypt(net_buf.c_data() + TLSCryptContext::hmac_offset,
-								 work.data(), work.max_size(),
+                                                                     work.data(),
+                                                                     work.max_size(),
 								 net_buf.c_data() + data_offset,
 								 net_buf.size() - data_offset);
 	    if (!decrypt_bytes)
@@ -3411,7 +3548,8 @@ namespace openvpn {
 	    // verify HMAC
 	    return tls_crypt_recv->hmac_cmp(net_buf.c_data(),
 					    TLSCryptContext::hmac_offset,
-					    work.data(), work.size());
+                                                work.data(),
+                                                work.size());
 	}
 	catch (BufferException&)
 	{
@@ -3506,20 +3644,14 @@ namespace openvpn {
       tls_crypt_recv = c.tls_crypt_context->new_obj_recv();
 
       // static direction assignment - not user configurable
-      unsigned int key_dir = is_server() ?
-			     OpenVPNStaticKey::NORMAL :
-			     OpenVPNStaticKey::INVERSE;
+        unsigned int key_dir = is_server() ? OpenVPNStaticKey::NORMAL : OpenVPNStaticKey::INVERSE;
 
 	  tls_crypt_send->init(c.ssl_factory->libctx(),
-						   key.slice(OpenVPNStaticKey::HMAC |
-							   OpenVPNStaticKey::ENCRYPT | key_dir),
-						   key.slice(OpenVPNStaticKey::CIPHER |
-							   OpenVPNStaticKey::ENCRYPT | key_dir));
+                             key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | key_dir),
+                             key.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::ENCRYPT | key_dir));
 	  tls_crypt_recv->init(c.ssl_factory->libctx(),
-						   key.slice(OpenVPNStaticKey::HMAC |
-							   OpenVPNStaticKey::DECRYPT | key_dir),
-						   key.slice(OpenVPNStaticKey::CIPHER |
-							   OpenVPNStaticKey::DECRYPT | key_dir));
+                             key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::DECRYPT | key_dir),
+                             key.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::DECRYPT | key_dir));
     }
 
     void reset_tls_crypt_server(const Config& c)
@@ -3657,7 +3789,9 @@ namespace openvpn {
       return bool(primary);
     }
 
-    virtual ~ProtoContext() {}
+    virtual ~ProtoContext()
+    {
+    }
 
     // return the PacketType of an incoming network packet
     PacketType packet_type(const Buffer& buf)
@@ -3691,7 +3825,8 @@ namespace openvpn {
     {
       if (control_channel || process_events())
 	{
-	  do {
+            do
+            {
 	    if (primary)
 	      primary->flush();
 	    if (secondary)
@@ -3851,19 +3986,34 @@ namespace openvpn {
 
     // Can we call data_encrypt or data_decrypt yet?
     // Returns true if primary data channel is in ACTIVE state.
-    bool data_channel_ready() const { return primary && primary->data_channel_ready(); }
+    bool data_channel_ready() const
+    {
+        return primary && primary->data_channel_ready();
+    }
 
     // total number of SSL/TLS negotiations during lifetime of ProtoContext object
-    unsigned int negotiations() const { return n_key_ids; }
+    unsigned int negotiations() const
+    {
+        return n_key_ids;
+    }
 
     // worst-case handshake time
-    const Time::Duration& slowest_handshake() { return slowest_handshake_; }
+    const Time::Duration &slowest_handshake()
+    {
+        return slowest_handshake_;
+    }
 
     // was primary context invalidated by an exception?
-    bool invalidated() const { return primary && primary->invalidated(); }
+    bool invalidated() const
+    {
+        return primary && primary->invalidated();
+    }
 
     // reason for invalidation if invalidated() above returns true
-    Error::Type invalidation_reason() const { return primary->invalidation_reason(); }
+    Error::Type invalidation_reason() const
+    {
+        return primary->invalidation_reason();
+    }
 
     // Do late initialization of data channel, for example
     // on client after server push, or on server after client
@@ -3907,8 +4057,12 @@ namespace openvpn {
     void disable_keepalive(unsigned int& keepalive_ping,
 			   unsigned int& keepalive_timeout)
     {
-      keepalive_ping = config->keepalive_ping.enabled() ? config->keepalive_ping.to_seconds() : 0;
-      keepalive_timeout = config->keepalive_timeout.enabled() ? config->keepalive_timeout.to_seconds() : 0;
+        keepalive_ping = config->keepalive_ping.enabled()
+                             ? config->keepalive_ping.to_seconds()
+                             : 0;
+        keepalive_timeout = config->keepalive_timeout.enabled()
+                                ? config->keepalive_timeout.to_seconds()
+                                : 0;
       config->keepalive_ping = Time::Duration::infinite();
       config->keepalive_timeout = Time::Duration::infinite();
       config->keepalive_timeout_early = Time::Duration::infinite();
@@ -3945,29 +4099,68 @@ namespace openvpn {
     }
 
     // current time
-    const Time& now() const { return *now_; }
-    void update_now() { now_->update(); }
+    const Time &now() const
+    {
+        return *now_;
+    }
+    void update_now()
+    {
+        now_->update();
+    }
 
     // frame
-    const Frame& frame() const { return *config->frame; }
-    const Frame::Ptr& frameptr() const { return config->frame; }
+    const Frame &frame() const
+    {
+        return *config->frame;
+    }
+    const Frame::Ptr &frameptr() const
+    {
+        return config->frame;
+    }
 
     // client or server?
-    const Mode& mode() const { return mode_; }
-    bool is_server() const { return mode_.is_server(); }
-    bool is_client() const { return mode_.is_client(); }
+    const Mode &mode() const
+    {
+        return mode_;
+    }
+    bool is_server() const
+    {
+        return mode_.is_server();
+    }
+    bool is_client() const
+    {
+        return mode_.is_client();
+    }
 
     // tcp/udp mode
-    bool is_tcp() { return config->protocol.is_tcp(); }
-    bool is_udp() { return config->protocol.is_udp(); }
+    bool is_tcp()
+    {
+        return config->protocol.is_tcp();
+    }
+    bool is_udp()
+    {
+        return config->protocol.is_udp();
+    }
 
     // configuration
-    const Config& conf() const { return *config; }
-    Config& conf() { return *config; }
-    Config::Ptr conf_ptr() const { return config; }
+    const Config &conf() const
+    {
+        return *config;
+    }
+    Config &conf()
+    {
+        return *config;
+    }
+    Config::Ptr conf_ptr() const
+    {
+        return config;
+    }
 
     // stats
-    SessionStats& stat() const { return *stats; }
+    SessionStats &stat() const
+    {
+        return *stats;
+    }
 
   protected:
     // debugging
@@ -3980,9 +4173,9 @@ namespace openvpn {
     }
 
   private:
-
     // TLS wrapping mode for the control channel
-    enum TLSWrapMode {
+    enum TLSWrapMode
+    {
       TLS_PLAIN,
       TLS_AUTH,
       TLS_CRYPT,
@@ -4066,10 +4259,15 @@ namespace openvpn {
       else
 	{
 	  if (flags == (PacketType::DEFINED|PacketType::CONTROL) && primary)
+            {
 	    return *primary;
-	  else if (flags == (PacketType::DEFINED|PacketType::SECONDARY|PacketType::CONTROL) && secondary)
+            }
+            else if (flags == (PacketType::DEFINED | PacketType::SECONDARY | PacketType::CONTROL)
+                     && secondary)
+            {
 	    return *secondary;
 	}
+        }
       throw select_key_context_error();
     }
 
@@ -4138,7 +4336,9 @@ namespace openvpn {
     {
       // Create the secondary
       secondary.reset(new KeyContext(*this, initiator));
-      OPENVPN_LOG_PROTO_VERBOSE(debug_prefix() << " New KeyContext SECONDARY id=" << secondary->key_id() << (initiator ? " local-triggered" : " remote-triggered"));
+        OPENVPN_LOG_PROTO_VERBOSE(debug_prefix()
+                                  << " New KeyContext SECONDARY id=" << secondary->key_id()
+                                  << (initiator ? " local-triggered" : " remote-triggered"));
     }
 
     // Promote a newly renegotiated KeyContext to primary status.
@@ -4177,12 +4377,14 @@ namespace openvpn {
 	      else
 		{
 		  stats->error(Error::PRIMARY_EXPIRE);
-		  disconnect(Error::PRIMARY_EXPIRE); // primary context expired and no secondary context available
+                    // primary context expired and no secondary context available
+                    disconnect(Error::PRIMARY_EXPIRE);
 		}
 	      break;
 	    case KeyContext::KEV_NEGOTIATE:
 	      stats->error(Error::HANDSHAKE_TIMEOUT);
-	      disconnect(Error::HANDSHAKE_TIMEOUT);   // primary negotiation failed
+                // primary negotiation failed
+                disconnect(Error::HANDSHAKE_TIMEOUT);
 	      break;
 	    default:
 	      break;
@@ -4215,7 +4417,8 @@ namespace openvpn {
 	      break;
 	    case KeyContext::KEV_RENEGOTIATE_QUEUE:
 	      if (primary)
-		primary->key_limit_reneg(KeyContext::KEV_RENEGOTIATE_FORCE, secondary->become_primary_time());
+                    primary->key_limit_reneg(KeyContext::KEV_RENEGOTIATE_FORCE,
+                                             secondary->become_primary_time());
 	      break;
 	    case KeyContext::KEV_NEGOTIATE:
 	      stats->error(Error::HANDSHAKE_TIMEOUT);

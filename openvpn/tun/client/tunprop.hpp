@@ -40,14 +40,17 @@
 #include <openvpn/tun/layer.hpp>
 
 namespace openvpn {
-  class TunProp {
+class TunProp
+{
     // add_dns flags
-    enum {
+    enum
+    {
       F_ADD_DNS=(1<<0),
     };
 
     // render option flags
-    enum {
+    enum
+    {
       OPT_RENDER_FLAGS = Option::RENDER_TRUNC_64 | Option::RENDER_BRACKET
     };
 
@@ -191,7 +194,8 @@ namespace openvpn {
 	}
 
       // set remote server address
-      if (server_addr.defined() && !tb->tun_builder_set_remote_address(server_addr.to_string(),
+        if (server_addr.defined()
+            && !tb->tun_builder_set_remote_address(server_addr.to_string(),
 								       server_addr.version() == IP::Addr::V6))
 	throw tun_prop_error("tun_builder_set_remote_address failed");
 
@@ -211,12 +215,12 @@ namespace openvpn {
     }
 
   private:
-
     static void add_route_metric_default(TunBuilderBase* tb,
 					 const OptionList& opt,
 					 const bool quiet)
     {
-      try {
+        try
+        {
 	const Option* o = opt.get_ptr("route-metric"); // DIRECTIVE
 	if (o)
 	  {
@@ -247,13 +251,17 @@ namespace openvpn {
       return gateway;
     }
 
-    static void tun_mtu(TunBuilderBase *tb, State *state, const OptionList &opt,
-			int config_mtu, int config_mtu_max)
+    static void tun_mtu(TunBuilderBase *tb,
+                        State *state,
+                        const OptionList &opt,
+                        int config_mtu,
+                        int config_mtu_max)
     {
       // MTU
       int tun_mtu = config_mtu;
       const Option *o = opt.get_ptr("tun-mtu");
-      if (o) {
+        if (o)
+        {
 	bool status = parse_number_validate<decltype(tun_mtu)>(o->get(1, 16),
 							       16,
 							       68,
@@ -279,7 +287,8 @@ namespace openvpn {
 					      State* state,
 					      const OptionList& opt)
     {
-      enum Topology {
+        enum Topology
+        {
 	NET30,
 	SUBNET,
       };
@@ -406,7 +415,6 @@ namespace openvpn {
 	  if (!tb->tun_builder_exclude_route(addr_str, prefix_length, metric, ipv6))
 	    throw tun_prop_route_error("tun_builder_exclude_route failed");
 	}
-
     }
 
     // Check the target of a route.
@@ -442,7 +450,8 @@ namespace openvpn {
 	      for (OptionList::IndexList::const_iterator i = dopt->second.begin(); i != dopt->second.end(); ++i)
 		{
 		  const Option& o = opt[*i];
-		  try {
+                    try
+                    {
 		    const IP::AddrMaskPair pair = IP::AddrMaskPair::from_string(o.get(1, 256), o.get_optional(2, 256), "route");
 		    const int metric = o.get_num<int>(4, -1, 0, MAX_ROUTE_METRIC);
 		    if (!pair.is_canonical())
@@ -470,7 +479,8 @@ namespace openvpn {
 	      for (OptionList::IndexList::const_iterator i = dopt->second.begin(); i != dopt->second.end(); ++i)
 		{
 		  const Option& o = opt[*i];
-		  try {
+                    try
+                    {
 		    const IP::AddrMaskPair pair = IP::AddrMaskPair::from_string(o.get(1, 256), "route-ipv6");
 		    const int metric = o.get_num<int>(3, -1, 0, MAX_ROUTE_METRIC);
 		    if (!pair.is_canonical())
@@ -503,7 +513,8 @@ namespace openvpn {
 	  const IP::Addr& addr = *i;
 	  if (addr != server_addr)
 	    {
-	      try {
+                try
+                {
 		const IP::Addr::Version ver = addr.version();
 		add_route_tunbuilder(tb, false, addr, IP::Addr::version_size(ver), -1, ver == IP::Addr::V6, eer);
 	      }
@@ -566,7 +577,8 @@ namespace openvpn {
 	  for (OptionList::IndexList::const_iterator i = dopt->second.begin(); i != dopt->second.end(); ++i)
 	    {
 	      const Option& o = opt[*i];
-	      try {
+                try
+                {
 		const std::string& type = o.get(1, 64);
 		if ((type == "DNS" || type == "DNS6") && dns_options.servers.empty())
 		  {
@@ -647,7 +659,8 @@ namespace openvpn {
 		    OPENVPN_LOG("exception parsing dhcp-option: " << o.render(OPT_RENDER_FLAGS) << " : " << e.what());
 		}
 	    }
-	  try {
+            try
+            {
 	    if (!http_host.empty())
 	      {
 		if (!tb->tun_builder_set_proxy_http(http_host, http_port))
@@ -681,7 +694,8 @@ namespace openvpn {
 	  for (OptionList::IndexList::const_iterator i = dopt->second.begin(); i != dopt->second.end(); ++i)
 	    {
 	      const Option& o = opt[*i];
-	      try {
+                try
+                {
 		const std::string& type = o.get(1, 64);
 		if (type == "DOMAIN")
 		  return true;

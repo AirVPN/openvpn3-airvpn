@@ -175,8 +175,7 @@ namespace openvpn {
 	openvpn_io::post(io_context, [self=Ptr(this)]()
 		   {
 		     OPENVPN_ASYNC_HANDLER;
-		     self->graceful_stop();
-		   });
+		     self->graceful_stop(); });
     }
 
     void pause(const std::string& reason)
@@ -194,7 +193,7 @@ namespace openvpn {
 	  asio_work.reset(new AsioWork(io_context));
 	  ClientEvent::Base::Ptr ev = new ClientEvent::Pause(reason);
 	  client_options->events().add_event(std::move(ev));
-	  // client_options->stats().error(Error::N_PAUSE);
+            client_options->stats().error(Error::N_PAUSE);
 	}
     }
 
@@ -222,8 +221,7 @@ namespace openvpn {
 	  restart_wait_timer.async_wait([self=Ptr(this), gen=generation](const openvpn_io::error_code& error)
                                         {
                                           OPENVPN_ASYNC_HANDLER;
-                                          self->restart_wait_callback(gen, error);
-                                        });
+                                          self->restart_wait_callback(gen, error); });
 	}
     }
 
@@ -233,8 +231,7 @@ namespace openvpn {
 	openvpn_io::post(io_context, [self=Ptr(this), reason]()
 		   {
 		     OPENVPN_ASYNC_HANDLER;
-		     self->pause(reason);
-		   });
+		     self->pause(reason); });
     }
 
     void thread_safe_resume()
@@ -243,8 +240,7 @@ namespace openvpn {
 	openvpn_io::post(io_context, [self=Ptr(this)]()
 		   {
 		     OPENVPN_ASYNC_HANDLER;
-		     self->resume();
-		   });
+		     self->resume(); });
     }
 
     void thread_safe_reconnect(int seconds)
@@ -253,8 +249,7 @@ namespace openvpn {
 	openvpn_io::post(io_context, [self=Ptr(this), seconds]()
 		   {
 		     OPENVPN_ASYNC_HANDLER;
-		     self->reconnect(seconds);
-		   });
+		     self->reconnect(seconds); });
     }
 
     void dont_restart()
@@ -274,8 +269,7 @@ namespace openvpn {
 	openvpn_io::post(io_context, [self=Ptr(this), msg=std::move(msg)]()
 		   {
 		     OPENVPN_ASYNC_HANDLER;
-		     self->post_cc_msg(msg);
-		   });
+		     self->post_cc_msg(msg); });
     }
 
     ~ClientConnect()
@@ -358,8 +352,7 @@ namespace openvpn {
 	  conn_timer.async_wait([self=Ptr(this), gen=generation](const openvpn_io::error_code& error)
                                 {
                                   OPENVPN_ASYNC_HANDLER;
-                                  self->conn_timer_callback(gen, error);
-                                });
+                                  self->conn_timer_callback(gen, error); });
 	  conn_timer_pending = true;
 	}
     }
@@ -413,8 +406,7 @@ namespace openvpn {
       restart_wait_timer.async_wait([self=Ptr(this), gen=generation](const openvpn_io::error_code& error)
                                     {
                                       OPENVPN_ASYNC_HANDLER;
-                                      self->restart_wait_callback(gen, error);
-                                    });
+                                      self->restart_wait_callback(gen, error); });
     }
 
     virtual void client_proto_auth_pending_timeout(int timeout) override
@@ -652,7 +644,7 @@ namespace openvpn {
 	{
 	  ClientEvent::Base::Ptr ev = new ClientEvent::Reconnecting();
 	  client_options->events().add_event(std::move(ev));
-	  // client_options->stats().error(Error::N_RECONNECT);
+            client_options->stats().error(Error::N_RECONNECT);
 	  if (!(client && client->reached_connected_state()))
 	    client_options->next(advance_type);
 	  else
@@ -678,8 +670,7 @@ namespace openvpn {
 	  server_poll_timer.async_wait([self=Ptr(this), gen=generation](const openvpn_io::error_code& error)
                                        {
                                          OPENVPN_ASYNC_HANDLER;
-                                         self->server_poll_callback(gen, error);
-                                       });
+                                         self->server_poll_callback(gen, error); });
 	}
       conn_timer_start(conn_timeout);
       client->start();
@@ -728,6 +719,6 @@ namespace openvpn {
     static constexpr unsigned int default_delay_ = 2000; // ms
   };
 
-}
+} // namespace openvpn
 
 #endif

@@ -149,13 +149,13 @@ namespace openvpn {
       // amount of time to allow our users to switch to something else
       const mbedtls_x509_crt_profile crt_profile_insecure = // CONST GLOBAL
 	{
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_MD5 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA1 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_RIPEMD160 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA224 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA256 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA384 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA512 ),
+        MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_MD5)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA1)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_RIPEMD160)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA224)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA256)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA384)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA512),
 	  0xFFFFFFF, /* Any PK alg    */
 	  0xFFFFFFF, /* Any curve     */
 	  1024,      /* Minimum size for RSA keys */
@@ -164,12 +164,12 @@ namespace openvpn {
 
       const mbedtls_x509_crt_profile crt_profile_legacy = // CONST GLOBAL
 	{
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA1 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_RIPEMD160 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA224 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA256 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA384 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA512 ),
+        MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA1)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_RIPEMD160)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA224)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA256)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA384)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA512),
 	  0xFFFFFFF, /* Any PK alg    */
 	  0xFFFFFFF, /* Any curve     */
 	  1024,      /* Minimum size for RSA keys */
@@ -177,15 +177,15 @@ namespace openvpn {
 
       const mbedtls_x509_crt_profile crt_profile_preferred = // CONST GLOBAL
 	{
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA256 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA384 ) |
-	  MBEDTLS_X509_ID_FLAG( MBEDTLS_MD_SHA512 ),
+        MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA256)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA384)
+            | MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA512),
 	  0xFFFFFFF, /* Any PK alg    */
 	  0xFFFFFFF, /* Any curve     */
 	  2048,      /* Minimum size for RSA keys */
 	};
-    }
-  }
+} // namespace
+} // namespace mbedtls_ctx_private
 
   // Represents an SSL configuration that can be used
   // to instantiate actual SSL sessions.
@@ -194,7 +194,8 @@ namespace openvpn {
   public:
     typedef RCPtr<MbedTLSContext> Ptr;
 
-    enum {
+    enum
+    {
       MAX_CIPHERTEXT_IN = 64 // maximum number of queued input ciphertext packets
     };
 
@@ -206,13 +207,16 @@ namespace openvpn {
     public:
       typedef RCPtr<Config> Ptr;
 
-      Config() : external_pki(nullptr),
+        Config()
+            : external_pki(nullptr),
 		 ssl_debug_level(0),
 		 flags(0),
 		 ns_cert_type(NSCert::NONE),
 		 tls_version_min(TLSVersion::V1_2),
 		 tls_cert_profile(TLSCertProfile::UNDEF),
-		 local_cert_enabled(true) {}
+              local_cert_enabled(true)
+        {
+        }
 
       virtual SSLFactoryAPI::Ptr new_factory()
       {
@@ -247,7 +251,8 @@ namespace openvpn {
 	throw MbedTLSException("set_client_session_tickets not implemented");
       }
 
-      virtual void enable_legacy_algorithms(const bool v) {
+        virtual void enable_legacy_algorithms(const bool v)
+        {
 	// We ignore the request to enable legacy as we do not have a runtime
 	// configuration for this
       }
@@ -652,7 +657,8 @@ namespace openvpn {
     class SSL : public SSLAPI
     {
       // read/write callback errors
-      enum {
+        enum
+        {
 	// assumes that mbed TLS user-defined errors may start at -0x8000
 	CT_WOULD_BLOCK = -0x8000,
 	CT_INTERNAL_ERROR = -0x8001
@@ -779,7 +785,8 @@ namespace openvpn {
       SSL(MbedTLSContext* ctx, const char *hostname)
       {
 	clear();
-	try {
+            try
+            {
 	  const Config& c = *ctx->config;
 	  int endpoint, status;
 
@@ -800,7 +807,8 @@ namespace openvpn {
 	  // init SSL configuration object
 	  sslconf = new mbedtls_ssl_config;
 	  mbedtls_ssl_config_init(sslconf);
-	  mbedtls_ssl_config_defaults(sslconf, endpoint,
+                mbedtls_ssl_config_defaults(sslconf,
+                                            endpoint,
 				      MBEDTLS_SSL_TRANSPORT_STREAM,
 				      MBEDTLS_SSL_PRESET_DEFAULT);
 
@@ -987,7 +995,6 @@ namespace openvpn {
       MbedTLSContext *parent;
 
     private:
-
       void set_mbedtls_cipherlist(const std::string& cipher_list)
       {
 	auto num_ciphers = std::count(cipher_list.begin(), cipher_list.end(), ':') + 1;
@@ -1042,8 +1049,7 @@ namespace openvpn {
 	int i=0;
 	while(std::getline(groups_ss, group, ':'))
 	  {
-	    const mbedtls_ecp_curve_info *ci =
-	      mbedtls_ecp_curve_info_from_name(group.c_str());
+                const mbedtls_ecp_curve_info *ci = mbedtls_ecp_curve_info_from_name(group.c_str());
 
 	    if (ci)
 	      {
@@ -1064,7 +1070,8 @@ namespace openvpn {
       // cleartext read callback
       static int ct_read_func(void *arg, unsigned char *data, size_t length)
       {
-	try {
+            try
+            {
 	  SSL *self = (SSL *)arg;
 	  const size_t actual = self->ct_in.read(data, length);
 	  return actual > 0 ? (int)actual : CT_WOULD_BLOCK;
@@ -1078,7 +1085,8 @@ namespace openvpn {
       // cleartext write callback
       static int ct_write_func(void *arg, const unsigned char *data, size_t length)
       {
-	try {
+            try
+            {
 	  SSL *self = (SSL *)arg;
 	  self->ct_out.write(data, length);
 	  return (int)length;
@@ -1093,14 +1101,17 @@ namespace openvpn {
       static int rng_callback(void *arg, unsigned char *data, size_t len)
       {
 	SSL *self = (SSL *)arg;
-	return self->rng->rand_bytes_noexcept(data, len) ? 0 : -1; // using -1 as a general-purpose mbed TLS error code
+            return self->rng->rand_bytes_noexcept(data, len)
+                       ? 0
+                       : -1; // using -1 as a general-purpose mbed TLS error code
       }
 
       static void dbg_callback(void *arg, int level, const char *filename, int linenum, const char *text)
       {
 	MbedTLSContext *self = (MbedTLSContext *)arg;
 	if (level <= self->config->ssl_debug_level)
-	  OPENVPN_LOG_NTNL("mbed TLS[" << filename << ":" << linenum << " "<< level << "]: " << text);
+                OPENVPN_LOG_NTNL("mbed TLS[" << filename << ":" << linenum << " " << level << "]: "
+                                             << text);
       }
 
       void clear()
@@ -1289,7 +1300,8 @@ namespace openvpn {
       os << "VERIFY "
 	 << status_str
 	 << " : depth=" << depth
-	 << std::endl << cert_info(cert);
+           << std::endl
+           << cert_info(cert);
       return os.str();
     }
 
@@ -1376,7 +1388,6 @@ namespace openvpn {
 	      OPENVPN_LOG_SSL("VERIFY FAIL -- verify-x509-name failed");
 	      fail = true;
 	    }
-
 	  }
 	}
 
@@ -1483,14 +1494,16 @@ namespace openvpn {
 			 unsigned char *sig)
     {
       MbedTLSContext *self = (MbedTLSContext *) arg;
-      try {
+        try
+        {
 	if (mode == MBEDTLS_RSA_PRIVATE)
 	  {
 	    size_t digest_prefix_len = 0;
 	    const unsigned char *digest_prefix = nullptr;
 
 	    /* get signature type */
-	    switch (md_alg) {
+                switch (md_alg)
+                {
 	    case MBEDTLS_MD_NONE:
 	      break;
 	    case MBEDTLS_MD_MD2:
@@ -1603,10 +1616,10 @@ namespace openvpn {
   inline const std::string get_ssl_library_version()
   {
     unsigned int ver = mbedtls_version_get_number();
-    std::string version = "mbed TLS " +
-			  std::to_string((ver>>24)&0xff) +
-			  "." + std::to_string((ver>>16)&0xff) +
-			  "." + std::to_string((ver>>8)&0xff);
+    std::string version = "mbed TLS "
+                          + std::to_string((ver >> 24) & 0xff)
+                          + "." + std::to_string((ver >> 16) & 0xff)
+                          + "." + std::to_string((ver >> 8) & 0xff);
 
     return version;
   }

@@ -76,11 +76,18 @@
 namespace openvpn {
   namespace ClientProto {
 
-    struct NotifyCallback {
+struct NotifyCallback
+{
       virtual void client_proto_terminate() = 0;
-      virtual void client_proto_connected() {}
-      virtual void client_proto_auth_pending_timeout(int timeout) {}
-      virtual void client_proto_renegotiated() {}
+    virtual void client_proto_connected()
+    {
+    }
+    virtual void client_proto_auth_pending_timeout(int timeout)
+    {
+    }
+    virtual void client_proto_renegotiated()
+    {
+    }
     };
 
     class Session : ProtoContext,
@@ -121,7 +128,8 @@ namespace openvpn {
 				 ProfileParseLimits::TERM_OVERHEAD,
 				 0,
 				 ProfileParseLimits::MAX_DIRECTIVE_SIZE)
-	{}
+        {
+        }
 
 	ProtoConfig::Ptr proto_context_config;
 	ProtoContextOptions::Ptr proto_context_options;
@@ -136,7 +144,7 @@ namespace openvpn {
 	OptionList::Limits pushed_options_limit;
 	OptionList::FilterBase::Ptr pushed_options_filter;
 	unsigned int tcp_queue_limit = 64;
-        bool ncp_disable = false;
+    bool ncp_disable = false;
 	bool echo = false;
 	bool info = false;
 	bool autologin_sessions = false;
@@ -181,7 +189,10 @@ namespace openvpn {
 	info_hold.reset(new std::vector<ClientEvent::Base::Ptr>());
       }
 
-      bool first_packet_received() const { return first_packet_received_; }
+    bool first_packet_received() const
+    {
+        return first_packet_received_;
+    }
 
       void start()
       {
@@ -257,7 +268,10 @@ namespace openvpn {
 	stop(true);
       }
 
-      bool reached_connected_state() const { return bool(connected_); }
+    bool reached_connected_state() const
+    {
+        return bool(connected_);
+    }
 
       // If fatal() returns something other than Error::UNDEF, it
       // is intended to flag the higher levels (cliconnect.hpp)
@@ -265,13 +279,25 @@ namespace openvpn {
       // considering the error to be fatal and stopping future connect
       // retries, or emitting a special event.  See cliconnect.hpp
       // for actual implementation.
-      Error::Type fatal() const { return fatal_; }
-      const std::string& fatal_reason() const { return fatal_reason_; }
+    Error::Type fatal() const
+    {
+        return fatal_;
+    }
+    const std::string &fatal_reason() const
+    {
+        return fatal_reason_;
+    }
 
       // Getters for values which could potentially be modified by
       // a server's AUTH_FAILED,TEMP response flags
-      RemoteList::Advance advance_type() const { return temp_fail_advance_; }
-      unsigned int reconnect_delay() const { return temp_fail_backoff_; }
+    RemoteList::Advance advance_type() const
+    {
+        return temp_fail_advance_;
+    }
+    unsigned int reconnect_delay() const
+    {
+        return temp_fail_backoff_;
+    }
 
       virtual ~Session()
       {
@@ -287,7 +313,8 @@ namespace openvpn {
       // transport obj calls here with incoming packets
       void transport_recv(BufferAllocated& buf) override
       {
-	try {
+        try
+        {
 	  OPENVPN_LOG_CLIPROTO("Transport RECV " << server_endpoint_render() << ' ' << Base::dump_packet(buf));
 
 	  // update current time
@@ -367,7 +394,8 @@ namespace openvpn {
       // tun i/o driver calls here with incoming packets
       void tun_recv(BufferAllocated& buf) override
       {
-	try {
+        try
+        {
 	  OPENVPN_LOG_CLIPROTO("TUN recv, size=" << buf.size());
 
 	  // update current time
@@ -470,7 +498,8 @@ namespace openvpn {
 
       void transport_connecting() override
       {
-	try {
+        try
+        {
 	  OPENVPN_LOG("Connecting to " << server_endpoint_render());
 	  Base::set_protocol(transport->transport_protocol());
 	  Base::set_cipher(cipher);
@@ -676,7 +705,8 @@ namespace openvpn {
 	    if (received_options.complete())
 	      {
 		// show options
-		OPENVPN_LOG("OPTIONS:" << std::endl << render_options_sanitized(received_options, Option::RENDER_PASS_FMT|Option::RENDER_NUMBER|Option::RENDER_BRACKET));
+                OPENVPN_LOG("OPTIONS:" << std::endl
+                                       << render_options_sanitized(received_options, Option::RENDER_PASS_FMT | Option::RENDER_NUMBER | Option::RENDER_BRACKET));
 
 		// relay servers are not allowed to establish a tunnel with us
 		if (Base::conf().relay_mode)
@@ -771,8 +801,7 @@ namespace openvpn {
 	    // password, retry with it.  Otherwise, fail without retry.
 	    if (string::starts_with(reason, "TEMP"))
 	      {
-		log_reason = "AUTH_FAILED_TEMP:" +
-			     parse_auth_failed_temp(std::string(reason, 4));
+                log_reason = "AUTH_FAILED_TEMP:" + parse_auth_failed_temp(std::string(reason, 4));
 	      }
 	    else
 	      {
@@ -905,13 +934,17 @@ namespace openvpn {
 	ev->vpn_ip6 = tun->vpn_ip6();
 	ev->vpn_gw4 = tun->vpn_gw4();
 	ev->vpn_gw6 = tun->vpn_gw6();
-	if (tun->vpn_mtu()) {
+        if (tun->vpn_mtu())
+        {
 	  ev->vpn_mtu = std::to_string(tun->vpn_mtu());
-	} else {
+        }
+        else
+        {
 	  ev->vpn_mtu = "(default)";
 	}
 
-	try {
+        try
+        {
 	  std::string client_ip = received_options.get_optional("client-ip", 1, 256);
 	  if (!client_ip.empty())
 	    ev->client_ip = IP::Addr::validate(client_ip, "client-ip");
@@ -921,42 +954,55 @@ namespace openvpn {
 	    OPENVPN_LOG("exception parsing client-ip: " << e.what());
 	  }
 	ev->tun_name = tun->tun_name();
-	try {
-	  ev->topology = received_options.get_optional("topology", 1, 256);
-	  if (ev->topology.empty())
-	    ev->topology = "UNKNOWN";
+    
+	try
+    {
+        ev->topology = received_options.get_optional("topology", 1, 256);
+
+        if (ev->topology.empty())
+            ev->topology = "UNKNOWN";
 	}
-	catch (const std::exception& e)
-	  {
-	    OPENVPN_LOG("exception parsing topology: " << e.what());
-	  }
-	try {
-	  ev->cipher = received_options.get_optional("cipher", 1, 256);
-	  if (ev->cipher.empty())
-	    ev->cipher = "UNKNOWN";
+	catch(const std::exception& e)
+    {
+        OPENVPN_LOG("exception parsing topology: " << e.what());
+    }
+
+	try
+    {
+        ev->cipher = received_options.get_optional("cipher", 1, 256);
+
+        if (ev->cipher.empty())
+            ev->cipher = "UNKNOWN";
 	}
-	catch (const std::exception& e)
-	  {
-	    OPENVPN_LOG("exception parsing cipher: " << e.what());
-	  }
-	try {
-	  ev->ping = std::stoi(received_options.get_optional("ping", 1, 256));
-	  if (ev->ping <= 0)
-	    ev->ping = -1;
+	catch(const std::exception& e)
+    {
+        OPENVPN_LOG("exception parsing cipher: " << e.what());
+    }
+
+	try
+    {
+        ev->ping = std::stoi(received_options.get_optional("ping", 1, 256));
+
+        if (ev->ping <= 0)
+            ev->ping = -1;
 	}
-	catch (const std::exception& e)
-	  {
-	    OPENVPN_LOG("exception parsing ping: " << e.what());
-	  }
-	try {
-	  ev->ping_restart = std::stoi(received_options.get_optional("ping-restart", 1, 256));
-	  if (ev->ping_restart <= 0)
-	    ev->ping_restart = -1;
+	catch(const std::exception& e)
+    {
+        OPENVPN_LOG("exception parsing ping: " << e.what());
+    }
+
+	try
+    {
+        ev->ping_restart = std::stoi(received_options.get_optional("ping-restart", 1, 256));
+
+        if (ev->ping_restart <= 0)
+            ev->ping_restart = -1;
 	}
-	catch (const std::exception& e)
-	  {
-	    OPENVPN_LOG("exception parsing ping-restart: " << e.what());
-	  }
+	catch(const std::exception& e)
+    {
+        OPENVPN_LOG("exception parsing ping-restart: " << e.what());
+    }
+
 	connected_ = std::move(ev);
       }
 
@@ -1009,7 +1055,8 @@ namespace openvpn {
       void send_push_request_callback(const Time::Duration& dur,
 				      const openvpn_io::error_code& e)
       {
-	try {
+        try
+        {
 	  if (!e && !halt && !received_options.partial())
 	    {
 	      Base::update_now();
@@ -1058,8 +1105,7 @@ namespace openvpn {
 	    push_request_timer.async_wait([self=Ptr(this), dur](const openvpn_io::error_code& error)
                                           {
                                             OPENVPN_ASYNC_HANDLER;
-                                            self->send_push_request_callback(dur, error);
-                                          });
+                                            self->send_push_request_callback(dur, error); });
 	  }
       }
 
@@ -1119,7 +1165,8 @@ namespace openvpn {
 
       void housekeeping_callback(const openvpn_io::error_code& e)
       {
-	try {
+        try
+        {
 	  if (!e && !halt)
 	    {
 	      // update current time
@@ -1162,8 +1209,7 @@ namespace openvpn {
 		housekeeping_timer.async_wait([self=Ptr(this)](const openvpn_io::error_code& error)
                                               {
                                                 OPENVPN_ASYNC_HANDLER;
-                                                self->housekeeping_callback(error);
-                                              });
+                                                self->housekeeping_callback(error); });
 	      }
 	    else
 	      {
@@ -1175,7 +1221,8 @@ namespace openvpn {
 
       void process_inactive(const OptionList& opt)
       {
-	try {
+        try
+        {
 	  const Option *o = load_duration_parm(inactive_duration, "inactive", opt, 1, false, false);
 	  if (o)
 	    {
@@ -1196,13 +1243,13 @@ namespace openvpn {
 	inactive_timer.async_wait([self=Ptr(this)](const openvpn_io::error_code& error)
                                   {
                                     OPENVPN_ASYNC_HANDLER;
-                                    self->inactive_callback(error);
-                                  });
+                                    self->inactive_callback(error); });
       }
 
       void inactive_callback(const openvpn_io::error_code& e) // fixme for DCO
       {
-	try {
+        try
+        {
 	  if (!e && !halt)
 	    {
 	      // update current time
@@ -1256,7 +1303,6 @@ namespace openvpn {
 	if (notify_callback)
 	  {
 	    OPENVPN_LOG("Client exception in " << method_name << ": " << e.what());
-
 	    stop(true);
 	  }
 	else
@@ -1288,13 +1334,13 @@ namespace openvpn {
 	info_hold_timer.async_wait([self=Ptr(this)](const openvpn_io::error_code& error)
                                   {
                                     OPENVPN_ASYNC_HANDLER;
-                                    self->info_hold_callback(error);
-                                  });
+                                    self->info_hold_callback(error); });
       }
 
       void info_hold_callback(const openvpn_io::error_code& e)
       {
-	try {
+        try
+        {
 	  if (!e && !halt)
 	    {
 	      Base::update_now();
@@ -1334,7 +1380,7 @@ namespace openvpn {
       TunClientFactory::Ptr tun_factory;
       TunClient::Ptr tun;
 
-      unsigned int tcp_queue_limit = 64;
+    unsigned int tcp_queue_limit;
       bool transport_has_send_queue = false;
 
       NotifyCallback* notify_callback;
@@ -1390,7 +1436,7 @@ namespace openvpn {
       std::ofstream packet_log;
 #endif
     };
-  }
-}
+} // namespace ClientProto
+} // namespace openvpn
 
 #endif

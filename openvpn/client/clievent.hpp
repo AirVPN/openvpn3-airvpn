@@ -40,7 +40,8 @@
 
 namespace openvpn {
   namespace ClientEvent {
-    enum Type {
+enum Type
+{
       // normal events including disconnected, connected, and other transitional events
       DISCONNECTED=0,
       CONNECTED,
@@ -92,7 +93,8 @@ namespace openvpn {
       N_TYPES
     };
 
-    enum {
+enum
+{
       NONFATAL_ERROR_START = TRANSPORT_ERROR, // start of nonfatal errors that automatically reconnect
       FATAL_ERROR_START    = AUTH_FAILED,     // start of fatal errors
     };
@@ -162,9 +164,15 @@ namespace openvpn {
     {
     public:
       typedef RCPtr<Base> Ptr;
-      Base(Type id) : id_(id) {}
+    Base(Type id)
+        : id_(id)
+    {
+    }
 
-      Type id() const { return id_; }
+    Type id() const
+    {
+        return id_;
+    }
 
       const char *name() const
       {
@@ -203,72 +211,114 @@ namespace openvpn {
 
     struct Resolve : public Base
     {
-      Resolve() : Base(RESOLVE) {}
+    Resolve()
+        : Base(RESOLVE)
+    {
+    }
     };
 
     struct Wait : public Base
     {
-      Wait() : Base(WAIT) {}
+    Wait()
+        : Base(WAIT)
+    {
+    }
     };
 
     struct WaitProxy : public Base
     {
-      WaitProxy() : Base(WAIT_PROXY) {}
+    WaitProxy()
+        : Base(WAIT_PROXY)
+    {
+    }
     };
 
     struct Connecting : public Base
     {
-      Connecting() : Base(CONNECTING) {}
+    Connecting()
+        : Base(CONNECTING)
+    {
+    }
     };
 
     struct Reconnecting : public Base
     {
-      Reconnecting() : Base(RECONNECTING) {}
+    Reconnecting()
+        : Base(RECONNECTING)
+    {
+    }
     };
 
     struct GetConfig : public Base
     {
-      GetConfig() : Base(GET_CONFIG) {}
+    GetConfig()
+        : Base(GET_CONFIG)
+    {
+    }
     };
 
     struct AssignIP : public Base
     {
-      AssignIP() : Base(ASSIGN_IP) {}
+    AssignIP()
+        : Base(ASSIGN_IP)
+    {
+    }
     };
 
     struct AddRoutes : public Base
     {
-      AddRoutes() : Base(ADD_ROUTES) {}
+    AddRoutes()
+        : Base(ADD_ROUTES)
+    {
+    }
     };
 
     struct Resume : public Base
     {
-      Resume() : Base(RESUME) {}
+    Resume()
+        : Base(RESUME)
+    {
+    }
     };
 
     struct Relay : public Base
     {
-      Relay() : Base(RELAY) {}
+    Relay()
+        : Base(RELAY)
+    {
+    }
     };
 
     struct Disconnected : public Base
     {
-      Disconnected() : Base(DISCONNECTED) {}
+    Disconnected()
+        : Base(DISCONNECTED)
+    {
+    }
     };
 
     struct ConnectionTimeout : public Base
     {
-      ConnectionTimeout() : Base(CONNECTION_TIMEOUT) {}
+    ConnectionTimeout()
+        : Base(CONNECTION_TIMEOUT)
+    {
+    }
     };
 
     struct InactiveTimeout : public Base
     {
-      InactiveTimeout() : Base(INACTIVE_TIMEOUT) {}
+    InactiveTimeout()
+        : Base(INACTIVE_TIMEOUT)
+    {
+    }
     };
 
     struct TLSVersionMinFail : public Base
     {
-      TLSVersionMinFail() : Base(TLS_VERSION_MIN) {}
+    TLSVersionMinFail()
+        : Base(TLS_VERSION_MIN)
+    {
+    }
     };
 
 #ifdef HAVE_JSON
@@ -308,7 +358,9 @@ namespace openvpn {
 	: Base(UNSUPPORTED_FEATURE),
 	  name(name_arg),
 	  reason(reason_arg),
-	  critical(critical_arg) {}
+          critical(critical_arg)
+    {
+    }
 
       std::string name;
       std::string reason;
@@ -326,7 +378,10 @@ namespace openvpn {
     {
       typedef RCPtr<Connected> Ptr;
 
-      Connected() : Base(CONNECTED) {}
+    Connected()
+        : Base(CONNECTED)
+    {
+    }
 
       std::string user;
       std::string server_host;
@@ -365,7 +420,8 @@ namespace openvpn {
       }
     };
 
-    struct ReasonBase : public Base {
+struct ReasonBase : public Base
+{
       ReasonBase(const Type id, const std::string& reason_arg)
 	: Base(id),
 	  reason(reason_arg)
@@ -388,108 +444,171 @@ namespace openvpn {
 
     struct AuthFailed : public ReasonBase
     {
-      AuthFailed(std::string reason) : ReasonBase(AUTH_FAILED, std::move(reason)) {}
+    AuthFailed(std::string reason)
+        : ReasonBase(AUTH_FAILED, std::move(reason))
+    {
+    }
     };
 
     struct CertVerifyFail : public ReasonBase
     {
-      CertVerifyFail(std::string reason) : ReasonBase(CERT_VERIFY_FAIL, std::move(reason)) {}
+    CertVerifyFail(std::string reason)
+        : ReasonBase(CERT_VERIFY_FAIL, std::move(reason))
+    {
+    }
     };
 
     struct ClientHalt : public ReasonBase
     {
-      ClientHalt(std::string reason) : ReasonBase(CLIENT_HALT, std::move(reason)) {}
+    ClientHalt(std::string reason)
+        : ReasonBase(CLIENT_HALT, std::move(reason))
+    {
+    }
     };
 
     struct ClientRestart : public ReasonBase
     {
-      ClientRestart(std::string reason) : ReasonBase(CLIENT_RESTART, std::move(reason)) {}
+    ClientRestart(std::string reason)
+        : ReasonBase(CLIENT_RESTART, std::move(reason))
+    {
+    }
     };
 
     struct TunHalt : public ReasonBase
     {
-      TunHalt(std::string reason) : ReasonBase(TUN_HALT, std::move(reason)) {}
+    TunHalt(std::string reason)
+        : ReasonBase(TUN_HALT, std::move(reason))
+    {
+    }
     };
 
     struct RelayError : public ReasonBase
     {
-      RelayError(std::string reason) : ReasonBase(RELAY_ERROR, std::move(reason)) {}
+    RelayError(std::string reason)
+        : ReasonBase(RELAY_ERROR, std::move(reason))
+    {
+    }
     };
 
     struct DynamicChallenge : public ReasonBase
     {
-      DynamicChallenge(std::string reason) : ReasonBase(DYNAMIC_CHALLENGE, std::move(reason)) {}
+    DynamicChallenge(std::string reason)
+        : ReasonBase(DYNAMIC_CHALLENGE, std::move(reason))
+    {
+    }
     };
 
     struct Pause : public ReasonBase
     {
-      Pause(std::string reason) : ReasonBase(PAUSE, std::move(reason)) {}
+    Pause(std::string reason)
+        : ReasonBase(PAUSE, std::move(reason))
+    {
+    }
     };
 
     struct ProxyError : public ReasonBase
     {
-      ProxyError(std::string reason) : ReasonBase(PROXY_ERROR, std::move(reason)) {}
+    ProxyError(std::string reason)
+        : ReasonBase(PROXY_ERROR, std::move(reason))
+    {
+    }
     };
 
     struct ProxyNeedCreds : public ReasonBase
     {
-      ProxyNeedCreds(std::string reason) : ReasonBase(PROXY_NEED_CREDS, std::move(reason)) {}
+    ProxyNeedCreds(std::string reason)
+        : ReasonBase(PROXY_NEED_CREDS, std::move(reason))
+    {
+    }
     };
 
     struct TransportError : public ReasonBase
     {
-      TransportError(std::string reason) : ReasonBase(TRANSPORT_ERROR, std::move(reason)) {}
+    TransportError(std::string reason)
+        : ReasonBase(TRANSPORT_ERROR, std::move(reason))
+    {
+    }
     };
 
     struct TunSetupFailed : public ReasonBase
     {
-      TunSetupFailed(std::string reason) : ReasonBase(TUN_SETUP_FAILED, std::move(reason)) {}
+    TunSetupFailed(std::string reason)
+        : ReasonBase(TUN_SETUP_FAILED, std::move(reason))
+    {
+    }
     };
 
     struct TunIfaceCreate : public ReasonBase
     {
-      TunIfaceCreate(std::string reason) : ReasonBase(TUN_IFACE_CREATE, std::move(reason)) {}
+    TunIfaceCreate(std::string reason)
+        : ReasonBase(TUN_IFACE_CREATE, std::move(reason))
+    {
+    }
     };
 
     struct TunIfaceDisabled : public ReasonBase
     {
-      TunIfaceDisabled(std::string reason) : ReasonBase(TUN_IFACE_DISABLED, std::move(reason)) {}
+    TunIfaceDisabled(std::string reason)
+        : ReasonBase(TUN_IFACE_DISABLED, std::move(reason))
+    {
+    }
     };
 
     struct TunError : public ReasonBase
     {
-      TunError(std::string reason) : ReasonBase(TUN_ERROR, std::move(reason)) {}
+    TunError(std::string reason)
+        : ReasonBase(TUN_ERROR, std::move(reason))
+    {
+    }
     };
 
     struct EpkiError : public ReasonBase
     {
-      EpkiError(std::string reason) : ReasonBase(EPKI_ERROR, std::move(reason)) {}
+    EpkiError(std::string reason)
+        : ReasonBase(EPKI_ERROR, std::move(reason))
+    {
+    }
     };
 
     struct EpkiInvalidAlias : public ReasonBase
     {
-      EpkiInvalidAlias(std::string reason) : ReasonBase(EPKI_INVALID_ALIAS, std::move(reason)) {}
+    EpkiInvalidAlias(std::string reason)
+        : ReasonBase(EPKI_INVALID_ALIAS, std::move(reason))
+    {
+    }
     };
 
     struct Echo : public ReasonBase
     {
-      Echo(std::string value) : ReasonBase(ECHO_OPT, std::move(value)) {}
+    Echo(std::string value)
+        : ReasonBase(ECHO_OPT, std::move(value))
+    {
+    }
     };
 
     struct Info : public ReasonBase
     {
-      Info(std::string value) : ReasonBase(INFO, std::move(value)) {}
+    Info(std::string value)
+        : ReasonBase(INFO, std::move(value))
+    {
+    }
     };
 
     struct AuthPending : public ReasonBase
     {
       int timeout;
-      AuthPending(int timeout, std::string value): ReasonBase(AUTH_PENDING, std::move(value)), timeout(timeout) {}
+    AuthPending(int timeout, std::string value)
+        : ReasonBase(AUTH_PENDING, std::move(value)), timeout(timeout)
+    {
+    }
     };
 
     struct Warn : public ReasonBase
     {
-      Warn(std::string value) : ReasonBase(WARN, std::move(value)) {}
+    Warn(std::string value)
+        : ReasonBase(WARN, std::move(value))
+    {
+    }
     };
 
     class ClientSetup : public ReasonBase
@@ -527,7 +646,7 @@ namespace openvpn {
 
       virtual void add_event(Base::Ptr event) = 0;
     };
-  }
-}
+} // namespace ClientEvent
+} // namespace openvpn
 
 #endif // OPENVPN_CLIENT_CLIEVENT_H

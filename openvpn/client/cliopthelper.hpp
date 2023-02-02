@@ -48,9 +48,11 @@
 #include <openvpn/ssl/sslchoose.hpp>
 
 namespace openvpn {
-  class ParseClientConfig {
+class ParseClientConfig
+{
   public:
-    struct ServerEntry {
+    struct ServerEntry
+    {
       std::string server;
       std::string friendlyName;
     };
@@ -59,7 +61,8 @@ namespace openvpn {
     {
     };
 
-    struct RemoteItem {
+    struct RemoteItem
+    {
       std::string host;
       std::string port;
       std::string proto;
@@ -72,7 +75,8 @@ namespace openvpn {
 
     ParseClientConfig(const OptionList& options)
     {
-      try {
+        try
+        {
 	// reset POD types
 	reset_pod();
 
@@ -214,11 +218,9 @@ namespace openvpn {
 	    if (o)
 	      {
 		const std::string& key_txt = o->get(1, Option::MULTILINE);
-		privateKeyPasswordRequired_ = (
-	            key_txt.find("-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\n") != std::string::npos
+                    privateKeyPasswordRequired_ = (key_txt.find("-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\n") != std::string::npos
 	         || key_txt.find("-----BEGIN EC PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\n") != std::string::npos
-		 || key_txt.find("-----BEGIN ENCRYPTED PRIVATE KEY-----") != std::string::npos
-		);
+                                                   || key_txt.find("-----BEGIN ENCRYPTED PRIVATE KEY-----") != std::string::npos);
 	      }
 	  }
 
@@ -312,10 +314,13 @@ namespace openvpn {
 	unsigned int lflags = SSLConfigAPI::LF_PARSE_MODE;
 
 	// ssl lib configuration
-	try {
+            try
+            {
 	  sslConfig.reset(new SSLLib::SSLAPI::Config());
 	  sslConfig->load(options, lflags);
-	} catch (...) {
+            }
+            catch (...)
+            {
 	  sslConfig.reset();
 	}
       }
@@ -346,7 +351,8 @@ namespace openvpn {
 				   OptionList::KeyValueList* content_list,
 				   OptionList& options)
     {
-      try {
+        try
+        {
 	OptionList::Limits limits("profile is too large",
 				  ProfileParseLimits::MAX_PROFILE_SIZE,
 				  ProfileParseLimits::OPT_OVERHEAD,
@@ -400,62 +406,126 @@ namespace openvpn {
     }
 
     // true if error
-    bool error() const { return error_; }
+    bool error() const
+    {
+        return error_;
+    }
 
     // if error, message given here
-    const std::string& message() const { return message_; }
+    const std::string &message() const
+    {
+        return message_;
+    }
 
     // this username must be used with profile
-    const std::string& userlockedUsername() const { return userlockedUsername_; }
+    const std::string &userlockedUsername() const
+    {
+        return userlockedUsername_;
+    }
 
     // profile name of config
-    const std::string& profileName() const { return profileName_; }
+    const std::string &profileName() const
+    {
+        return profileName_;
+    }
 
     // "friendly" name of config
-    const std::string& friendlyName() const { return friendlyName_; }
+    const std::string &friendlyName() const
+    {
+        return friendlyName_;
+    }
 
     // true: no creds required, false: username/password required
-    bool autologin() const { return autologin_; }
+    bool autologin() const
+    {
+        return autologin_;
+    }
 
     // profile embedded password via <auth-user-pass>
-    bool hasEmbeddedPassword() const { return hasEmbeddedPassword_; }
-    const std::string& embeddedPassword() const { return embeddedPassword_; }
+    bool hasEmbeddedPassword() const
+    {
+        return hasEmbeddedPassword_;
+    }
+    const std::string &embeddedPassword() const
+    {
+        return embeddedPassword_;
+    }
 
     // true: no client cert/key required, false: client cert/key required
-    bool clientCertEnabled() const { return clientCertEnabled_; }
+    bool clientCertEnabled() const
+    {
+        return clientCertEnabled_;
+    }
 
     // if true, this is an External PKI profile (no cert or key directives)
-    bool externalPki() const { return externalPki_; }
+    bool externalPki() const
+    {
+        return externalPki_;
+    }
 
     // static challenge, may be empty, ignored if autologin
-    const std::string& staticChallenge() const { return staticChallenge_; }
+    const std::string &staticChallenge() const
+    {
+        return staticChallenge_;
+    }
 
     // true if static challenge response should be echoed to UI, ignored if autologin
-    bool staticChallengeEcho() const { return staticChallengeEcho_; }
+    bool staticChallengeEcho() const
+    {
+        return staticChallengeEcho_;
+    }
 
     // true if this profile requires a private key password
-    bool privateKeyPasswordRequired() const { return privateKeyPasswordRequired_; }
+    bool privateKeyPasswordRequired() const
+    {
+        return privateKeyPasswordRequired_;
+    }
 
     // true if user is allowed to save authentication password in UI
-    bool allowPasswordSave() const { return allowPasswordSave_; }
+    bool allowPasswordSave() const
+    {
+        return allowPasswordSave_;
+    }
 
     // true if "setenv PUSH_PEER_INFO" or "push-peer-info" are defined
-    bool pushPeerInfo() const { return pushPeerInfo_; }
+    bool pushPeerInfo() const
+    {
+        return pushPeerInfo_;
+    }
 
     // "setenv UV_x" directives if pushPeerInfo() is true
-    const PeerInfo::Set* peerInfoUV() const { return peerInfoUV_.get(); }
+    const PeerInfo::Set *peerInfoUV() const
+    {
+        return peerInfoUV_.get();
+    }
 
     // optional list of user-selectable VPN servers
-    const ServerList& serverList() const { return serverList_; }
+    const ServerList &serverList() const
+    {
+        return serverList_;
+    }
 
     // return first remote directive in config
-    const RemoteItem& firstRemoteListItem() const { return firstRemoteListItem_; }
-    const RemoteList::Ptr getRemoteList() const { return remoteList; }
+    const RemoteItem& firstRemoteListItem() const
+    {
+        return firstRemoteListItem_;
+    }
 
-    const std::string& windowsDriver() const { return windowsDriver_; }
+    const RemoteList::Ptr getRemoteList() const
+    {
+        return remoteList;
+    }
+
+    const std::string& windowsDriver() const
+    {
+        return windowsDriver_;
+    }
 
     // cipher in config
-    const std::string& cipher() const { return cipher_; }
+    const std::string& cipher() const
+    {
+        return cipher_;
+    }
 
     std::string to_string() const
     {
@@ -490,12 +560,14 @@ namespace openvpn {
       }
       if (protoConfig->tls_crypt_context)
       {
-	os << "<tls-crypt>" << std::endl << protoConfig->tls_key.render() << "</tls-crypt>"
+            os << "<tls-crypt>" << std::endl
+               << protoConfig->tls_key.render() << "</tls-crypt>"
 	   << std::endl;
       }
       else if (protoConfig->tls_auth_context)
       {
-	os << "<tls-auth>" << std::endl << protoConfig->tls_key.render() << "</tls-auth>"
+            os << "<tls-auth>" << std::endl
+               << protoConfig->tls_key.render() << "</tls-auth>"
 	   << std::endl;
 	os << "key_direction " << protoConfig->key_direction << std::endl;
       }
@@ -624,6 +696,7 @@ namespace openvpn {
     {
       if (pem.empty())
 	return;
+
       os << "<" << label << ">" << std::endl << pem << "</" << label << ">" << std::endl;
     }
 
@@ -633,6 +706,7 @@ namespace openvpn {
     {
       if (pem.empty())
 	return;
+
       obj[key] = Json::Value(pem);
     }
 
@@ -743,6 +817,6 @@ namespace openvpn {
     std::string windowsDriver_;
     std::string cipher_;
   };
-}
+} // namespace openvpn
 
 #endif

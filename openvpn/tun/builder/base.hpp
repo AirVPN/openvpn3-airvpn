@@ -264,7 +264,9 @@ namespace openvpn {
       return false;
     }
 
-    virtual ~TunBuilderBase() {}
+    virtual ~TunBuilderBase()
+    {
+    }
 
 #ifdef ENABLE_OVPNDCO
     /**
@@ -298,8 +300,12 @@ namespace openvpn {
      * @vpn4 IPv4 address associated with this peer in the tunnel
      * @vpn6 IPv6 address associated with this peer in the tunnel
      */
-    virtual void tun_builder_dco_new_peer(uint32_t peer_id, uint32_t transport_fd, struct sockaddr *sa,
-					  socklen_t salen, IPv4::Addr& vpn4, IPv6::Addr& vpn6)
+    virtual void tun_builder_dco_new_peer(uint32_t peer_id,
+                                          uint32_t transport_fd,
+                                          struct sockaddr *sa,
+                                          socklen_t salen,
+                                          IPv4::Addr &vpn4,
+                                          IPv6::Addr &vpn6)
     {
     }
 
@@ -374,8 +380,7 @@ namespace openvpn {
     {
     }
 #endif // ENABLE_DCO
-
   };
-}
+} // namespace openvpn
 
 #endif

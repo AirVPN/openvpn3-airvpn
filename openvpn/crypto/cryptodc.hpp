@@ -55,7 +55,8 @@ namespace openvpn {
     // Initialization
 
     // return value of defined()
-    enum {
+    enum
+    {
       CIPHER_DEFINED=(1<<0),  // may call init_cipher method
       HMAC_DEFINED=(1<<1),    // may call init_hmac method
       CRYPTO_DEFINED=(1<<2),  // may call encrypt or decrypt methods
@@ -64,27 +65,35 @@ namespace openvpn {
     virtual unsigned int defined() const = 0;
 
     virtual void init_cipher(StaticKey&& encrypt_key,
-			     StaticKey&& decrypt_key) = 0;
+                             StaticKey &&decrypt_key)
+        = 0;
 
     virtual void init_hmac(StaticKey&& encrypt_key,
-			   StaticKey&& decrypt_key) = 0;
+                           StaticKey &&decrypt_key)
+        = 0;
 
     virtual void init_pid(const int send_form,
 			  const int recv_mode,
 			  const int recv_form,
 			  const char *recv_name,
 			  const int recv_unit,
-			  const SessionStats::Ptr& recv_stats_arg) = 0;
+                          const SessionStats::Ptr &recv_stats_arg)
+        = 0;
 
-    virtual void init_remote_peer_id(const int remote_peer_id) {}
+    virtual void init_remote_peer_id(const int remote_peer_id)
+    {
+    }
 
     virtual bool consider_compression(const CompressContext& comp_ctx) = 0;
 
-    virtual void explicit_exit_notify() {}
+    virtual void explicit_exit_notify()
+    {
+    }
 
     // Rekeying
 
-    enum RekeyType {
+    enum RekeyType
+    {
       ACTIVATE_PRIMARY,
       ACTIVATE_PRIMARY_MOVE,
       NEW_SECONDARY,
@@ -100,15 +109,21 @@ namespace openvpn {
   class CryptoDCContext : public RC<thread_unsafe_refcount>
   {
   public:
-    explicit CryptoDCContext(const CryptoAlgs::KeyDerivation method): key_derivation(method) {}
+    explicit CryptoDCContext(const CryptoAlgs::KeyDerivation method)
+        : key_derivation(method)
+    {
+    }
 
     typedef RCPtr<CryptoDCContext> Ptr;
 
     virtual CryptoDCInstance::Ptr new_obj(const unsigned int key_id) = 0;
 
     // cipher/HMAC/key info
-    struct Info {
-      Info() {}
+    struct Info
+    {
+        Info()
+        {
+        }
       CryptoAlgs::Type cipher_alg = CryptoAlgs::NONE;
       CryptoAlgs::Type hmac_alg = CryptoAlgs::NONE;
       CryptoAlgs::KeyDerivation key_derivation = CryptoAlgs::KeyDerivation::OPENVPN_PRF;
@@ -117,8 +132,10 @@ namespace openvpn {
 
     // Info for ProtoContext::link_mtu_adjust
     virtual size_t encap_overhead() const = 0;
+
   protected:
-    CryptoAlgs::KeyDerivation key_derivation = CryptoAlgs::KeyDerivation::OPENVPN_PRF;;
+    CryptoAlgs::KeyDerivation key_derivation = CryptoAlgs::KeyDerivation::OPENVPN_PRF;
+    ;
   };
 
   // Factory for CryptoDCContext objects
@@ -129,7 +146,8 @@ namespace openvpn {
 
     virtual CryptoDCContext::Ptr new_obj(const CryptoAlgs::Type cipher,
 					 const CryptoAlgs::Type digest,
-					 const CryptoAlgs::KeyDerivation method) = 0;
+                                         const CryptoAlgs::KeyDerivation method)
+        = 0;
   };
 
   // Manage cipher/digest settings, DC factory, and DC context.
@@ -197,7 +215,10 @@ namespace openvpn {
       ncp_enabled_ = true;
     }
 
-    CryptoAlgs::Type cipher() const { return cipher_; }
+    CryptoAlgs::Type cipher() const
+    {
+        return cipher_;
+    }
 
     bool ncp_enabled() const
     {
@@ -216,7 +237,11 @@ namespace openvpn {
       return (CryptoAlgs::use_cipher_digest(cipher_) ? digest_ : CryptoAlgs::NONE);
     }
 
-    CryptoDCFactory::Ptr factory() const { return factory_; }
+
+    CryptoDCFactory::Ptr factory() const
+    {
+        return factory_;
+    }
 
     void set_key_derivation(CryptoAlgs::KeyDerivation method)
     {
@@ -238,6 +263,6 @@ namespace openvpn {
     bool dirty = false;
     bool ncp_enabled_ = true;
   };
-}
+} // namespace openvpn
 
 #endif

@@ -29,7 +29,8 @@
 namespace openvpn {
   namespace Error {
 
-    enum Type {
+enum Type
+{
       SUCCESS=0,           // no error
       NETWORK_RECV_ERROR,  // errors receiving on network socket
       NETWORK_EOF_ERROR,   // EOF received on TCP network socket
@@ -174,9 +175,9 @@ namespace openvpn {
 	"KEY_STATE_ERROR",
 	"PROXY_ERROR",
 	"PROXY_NEED_CREDS",
-        "BAD_DC_CIPHER_ERROR",
-        "BAD_DC_DIGEST_ERROR",
-        "EARLY_NEG_INVALID",
+    "BAD_DC_CIPHER_ERROR",
+    "BAD_DC_DIGEST_ERROR",
+    "EARLY_NEG_INVALID",
 	"KEV_NEGOTIATE_ERROR",
 	"KEV_PENDING_ERROR",
 	"N_KEV_EXPIRE",
@@ -194,7 +195,7 @@ namespace openvpn {
       else
 	return "UNKNOWN_ERROR_TYPE";
     }
-  }
+} // namespace Error
 } // namespace openvpn
 
 #endif // OPENVPN_ERROR_ERROR_H

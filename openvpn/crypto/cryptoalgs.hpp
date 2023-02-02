@@ -43,7 +43,8 @@ namespace openvpn {
     OPENVPN_EXCEPTION(crypto_alg);
     OPENVPN_SIMPLE_EXCEPTION(crypto_alg_index);
 
-    enum class KeyDerivation {
+enum class KeyDerivation
+{
       UNDEFINED,
       OPENVPN_PRF,
       TLS_EKM
@@ -64,7 +65,8 @@ namespace openvpn {
 	}
     }
 
-    enum Type {
+enum Type
+{
       NONE=0,
 
       // CBC ciphers
@@ -96,14 +98,16 @@ namespace openvpn {
       SIZE,
     };
 
-    enum Mode {
+enum Mode
+{
       MODE_UNDEF=0,
       CBC_HMAC,
       AEAD,
       MODE_MASK=0x03,
     };
 
-    enum AlgFlags {       // bits below must start after Mode bits
+enum AlgFlags
+{                         // bits below must start after Mode bits
       F_CIPHER=(1<<2),    // alg is a cipher
       F_DIGEST=(1<<3),    // alg is a digest
       F_ALLOW_DC=(1<<4)  // alg may be used in OpenVPN data channel
@@ -111,7 +115,8 @@ namespace openvpn {
 
     // size in bytes of AEAD "nonce tail" normally taken from
     // HMAC key material
-    enum {
+enum
+{
       AEAD_NONCE_TAIL_SIZE = 8
     };
 
@@ -132,19 +137,49 @@ namespace openvpn {
       {
       }
 
-      const char *name() const { return name_; }
-      unsigned int flags() const { return flags_; }      // contains Mode and AlgFlags
-      Mode mode() const { return Mode(flags_ & MODE_MASK); }
-      size_t size() const { return size_; }              // digest size
-      size_t key_length() const { return size_; }        // cipher key length
-      size_t iv_length() const { return iv_length_; }    // cipher only
-      size_t block_size() const { return block_size_; }  // cipher only
-      bool dc_cipher() const { return (flags_ & F_CIPHER) && (flags_ & F_ALLOW_DC); }
-      bool dc_digest() const { return (flags_ & F_DIGEST) && (flags_ & F_ALLOW_DC); }
+    const char *name() const
+    {
+        return name_;
+    }
+    unsigned int flags() const
+    {
+        return flags_;
+    } // contains Mode and AlgFlags
+    Mode mode() const
+    {
+        return Mode(flags_ & MODE_MASK);
+    }
+    size_t size() const
+    {
+        return size_;
+    } // digest size
+    size_t key_length() const
+    {
+        return size_;
+    } // cipher key length
+    size_t iv_length() const
+    {
+        return iv_length_;
+    } // cipher only
+    size_t block_size() const
+    {
+        return block_size_;
+    } // cipher only
+    bool dc_cipher() const
+    {
+        return (flags_ & F_CIPHER) && (flags_ & F_ALLOW_DC);
+    }
+    bool dc_digest() const
+    {
+        return (flags_ & F_DIGEST) && (flags_ & F_ALLOW_DC);
+    }
 
-	  void allow_dc(bool allow) {
-	if (allow) flags_ |= F_ALLOW_DC;
-	else       flags_ &= ~F_ALLOW_DC;
+    void allow_dc(bool allow)
+    {
+        if (allow)
+            flags_ |= F_ALLOW_DC;
+        else
+            flags_ &= ~F_ALLOW_DC;
       }
 
     private:
@@ -156,6 +191,7 @@ namespace openvpn {
     };
 
     static std::array<Alg, Type::SIZE> algs = {
+    // clang-format off
       Alg {"NONE",               F_CIPHER|F_DIGEST|CBC_HMAC,   0,  0,  0 },
       Alg {"AES-128-CBC",        F_CIPHER|CBC_HMAC,           16, 16, 16 },
       Alg {"AES-192-CBC",        F_CIPHER|CBC_HMAC,           24, 16, 16 },
@@ -175,6 +211,7 @@ namespace openvpn {
       Alg {"SHA256",             F_DIGEST,                    32,  0,  0 },
       Alg {"SHA384",             F_DIGEST,                    48,  0,  0 },
       Alg {"SHA512",             F_DIGEST,                    64,  0,  0 }
+    // clang-format on
     };
 
     inline bool defined(const Type type)
@@ -260,7 +297,6 @@ namespace openvpn {
     inline Type legal_dc_cipher(const Type type)
     {
       const Alg& alg = get(type);
-
       if(!alg.dc_cipher())
       {
           std::string msg;
@@ -277,7 +313,6 @@ namespace openvpn {
     inline Type legal_dc_digest(const Type type)
     {
       const Alg& alg = get(type);
-
       if(!alg.dc_digest())
       {
           std::string msg;
@@ -294,7 +329,6 @@ namespace openvpn {
     inline Type dc_cbc_cipher(const Type type)
     {
       const Alg& alg = get(type);
-
       if(!(alg.flags() & CBC_HMAC))
       {
           std::string msg;
@@ -311,7 +345,6 @@ namespace openvpn {
     inline Type dc_cbc_hash(const Type type)
     {
       const Alg& alg = get(type);
-
       if(!(alg.flags() & F_DIGEST))
       {
           std::string msg;
@@ -350,7 +383,8 @@ namespace openvpn {
 	  for (auto& alg : algs)
 		alg.allow_dc(false);
 
-	  CryptoAlgs::for_each([preferred, libctx, legacy](CryptoAlgs::Type type, const CryptoAlgs::Alg& alg) -> bool {
+    CryptoAlgs::for_each([preferred, libctx, legacy](CryptoAlgs::Type type, const CryptoAlgs::Alg &alg) -> bool
+                         {
 		/* Defined in the algorithm but not actually related to data channel */
 		if (type == MD4 || type == AES_256_CTR)
 		  return false;
@@ -375,8 +409,7 @@ namespace openvpn {
 
 		/* This algorithm has passed all checks, enable it for DC */
 		algs.at(type).allow_dc(true);
-		return true;
-	  });
+		return true; });
     }
 
     /**
@@ -392,7 +425,7 @@ namespace openvpn {
       const Alg& alg = get(type);
       return alg.mode() != AEAD;
     }
-  }
-}
+} // namespace CryptoAlgs
+} // namespace openvpn
 
 #endif

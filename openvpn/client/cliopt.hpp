@@ -219,7 +219,8 @@ namespace openvpn {
 	synchronous_dns_lookup(false),
 	retry_on_auth_failed_(config.retry_on_auth_failed)
 #ifdef OPENVPN_EXTERNAL_TRANSPORT_FACTORY
-	,extern_transport_factory(config.extern_transport_factory)
+          ,
+          extern_transport_factory(config.extern_transport_factory)
 #endif
     {
       unsigned int limit = 0;
@@ -413,9 +414,12 @@ namespace openvpn {
 #if defined(OPENVPN_PLATFORM_ANDROID)
 	// Android VPN API only supports excluded IP prefixes starting with Android 13/API 33,
 	// so we must emulate them for earlier platforms
-	if (config.enable_route_emulation) {
+                if (config.enable_route_emulation)
+                {
 	  tunconf->eer_factory.reset(new EmulateExcludeRouteFactoryImpl(false));
-	} else {
+                }
+                else
+                {
 	  tunconf->eer_factory.reset(nullptr);
 	}
 #endif
@@ -579,14 +583,14 @@ namespace openvpn {
 	    {
 	      push_base->singleton.emplace_back("block-ipv4");
 	    }
-
 	}
       }
 
       handle_unused_options(opt);
     }
 
-    void check_for_incompatible_options(const OptionList &opt) {
+    void check_for_incompatible_options(const OptionList &opt)
+    {
       // secret option not supported
       if (opt.exists("secret"))
 	throw option_error("sorry, static key encryption mode (non-SSL/TLS) is not supported");
@@ -881,24 +885,29 @@ namespace openvpn {
         showUnusedOptionsByList(opt, ignore_unknown_option_list, "Ignored by option 'ignore-unknown-option'", false);
         showUnusedOptionsByList(opt, settings_ignoreWithWarning, "Unsupported option (ignored)", false);
 
-        auto ignoredBySetenvOpt = [](const Option &option) { return !option.touched() && option.warnonlyunknown(); };
+        auto ignoredBySetenvOpt = [](const Option &option)
+        { return !option.touched() && option.warnonlyunknown(); };
         showOptionsByFunction(opt, ignoredBySetenvOpt, "Ignored options prefixed with 'setenv opt'", false);
 
-        auto unusedMetaOpt = [](const Option &option) { return !option.touched() && option.meta(); };
+        auto unusedMetaOpt = [](const Option &option)
+        { return !option.touched() && option.meta(); };
         showOptionsByFunction(opt, unusedMetaOpt, "Unused ignored meta options", false);
 
-        auto managmentOpt = [](const Option &option) { return !option.touched() && option.get(0, 0).rfind("management", 0) == 0; };
+        auto managmentOpt = [](const Option &option)
+        { return !option.touched() && option.get(0, 0).rfind("management", 0) == 0; };
         showOptionsByFunction(opt, managmentOpt, "OpenVPN management interface is not supported by this client", true);
 
         // If we still have options that are unaccounted for, we print them and throw an error
-        auto nonTouchedOptions = [](const Option &option) { return !option.touched(); };
+        auto nonTouchedOptions = [](const Option &option)
+        { return !option.touched(); };
 
         showOptionsByFunction(opt, nonTouchedOptions, OPENVPN_UNUSED_OPTIONS, true);
     }
 
     void showUnusedOptionsByList(const OptionList &optlist, std::unordered_set<std::string> option_set, const std::string &message, bool fatal)
     {
-        auto func = [&option_set](const Option &opt) { return !opt.touched() && option_set.find(opt.get(0, 0)) != option_set.end(); };
+        auto func = [&option_set](const Option &opt)
+        { return !opt.touched() && option_set.find(opt.get(0, 0)) != option_set.end(); };
         showOptionsByFunction(optlist, func, message, fatal);
     }
 
@@ -1080,16 +1089,32 @@ namespace openvpn {
       return Time::Duration::seconds(server_poll_timeout_);
     }
 
-    SessionStats& stats() { return *cli_stats; }
-    const SessionStats::Ptr& stats_ptr() const { return cli_stats; }
-    ClientEvent::Queue& events() { return *cli_events; }
-    ClientLifeCycle* lifecycle() { return client_lifecycle.get(); }
+    SessionStats &stats()
+    {
+        return *cli_stats;
+    }
+    const SessionStats::Ptr &stats_ptr() const
+    {
+        return cli_stats;
+    }
+    ClientEvent::Queue &events()
+    {
+        return *cli_events;
+    }
+    ClientLifeCycle *lifecycle()
+    {
+        return client_lifecycle.get();
+    }
 
-    OptionList::FilterBase::Ptr pushed_options() { return pushed_options_filter; }
+    int conn_timeout() const
+    {
+        return conn_timeout_;
+    }
 
-    int conn_timeout() const { return conn_timeout_; }
-
-    bool asio_work_always_on() const { return asio_work_always_on_; }
+    bool asio_work_always_on() const
+    {
+        return asio_work_always_on_;
+    }
 
     RemoteList::Ptr remote_list_precache() const
     {
@@ -1112,6 +1137,11 @@ namespace openvpn {
     void update_now()
     {
       now_.update();
+    }
+    
+    OptionList::FilterBase::Ptr pushed_options()
+    {
+        return pushed_options_filter;
     }
 
     void finalize(const bool disconnected)
@@ -1346,6 +1376,6 @@ namespace openvpn {
     std::string tls_ca;
 #endif
   };
-}
+} // namespace openvpn
 
 #endif

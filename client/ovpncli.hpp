@@ -175,11 +175,15 @@ namespace openvpn {
     // passed as a dictionary
     struct KeyValue
     {
-      KeyValue() {}
+    KeyValue()
+    {
+    }
 
       KeyValue(std::string key_arg, std::string value_arg)
 	: key(std::move(key_arg)),
-	  value(std::move(value_arg)) {}
+          value(std::move(value_arg))
+    {
+    }
 
       std::string key;
       std::string value;
@@ -432,9 +436,13 @@ namespace openvpn {
     // (client reads)
     struct LogInfo
     {
-      LogInfo() {}
+    LogInfo()
+    {
+    }
       LogInfo(std::string str)
-	: text(std::move(str)) {}
+        : text(std::move(str))
+    {
+    }
       std::string text;     // log output (usually but not always one line)
     };
 
@@ -442,7 +450,9 @@ namespace openvpn {
     struct LogReceiver
     {
       virtual void log(const LogInfo&) = 0;
-      virtual ~LogReceiver() {}
+    virtual ~LogReceiver()
+    {
+    }
     };
 
     // used to pass stats for an interface
@@ -541,9 +551,11 @@ namespace openvpn {
      * Helper class for OpenVPN clients. Provider helper method to be used with
      * the \sa OpenVPNClient class.
      */
-    class OpenVPNClientHelper {
+class OpenVPNClientHelper
+{
       /* To call parse_config */
       friend class OpenVPNClient;
+
     public:
       OpenVPNClientHelper();
 
@@ -572,16 +584,17 @@ namespace openvpn {
       // Do a crypto library self test
       std::string crypto_self_test();
 
-      // Returns platform description string
+      // Return platform description string
       static std::string platform();
 
-      // Returns core copyright
+      // Return core copyright
       static std::string copyright();
 
-      // Returns SSL version
+      // Return SSL version
       static std::string ssl_library_version();
       
-      static OptionList::FilterBase::Ptr pushed_options();
+      // Return server pushed options
+      OptionList::FilterBase::Ptr pushed_options();
       
 private:
       static MergeConfig build_merge_config(const ProfileMerge&);
@@ -702,15 +715,16 @@ private:
       // Periodic convenience clock tick, controlled by Config::clockTickMS
       virtual void clock_tick();
 
-      // Returns platform description string
+      // Return platform description string
       static std::string platform();
 
-      // Returns core copyright
+      // Return core copyright
       static std::string copyright();
 
-      // Returns SSL version
+      // Return SSL version
       static std::string ssl_library_version();
 
+      // Return server pushed options
       OptionList::FilterBase::Ptr pushed_options();
 
       // Hide protected methods/data from SWIG
@@ -744,13 +758,16 @@ private:
       void on_disconnect();
 
       // from ExternalPKIBase
-	  bool sign(const std::string& data, std::string& sig, const std::string& algorithm,
-						const std::string& hashalg, const std::string& saltlen) override;
+    bool sign(const std::string &data,
+              std::string &sig,
+              const std::string &algorithm,
+              const std::string &hashalg,
+              const std::string &saltlen) override;
 
       // disable copy and assignment
       OpenVPNClient(const OpenVPNClient&) = delete;
       OpenVPNClient& operator=(const OpenVPNClient&) = delete;
     };
 
-  }
-}
+} // namespace ClientAPI
+} // namespace openvpn
