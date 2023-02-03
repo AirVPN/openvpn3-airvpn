@@ -1,4 +1,4 @@
-Changelog 3.8.3 AirVPN - Release date: 2x January 2023 by ProMIND
+Changelog 3.8.3 AirVPN - Release date: 24 January 2023 by ProMIND
 
 - [ProMIND] [2023/01/20] openvpn/client/cliopt.hpp: added method pushed_options()
 

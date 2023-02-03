@@ -77,7 +77,12 @@ class Addr // NOTE: must be union-legal, so default constructor does not initial
     static Addr from_in6_addr(const struct in6_addr *in6)
     {
         Addr ret;
-        network_to_host_order(&ret.u, (const union ipv6addr *)in6->s6_addr);
+        /* Alignment of in6_addr is only 4 while our ipv6 addr requires an
+         * alignment of 8 due to its uint64 members, so use memcpy to copy it
+         */
+        ipv6addr src;
+        std::memcpy(&src, in6->s6_addr, sizeof(ipv6addr));
+        network_to_host_order(&ret.u, &src);
         return ret;
     }
 
@@ -255,7 +260,7 @@ class Addr // NOTE: must be union-legal, so default constructor does not initial
     static Addr from_asio(const openvpn_io::ip::address_v6 &asio_addr)
     {
         Addr ret;
-        union ipv6addr addr;
+        ipv6addr addr{};
         addr.asio_bytes = asio_addr.to_bytes();
         network_to_host_order(&ret.u, &addr);
         ret.scope_id_ = (unsigned int)asio_addr.scope_id();
@@ -264,34 +269,48 @@ class Addr // NOTE: must be union-legal, so default constructor does not initial
 
     static Addr from_byte_string(const unsigned char *bytestr)
     {
+        /* bytestr might not be correctly aligned to an 8 byte boundary
+         * that ipv6addr requires, so use a temporary object that is
+         * properly aligned */
         Addr ret;
-        network_to_host_order(&ret.u, (const union ipv6addr *)bytestr);
+        ipv6addr src{};
+        std::memcpy(&src, bytestr, sizeof(src));
+        network_to_host_order(&ret.u, &src);
         return ret;
     }
 
     void to_byte_string(unsigned char *bytestr) const
     {
-        host_to_network_order((union ipv6addr *)bytestr, &u);
+        /* bytestr might not be correctly aligned to an 8 byte boundary
+         * that ipv6addr requires, so use a temporary object that is
+         * properly aligned */
+        ipv6addr ret{};
+        host_to_network_order(&ret, &u);
+        std::memcpy(bytestr, &ret, sizeof(ret));
     }
 
     static void v4_to_byte_string(unsigned char *bytestr,
                                   const std::uint32_t v4addr)
     {
-        union ipv6addr *a = (union ipv6addr *)bytestr;
-        a->u32[0] = a->u32[1] = a->u32[2] = 0;
-        a->u32[3] = v4addr;
+        ipv6addr ret{};
+        ret.u32[0] = ret.u32[1] = ret.u32[2] = 0;
+        ret.u32[3] = v4addr;
+
+        std::memcpy(bytestr, &ret, sizeof(ret));
     }
 
     static bool byte_string_is_v4(const unsigned char *bytestr)
     {
-        const union ipv6addr *a = (const union ipv6addr *)bytestr;
-        return a->u32[0] == 0 && a->u32[1] == 0 && a->u32[2] == 0;
+        ipv6addr a{};
+        std::memcpy(&a, bytestr, sizeof(a));
+        return a.u32[0] == 0 && a.u32[1] == 0 && a.u32[2] == 0;
     }
 
     static std::uint32_t v4_from_byte_string(const unsigned char *bytestr)
     {
-        const union ipv6addr *a = (const union ipv6addr *)bytestr;
-        return a->u32[3];
+        ipv6addr a{};
+        std::memcpy(&a, bytestr, sizeof(a));
+        return a.u32[3];
     }
 
     openvpn_io::ip::address_v6 to_asio() const
@@ -732,7 +751,7 @@ class Addr // NOTE: must be union-legal, so default constructor does not initial
         if (prefix_len > 0)
         {
             const unsigned int pl = prefix_len - 1;
-            const std::uint32_t mask = ~((1 << (31 - (pl & 31))) - 1);
+            const std::uint32_t mask = ~((1u << (31 - (pl & 31))) - 1);
             switch (pl >> 5)
             {
             case 0:
@@ -789,34 +808,39 @@ class Addr // NOTE: must be union-legal, so default constructor does not initial
         dest->u32[3] = ntohl(src->u32[Endian::e4rev(3)]);
     }
 
+
     static void shiftl128(std::uint64_t &low,
                           std::uint64_t &high,
                           unsigned int shift)
     {
         if (shift == 1)
         {
-            high <<= 1;
-            if (low & (std::uint64_t(1) << 63))
-                high |= 1;
-            low <<= 1;
+            high <<= 1u;
+            if (low & (std::uint64_t(1) << 63u))
+                high |= 1u;
+            low <<= 1u;
         }
         else if (shift == 0)
-            ;
-        else if (shift <= 128)
         {
-            if (shift >= 64)
-            {
-                high = low;
-                low = 0;
-                shift -= 64;
-            }
-            if (shift < 64)
-            {
-                high = (high << shift) | (low >> (64 - shift));
-                low <<= shift;
-            }
-            else // shift == 64
-                high = 0;
+            // Nothing to do
+        }
+        else if (shift == 128)
+        {
+            /* shifts everything away */
+            high = low = 0;
+        }
+        else if (shift < 64)
+        {
+            high = (high << shift) | (low >> (64u - shift));
+            low <<= shift;
+        }
+        else if (shift < 128) /* in [64, 127] */
+        {
+            high = low;
+            low = 0;
+            /* Shift is guaranteed to be in [0, 63], so
+             * recursion will not come here again */
+            shiftl128(low, high, shift - 64);
         }
         else
             throw ipv6_exception("l-shift too large");
@@ -828,28 +852,24 @@ class Addr // NOTE: must be union-legal, so default constructor does not initial
     {
         if (shift == 1)
         {
-            low >>= 1;
-            if (high & 1)
-                low |= (std::uint64_t(1) << 63);
-            high >>= 1;
+            low >>= 1u;
+            if (high & 1u)
+                low |= (std::uint64_t(1) << 63u);
+            high >>= 1u;
         }
         else if (shift == 0)
-            ;
-        else if (shift <= 128)
         {
-            if (shift >= 64)
-            {
-                low = high;
-                high = 0;
-                shift -= 64;
-            }
-            if (shift < 64)
-            {
-                low = (low >> shift) | (high << (64 - shift));
-                high >>= shift;
-            }
-            else // shift == 64
-                low = 0;
+        }
+        else if (shift < 64)
+        {
+            low = (low >> shift) | (high << (64 - shift));
+            high >>= shift;
+        }
+        else if (shift <= 128) // shift in [64, 128]
+        {
+            low = high;
+            high = 0;
+            shiftr128(low, high, shift - 64);
         }
         else
             throw ipv6_exception("r-shift too large");

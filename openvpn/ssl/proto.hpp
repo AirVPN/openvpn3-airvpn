@@ -231,7 +231,8 @@ enum
        IV_PROTO_NCP_P2P=(1<<5), // not implemented
        IV_PROTO_DNS_OPTION=(1<<6),
        IV_PROTO_CC_EXIT_NOTIFY=(1<<7),
-       IV_PROTO_AUTH_FAIL_TEMP=(1<<8)
+        IV_PROTO_AUTH_FAIL_TEMP = (1 << 8),
+        IV_PROTO_DYN_TLS_CRYPT = (1 << 9),
     };
 
     enum tlv_types : uint16_t
@@ -334,8 +335,15 @@ enum
       CompressContext comp_ctx;
 
       // tls_auth/crypt parms
+        enum TLSCrypt
+        {
+            None = 0,
+            V1 = (1 << 0),
+            V2 = (1 << 1),
+            Dynamic = (1 << 2)
+        };
       OpenVPNStaticKey tls_key; // leave this undefined to disable tls_auth/crypt
-      bool tls_crypt_v2 = false; // needed to distinguish between tls-crypt and tls-crypt-v2 server mode
+        unsigned tls_crypt_ = TLSCrypt::None; // needed to distinguish between tls-crypt and tls-crypt-v2 server mode
       BufferAllocated wkc; // leave this undefined to disable tls-crypt-v2 on client
 
       OvpnHMACFactory::Ptr tls_auth_factory;
@@ -529,15 +537,10 @@ enum
 		if (tls_crypt_context)
 		  throw proto_option_error("tls-crypt and tls-crypt-v2 are mutually exclusive");
 
+                        tls_crypt_ = TLSCrypt::V1;
 		tls_key.parse(o->get(1, 0));
 
-		digest = CryptoAlgs::lookup("SHA256");
-		cipher = CryptoAlgs::lookup("AES-256-CTR");
-
-		if ((digest == CryptoAlgs::NONE) || (cipher == CryptoAlgs::NONE))
-		  throw proto_option_error("missing support for tls-crypt algorithms");
-
-		set_tls_crypt_algs(digest, cipher);
+                        set_tls_crypt_algs();
 	      }
 	  }
 
@@ -551,14 +554,8 @@ enum
 		if (tls_crypt_context)
 		  throw proto_option_error("tls-crypt and tls-crypt-v2 are mutually exclusive");
 
-		digest = CryptoAlgs::lookup("SHA256");
-		cipher = CryptoAlgs::lookup("AES-256-CTR");
-
-		if ((digest == CryptoAlgs::NONE) || (cipher == CryptoAlgs::NONE))
-		  throw proto_option_error("missing support for tls-crypt-v2 algorithms");
-
 		// initialize tls_crypt_context
-		set_tls_crypt_algs(digest, cipher);
+                        set_tls_crypt_algs();
 
 		std::string keyfile = o->get(1, 0);
 
@@ -577,7 +574,7 @@ enum
 		    tls_crypt_v2_key.parse(keyfile);
 		    tls_crypt_v2_key.extract_key(tls_key);
 		  }
-		tls_crypt_v2 = true;
+                        tls_crypt_ = TLSCrypt::V2;
 	      }
 	  }
 	}
@@ -739,6 +736,11 @@ enum
 		      {
 			cc_exit_notify = true;
 		      }
+                        else if (flag == "dyn-tls-crypt")
+                        {
+                            set_tls_crypt_algs();
+                            tls_crypt_ |= TLSCrypt::Dynamic;
+                        }
 		    else if (flag == "tls-ekm")
 		      {
 			// Overrides "key-derivation" method set above
@@ -864,7 +866,7 @@ enum
 	  {
 	    os << "  control channel: tls-auth enabled" << std::endl;
 	  }
-	else if (tls_crypt_v2_enabled())
+            if (tls_crypt_v2_enabled())
 	  {
 	    os << "  control channel: tls-crypt v2 enabled" << std::endl;
 	  }
@@ -872,6 +874,10 @@ enum
 	  {
 	    os << "  control channel: tls-crypt enabled" << std::endl;
 	  }
+            else if (dynamic_tls_crypt_enabled())
+            {
+                os << "  control channel: dynamic tls-crypt enabled" << std::endl;
+            }
 	return os.str();
       }
 
@@ -894,40 +900,48 @@ enum
 
       void set_cipher(const CryptoAlgs::Type c)
       {
-	  if(c > CryptoAlgs::Type::NONE && c < CryptoAlgs::Type::SIZE)
+	    if(c > CryptoAlgs::Type::NONE && c < CryptoAlgs::Type::SIZE)
 	      dc.set_cipher(c);
-	  else
+	    else
 	      proto_option_error("set_cipher: illegal cipher type");
       }
 
       void set_cipher_override(const CryptoAlgs::Type c)
       {
-	  if(c >= CryptoAlgs::Type::NONE && c < CryptoAlgs::Type::SIZE)
+	    if(c >= CryptoAlgs::Type::NONE && c < CryptoAlgs::Type::SIZE)
 	      cipher_override = c;
-	  else
+	    else
 	      proto_option_error("set_cipher_override: illegal cipher type");
       }
 
       void set_ncp_disable(const bool disabled)
       {
-	  if(dc.ncp_enabled() && disabled == true)
-	  {
+	    if(dc.ncp_enabled() && disabled == true)
+	    {
 	      // ncp disable override
 	    
 	      ncp_disable = disabled;
 
 	      dc.set_ncp_enabled(false);
-	  }
+	    }
       }
 
-      void set_tls_auth_digest(const CryptoAlgs::Type digest)
+        void set_tls_auth_digest(const CryptoAlgs::Type digest)
       {
-	tls_auth_context = tls_auth_factory->new_obj(digest);
+            tls_auth_context = tls_auth_factory->new_obj(digest);
       }
 
-      void set_tls_crypt_algs(const CryptoAlgs::Type digest,
-			      const CryptoAlgs::Type cipher)
-      {
+        void set_tls_crypt_algs()
+	  {
+            if (tls_crypt_context)
+                return;
+
+            auto digest = CryptoAlgs::lookup("SHA256");
+            auto cipher = CryptoAlgs::lookup("AES-256-CTR");
+
+            if ((digest == CryptoAlgs::NONE) || (cipher == CryptoAlgs::NONE))
+                throw proto_option_error("missing support for tls-crypt algorithms");
+
 	/* TODO: we currently use the default SSL library context here as the
 	 * library context is not available this early. This should not matter
 	 * for the algorithms used by tls_crypt */
@@ -946,12 +960,17 @@ enum
 
       bool tls_crypt_enabled() const
       {
-	return tls_key.defined() && tls_crypt_context;
+            return tls_key.defined() && (tls_crypt_ & TLSCrypt::V1);
       }
 
       bool tls_crypt_v2_enabled() const
       {
-	return tls_crypt_enabled() && tls_crypt_v2;
+            return tls_key.defined() && (tls_crypt_ & TLSCrypt::V2);
+        }
+
+        bool dynamic_tls_crypt_enabled() const
+        {
+            return (tls_crypt_ & TLSCrypt::Dynamic);
       }
 
       // generate a string summarizing options that will be
@@ -1022,6 +1041,9 @@ enum
 	  | IV_PROTO_CC_EXIT_NOTIFY
 	  | IV_PROTO_AUTH_FAIL_TEMP;
 
+            if (CryptoAlgs::lookup("SHA256") != CryptoAlgs::NONE && CryptoAlgs::lookup("AES-256-CTR") != CryptoAlgs::NONE)
+                iv_proto |= IV_PROTO_DYN_TLS_CRYPT;
+
 	if (SSLLib::SSLAPI::support_key_material_export())
 	  {
 	    iv_proto |= IV_PROTO_TLS_KEY_EXPORT;
@@ -1047,7 +1069,7 @@ enum
          * to std::string negotiable_data_ciphers, IV_CIPHERS is assigned to the algorithms
          * found in "data-ciphers". In this specific case, "cipher" directive
          * (found in dc.cipher()) is meant as a fallback cipher and, if not already
-         * specifiedin "data-ciphers", is appended to IV_CIPHERS
+         * specified in "data-ciphers", is appended to IV_CIPHERS
          */
 
         out << "IV_CIPHERS=";
@@ -1078,12 +1100,14 @@ enum
 	/* disabled (master)
 
 	out << "IV_CIPHERS=";
-            CryptoAlgs::for_each([&out](CryptoAlgs::Type type, const CryptoAlgs::Alg &alg) -> bool
+            CryptoAlgs::for_each(
+                [&out](CryptoAlgs::Type type, const CryptoAlgs::Alg &alg) -> bool
                                  {
 	  if (!CryptoAlgs::defined(type) || !alg.dc_cipher())
 	    return false;
 	  out << alg.name() << ':';
-	  return true; });
+                return true;
+                });
 	out.seekp(-1, std::ios_base::cur);
 	out << "\n";
 
@@ -1626,6 +1650,9 @@ enum
     public:
       typedef RCPtr<KeyContext> Ptr;
 
+        // ProtoStackBase member functions
+        using Base::export_key_material;
+
       OPENVPN_SIMPLE_EXCEPTION(tls_crypt_unwrap_wkc_error);
 
       // KeyContext events occur on two basic key types:
@@ -2079,7 +2106,7 @@ enum
 	if (proto.config->dc.key_derivation() == CryptoAlgs::KeyDerivation::TLS_EKM)
 	  {
 	    // USE RFC 5705 key material export
-	    export_key_material(dck->key);
+                export_key_material(dck->key, "EXPORTER-OpenVPN-datakeys");
 	  }
 	else
 	  {
@@ -3218,7 +3245,7 @@ enum
       {
 	// the ``WKc`` is located at the end of the packet, after the tls-crypt
 	// payload.
-	// Format is as follows (as documented by Steffan Krager):
+            // Format is as follows (as documented by Steffan Karger):
 	//
 	// ``len = len(WKc)`` (16 bit, network byte order)
 	// ``T = HMAC-SHA256(Ka, len || Kc || metadata)``
@@ -3249,7 +3276,7 @@ enum
 	  return false;
 
 	BufferAllocated plaintext(wkc_len, BufferAllocated::CONSTRUCT_ZERO);
-	// plaintext will be used to compute the Auth Tag, therefore start by prepnding
+            // plaintext will be used to compute the Auth Tag, therefore start by prepending
 	// the WKc length in network order
 	wkc_len = htons(wkc_len);
 	plaintext.write(&wkc_len, sizeof(wkc_len));
@@ -3593,8 +3620,11 @@ enum
 	n_key_ids(0),
 	now_(config_arg->now)
     {
-      const Config& c = *config;
+        reset_tls_wrap_mode(*config);
+    }
 
+    void reset_tls_wrap_mode(const Config &c)
+    {
       // tls-auth setup
       if (c.tls_crypt_v2_enabled())
 	{
@@ -3654,6 +3684,25 @@ enum
                              key.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::DECRYPT | key_dir));
     }
 
+    void set_dynamic_tls_crypt(const Config &c, const KeyContext::Ptr &key_ctx)
+    {
+        OpenVPNStaticKey dyn_key;
+        key_ctx->export_key_material(dyn_key, "EXPORTER-OpenVPN-dynamic-tls-crypt");
+
+        if (c.tls_auth_enabled() || c.tls_crypt_enabled() || c.tls_crypt_v2_enabled())
+            dyn_key.XOR(c.tls_key);
+
+        tls_wrap_mode = TLS_CRYPT;
+
+        // get HMAC size from Digest object
+        hmac_size = c.tls_crypt_context->digest_size();
+
+        ta_pid_send.init(PacketID::LONG_FORM);
+        ta_pid_recv.init(c.pid_mode, PacketID::LONG_FORM, "SSL-CC", 0, stats);
+
+        reset_tls_crypt(c, dyn_key);
+    }
+
     void reset_tls_crypt_server(const Config& c)
     {
       //tls-crypt session key is derived later from WKc received from the client
@@ -3689,6 +3738,7 @@ enum
       const PacketID::id_t EARLY_NEG_START = 0x0f000000;
 
       // tls-auth initialization
+        reset_tls_wrap_mode(c);
       switch (tls_wrap_mode)
 	{
 	  case TLS_CRYPT:
@@ -3811,6 +3861,11 @@ enum
     // trigger a protocol renegotiation
     void renegotiate()
     {
+        // set up dynamic tls-crypt keys when the first rekeying happens
+        // primary key_id 0 indicates that it is the first rekey
+        if (conf().dynamic_tls_crypt_enabled() && primary && primary->key_id() == 0)
+            set_dynamic_tls_crypt(conf(), primary);
+
       // initialize secondary key context
       new_secondary_key(true);
       secondary->start();
@@ -4236,6 +4291,11 @@ enum
     // we're getting a request from peer to renegotiate.
     bool renegotiate_request(Packet& pkt)
     {
+        // set up dynamic tls-crypt keys when the first rekeying happens
+        // primary key_id 0 indicates that it is the first rekey
+        if (conf().dynamic_tls_crypt_enabled() && primary && primary->key_id() == 0)
+            set_dynamic_tls_crypt(conf(), primary);
+
       if (KeyContext::validate(pkt.buffer(), *this, now_))
 	{
 	  new_secondary_key(false);

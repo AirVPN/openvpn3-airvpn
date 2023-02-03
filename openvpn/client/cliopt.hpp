@@ -155,13 +155,13 @@ namespace openvpn {
       bool autologin_sessions = false;
       bool retry_on_auth_failed = false;
       bool allow_local_lan_access = false;
-	  bool preferred_security = true;
+      bool preferred_security = true;
       std::string tls_version_min_override;
       std::string tls_cert_profile_override;
       std::string tls_cipher_list;
       std::string tls_ciphersuite_list;
-	  bool enable_legacy_algorithms = false;
-      bool enable_nonpreferred_dcalgs;
+      bool enable_legacy_algorithms = false;
+      bool enable_nonpreferred_dcalgs = false;
       PeerInfo::Set::Ptr extra_peer_info;
 #ifdef OPENVPN_PLATFORM_ANDROID
       bool enable_route_emulation = true;
