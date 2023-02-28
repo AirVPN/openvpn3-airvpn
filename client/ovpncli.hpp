@@ -593,9 +593,6 @@ class OpenVPNClientHelper
       // Return SSL version
       static std::string ssl_library_version();
       
-      // Return server pushed options
-      OptionList::FilterBase::Ptr pushed_options();
-      
 private:
       static MergeConfig build_merge_config(const ProfileMerge&);
 
@@ -715,17 +712,8 @@ private:
       // Periodic convenience clock tick, controlled by Config::clockTickMS
       virtual void clock_tick();
 
-      // Return platform description string
-      static std::string platform();
-
-      // Return core copyright
-      static std::string copyright();
-
-      // Return SSL version
-      static std::string ssl_library_version();
-
       // Return server pushed options
-      OptionList::FilterBase::Ptr pushed_options();
+      OptionList::FilterBase::Ptr pull_filter_options();
 
       // Hide protected methods/data from SWIG
 #ifdef SWIGJAVA
@@ -744,7 +732,7 @@ private:
       virtual Stop* get_async_stop();
 
       Private::ClientState* state;
-      OptionList::FilterBase::Ptr pushedOptions;
+      OptionList::FilterBase::Ptr pull_filter_options_;
 
     private:
       void connect_setup(Status&, bool&);

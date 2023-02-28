@@ -46,7 +46,7 @@ class PushedOptionsFilter : public OptionList::FilterBase
             FilterAction action = None;
             auto o = opt[i];
             o.exact_args(3);
-            o.touch();
+            opt[i].touch();
 
             auto action_str = o.get(1, -1);
             if (action_str == "accept")

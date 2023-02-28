@@ -1139,7 +1139,7 @@ namespace openvpn {
       now_.update();
     }
     
-    OptionList::FilterBase::Ptr pushed_options()
+    OptionList::FilterBase::Ptr pull_filter_options()
     {
         return pushed_options_filter;
     }

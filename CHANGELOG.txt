@@ -1,12 +1,24 @@
+Changelog 3.8.4 AirVPN - Release date: 28 February 2023 by ProMIND
+
+- [ProMIND] [2023/01/20] openvpn/client/optfilt.hpp: fixed bug in PushedOptionsFilter() contructor which
+                                                     prevented touching the OptionList passed by reference.
+                                                     This caused multiple "pull-filter" options to be treated
+                                                     as "unknown/unsupported options" therefore raising a
+                                                     fatal error in openvpn/client/cliopt.hpp
+
+
+*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
+
+
 Changelog 3.8.3 AirVPN - Release date: 24 January 2023 by ProMIND
 
-- [ProMIND] [2023/01/20] openvpn/client/cliopt.hpp: added method pushed_options()
+- [ProMIND] [2023/01/20] openvpn/client/cliopt.hpp: added method pull_filter_options()
 
-- [ProMIND] [2023/01/20] client/ovpncli.hpp: added member OpenVPNClient::pushedOptions
-                                             added method OpenVPNClient::pushed_options()
+- [ProMIND] [2023/01/20] client/ovpncli.hpp: added member OpenVPNClient::pull_filter_options_
+                                             added method OpenVPNClient::pushed_pull_filter_options()
 
-- [ProMIND] [2023/01/30] client/ovpncli.cpp: implemented method OpenVPNClient::pushed_options()
-                                             OpenVPNClient::connect_setup() assigned client_options->pushed_options() to pushedOptions;
+- [ProMIND] [2023/01/30] client/ovpncli.cpp: implemented method OpenVPNClient::pull_filter_options()
+                                             OpenVPNClient::connect_setup() assigned client_options->pull_filter_options() to pull_filter_options_;
 
 
 *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
