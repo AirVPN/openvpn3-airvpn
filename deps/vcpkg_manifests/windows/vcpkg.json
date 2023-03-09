@@ -4,10 +4,12 @@
     "version-string": "3.8",
     "dependencies": [
         "asio",
+        "gtest",
         "jsoncpp",
         "lz4",
         "openssl",
         "tap-windows6",
         "xxhash"
     ]
-  }
+}
+

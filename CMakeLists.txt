@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 cmake_policy(SET CMP0048 NEW)
 
 project(OpenVPN3-core VERSION 3)
@@ -24,6 +24,8 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_C_STANDARD 99)
 
+include(CTest)
+
 include(findcoredeps)
 include(ovpn-doxygen)
 
@@ -32,16 +34,9 @@ add_subdirectory(test/unittests)
 add_subdirectory(test/ovpncli)
 add_subdirectory(test/ssl)
 
-
-if (WIN32)
-    add_subdirectory(openvpn/omi)
-    add_subdirectory(openvpn/ovpnagent/win)
-endif ()
-
-if (APPLE)
-    add_subdirectory(openvpn/ovpnagent/mac)
-endif ()
-
+add_subdirectory(openvpn/omi)
+add_subdirectory(openvpn/ovpnagent/win)
+add_subdirectory(openvpn/ovpnagent/mac)
 
 if (ENABLE_DOXYGEN)
     # Exclude some project specific directories

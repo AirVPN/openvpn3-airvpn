@@ -31,6 +31,8 @@
 #include <algorithm>                  // for std::min
 #include <cstdint>                    // for std::uint32_t, etc.
 #include <memory>
+#include <optional>
+
 
 #include <openvpn/common/exception.hpp>
 #include <openvpn/common/size.hpp>
@@ -1638,13 +1640,11 @@ enum
       struct DataChannelKey
       {
             DataChannelKey()
-                : rekey_defined(false)
             {
             }
 
-	OpenVPNStaticKey key;
-	bool rekey_defined;
-	CryptoDCInstance::RekeyType rekey_type;
+           OpenVPNStaticKey key;
+           std::optional<CryptoDCInstance::RekeyType> rekey_type;
       };
 
     public:
@@ -2005,18 +2005,17 @@ enum
             return dirty;
         }
 
-      // notification from parent of rekey operation
-      void rekey(const CryptoDCInstance::RekeyType type)
-      {
-	if (crypto)
-	  crypto->rekey(type);
-	else if (data_channel_key)
-	  {
-	    // save for deferred processing
-	    data_channel_key->rekey_type = type;
-	    data_channel_key->rekey_defined = true;
-	  }
-      }
+        // notification from parent of rekey operation
+        void rekey(const CryptoDCInstance::RekeyType type)
+        {
+            if (crypto)
+                crypto->rekey(type);
+            else if (data_channel_key)
+            {
+                // save for deferred processing
+                data_channel_key->rekey_type = type;
+            }
+        }
 
       // time that our state transitioned to ACTIVE
         Time reached_active() const
@@ -2119,13 +2118,12 @@ enum
                                       << " KEY " << CryptoAlgs::name(proto.config->dc.key_derivation())
 					<< " " << proto.mode().str() << ' ' << dck->key.render());
 
-	if (data_channel_key)
-	  {
-	    dck->rekey_defined = data_channel_key->rekey_defined;
-	    dck->rekey_type = data_channel_key->rekey_type;
-	  }
-	dck.swap(data_channel_key);
-      }
+            if (data_channel_key)
+            {
+                dck->rekey_type = data_channel_key->rekey_type;
+            }
+            dck.swap(data_channel_key);
+        }
 
       void calculate_mssfix(Config& c)
       {
@@ -2257,9 +2255,9 @@ enum
 
 	enable_compress = crypto->consider_compression(proto.config->comp_ctx);
 
-	if (data_channel_key->rekey_defined)
-	  crypto->rekey(data_channel_key->rekey_type);
-	data_channel_key.reset();
+            if (data_channel_key->rekey_type.has_value())
+                crypto->rekey(data_channel_key->rekey_type.value());
+            data_channel_key.reset();
 
 	// set up compression for data channel
 	if (enable_compress)

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -30,13 +30,8 @@ endif ()
 function(add_ssl_library target)
     if (${USE_MBEDTLS})
         find_package(mbedTLS REQUIRED)
-
-        set(SSL_LIBRARY ${MBEDTLS_LIBRARIES})
-
+        set(SSL_LIBRARY mbedTLS::mbedTLS)
         target_compile_definitions(${target} PRIVATE -DUSE_MBEDTLS)
-
-        # The findpackage function does not set these automatically :(
-        target_include_directories(${target} PRIVATE ${MBEDTLS_INCLUDE_DIR})
     else ()
         find_package(OpenSSL REQUIRED)
         SET(SSL_LIBRARY OpenSSL::SSL)
@@ -74,31 +69,30 @@ function(add_core_dependencies target)
 
         if (MSVC)
             target_compile_options(${target} PRIVATE "/bigobj")
-            find_package(lz4 CONFIG REQUIRED)
-            set(LZ4_LIBRARY lz4::lz4)
         else ()
             find_package(Threads REQUIRED)
             target_compile_options(${target} PRIVATE "-Wa,-mbig-obj")
             list(APPEND EXTRA_LIBS ws2_32 wsock32 ${CMAKE_THREAD_LIBS_INIT})
             list(APPEND CMAKE_PREFIX_PATH
-                ${DEP_DIR}
+              ${DEP_DIR}/asio/asio
+              ${DEP_DIR}
             )
-            find_package(LZ4 REQUIRED)
-            target_include_directories(${target} PRIVATE ${DEP_DIR}/asio/asio/include)
         endif ()
     else ()
-        target_include_directories(${target} PRIVATE ${DEP_DIR}/asio/asio/include
-                )
         list(APPEND CMAKE_PREFIX_PATH
                 ${DEP_DIR}/mbedtls/mbedtls-${PLAT}
                 ${DEP_DIR}/lz4/lz4-${PLAT}
+                ${DEP_DIR}/asio/asio
                 )
         list(APPEND CMAKE_LIBRARY_PATH
                 ${DEP_DIR}/mbedtls/mbedtls-${PLAT}/library
                 )
-
-        find_package(LZ4 REQUIRED)
     endif ()
+
+    find_package(lz4 REQUIRED)
+    find_package(asio REQUIRED)
+    target_link_libraries(${target} lz4::lz4)
+    target_link_libraries(${target} asio::asio)
 
     add_ssl_library(${target})
 
@@ -114,9 +108,7 @@ function(add_core_dependencies target)
         target_link_libraries(${target} pthread)
     endif()
 
-    target_include_directories(${target} PRIVATE ${LZ4_INCLUDE_DIR})
-
-    target_link_libraries(${target} ${EXTRA_LIBS} ${LZ4_LIBRARY})
+    target_link_libraries(${target} ${EXTRA_LIBS})
 
     if (USE_WERROR)
         if (MSVC)
@@ -136,27 +128,19 @@ function(add_core_dependencies target)
 endfunction()
 
 function (add_json_library target)
-    if (MSVC)
-        find_package(jsoncpp CONFIG REQUIRED)
-        target_link_libraries(${target} jsoncpp_lib)
-        target_compile_definitions(${target} PRIVATE -DHAVE_JSONCPP)
-        message("Adding jsoncpp to " ${target})
-    elseif (APPLE)
-        find_package(PkgConfig REQUIRED)
-        pkg_check_modules(JSONCPP jsoncpp)
-        target_link_libraries(${target} ${JSONCPP_LDFLAGS})
-        target_include_directories(${target} PRIVATE ${JSONCPP_INCLUDE_DIRS})
-        target_compile_definitions(${target} PRIVATE -DHAVE_JSONCPP)
-    else ()
-        find_package(PkgConfig REQUIRED)
-        if (MINGW)
-            #  due to cmake bug, APPEND doesn't work for mingw
-            # https://github.com/Kitware/CMake/commit/f92a4b23994fa7516f16fbb5b3c02caa07534b3f
-            set(CMAKE_PREFIX_PATH ${DEP_DIR})
-        endif ()
-        pkg_check_modules(JSONCPP jsoncpp)
-        target_link_libraries(${target} ${JSONCPP_LDFLAGS})
-        target_include_directories(${target} PRIVATE ${JSONCPP_INCLUDE_DIRS})
-        target_compile_definitions(${target} PRIVATE -DHAVE_JSONCPP)
+  find_package(jsoncpp CONFIG)
+  if (jsoncpp_FOUND AND TARGET JsonCpp::JsonCpp)
+    target_link_libraries(${target} JsonCpp::JsonCpp)
+    target_compile_definitions(${target} PRIVATE -DHAVE_JSONCPP)
+  else()
+    find_package(PkgConfig REQUIRED)
+    if (MINGW)
+      #  due to cmake bug, APPEND doesn't work for mingw
+      # https://github.com/Kitware/CMake/commit/f92a4b23994fa7516f16fbb5b3c02caa07534b3f
+      set(CMAKE_PREFIX_PATH ${DEP_DIR})
     endif ()
+    pkg_check_modules(JSONCPP REQUIRED IMPORTED_TARGET jsoncpp)
+    target_link_libraries(${target} PkgConfig::JSONCPP)
+    target_compile_definitions(${target} PRIVATE -DHAVE_JSONCPP)
+  endif ()
 endfunction ()

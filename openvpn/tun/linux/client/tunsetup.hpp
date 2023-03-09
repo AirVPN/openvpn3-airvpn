@@ -74,14 +74,14 @@ namespace openvpn {
     {
     }
 
-      struct Config : public TunBuilderSetup::Config
-      {
-	std::string iface_name;
-	Layer layer; // OSI layer
-	std::string dev_name;
-	int txqueuelen = 200;
-	bool add_bypass_routes_on_establish = false; // required when not using tunbuilder
-	bool dco = false;
+    struct Config : public TunBuilderSetup::Config
+    {
+        std::string iface_name;
+        Layer layer; // OSI layer
+        std::string dev_name;
+        int txqueuelen = 200;
+        bool add_bypass_routes_on_establish = false; // required when not using tunbuilder
+        bool dco = false;
 
 #ifdef HAVE_JSON
 	virtual Json::Value to_json() override
