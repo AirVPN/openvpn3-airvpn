@@ -187,20 +187,20 @@ namespace openvpn {
 	  decay_time = time(nullptr) + addr_lifetime;
       }
 
-      // get an endpoint for contacting server
-      template <class EP>
-      bool get_endpoint(EP& endpoint, const size_t index) const
-      {
-	if (res_addr_list && index < res_addr_list->size())
-	  {
-	    endpoint.address((*res_addr_list)[index]->addr.to_asio());
-	    endpoint.port(parse_number_throw<unsigned int>(server_port, "remote_port"));
-	    OPENVPN_LOG_REMOTELIST("*** RemoteList::Item endpoint GET[" << index << "] " << endpoint << ' ' << to_string());
-	    return true;
-	  }
-	else
-	  return false;
-      }
+        // get an endpoint for contacting server
+        template <class EP>
+        bool get_endpoint(EP &endpoint, const size_t index) const
+        {
+            if (res_addr_list && index < res_addr_list->size())
+            {
+                endpoint.address((*res_addr_list)[index]->addr.to_asio());
+                endpoint.port(parse_number_throw<unsigned short>(server_port, "remote_port"));
+                OPENVPN_LOG_REMOTELIST("*** RemoteList::Item endpoint GET[" << index << "] " << endpoint << ' ' << to_string());
+                return true;
+            }
+            else
+                return false;
+        }
 
       bool need_resolve()
       {

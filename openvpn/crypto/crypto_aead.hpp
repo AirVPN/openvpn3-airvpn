@@ -28,6 +28,7 @@
 
 #include <openvpn/common/size.hpp>
 #include <openvpn/common/exception.hpp>
+#include <openvpn/common/numeric_cast.hpp>
 #include <openvpn/buffer/buffer.hpp>
 #include <openvpn/frame/frame.hpp>
 #include <openvpn/crypto/static_key.hpp>
@@ -41,8 +42,9 @@
 //            [4-byte
 //            IV head]
 
-namespace openvpn {
-namespace AEAD {
+using openvpn::numeric_util::numeric_cast;
+
+namespace openvpn::AEAD {
 
 OPENVPN_EXCEPTION(aead_error);
 
@@ -176,34 +178,35 @@ class Crypto : public CryptoDCInstance
             // build nonce/IV/AD
             Nonce nonce(e.nonce, e.pid_send, now, op32);
 
-            if (CRYPTO_API::CipherContextAEAD::SUPPORTS_IN_PLACE_ENCRYPT)
+            // encrypt to work buf
+            frame->prepare(Frame::ENCRYPT_WORK, e.work);
+            if (e.work.max_size() < buf.size())
+                throw aead_error("encrypt work buffer too small");
+
+            // alloc auth tag in buffer
+            unsigned char *auth_tag = e.work.prepend_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
+
+            unsigned char *auth_tag_end;
+
+            // prepare output buffer
+            unsigned char *work_data = e.work.write_alloc(buf.size());
+            if (e.impl.requires_authtag_at_end())
             {
-                unsigned char *data = buf.data();
-                const size_t size = buf.size();
-
-                // alloc auth tag in buffer
-                unsigned char *auth_tag = buf.prepend_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
-
-                // encrypt in-place
-                e.impl.encrypt(data, data, size, nonce.iv(), auth_tag, nonce.ad(), nonce.ad_len());
+                auth_tag_end = e.work.write_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
             }
-            else
+
+            // encrypt
+            e.impl.encrypt(buf.data(), work_data, buf.size(), nonce.iv(), auth_tag, nonce.ad(), nonce.ad_len());
+
+            if (e.impl.requires_authtag_at_end())
             {
-                // encrypt to work buf
-                frame->prepare(Frame::ENCRYPT_WORK, e.work);
-                if (e.work.max_size() < buf.size())
-                    throw aead_error("encrypt work buffer too small");
-
-                // alloc auth tag in buffer
-                unsigned char *auth_tag = e.work.prepend_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
-
-                // prepare output buffer
-                unsigned char *work_data = e.work.write_alloc(buf.size());
-
-                // encrypt
-                e.impl.encrypt(buf.data(), work_data, buf.size(), nonce.iv(), auth_tag, nonce.ad(), nonce.ad_len());
-                buf.swap(e.work);
+                /* move the auth tag to the front */
+                std::memcpy(auth_tag, auth_tag_end, CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
+                /* Ignore the auth tag at the end */
+                e.work.inc_size(-CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
             }
+
+            buf.swap(e.work);
 
             // prepend additional data
             nonce.prepend_ad(buf);
@@ -227,13 +230,26 @@ class Crypto : public CryptoDCInstance
             if (d.work.max_size() < buf.size())
                 throw aead_error("decrypt work buffer too small");
 
+            if (e.impl.requires_authtag_at_end())
+            {
+                unsigned char *auth_tag_end = buf.write_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
+                std::memcpy(auth_tag_end, auth_tag, CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
+            }
+
             // decrypt from buf -> work
             if (!d.impl.decrypt(buf.c_data(), d.work.data(), buf.size(), nonce.iv(), auth_tag, nonce.ad(), nonce.ad_len()))
             {
                 buf.reset_size();
                 return Error::DECRYPT_ERROR;
             }
-            d.work.set_size(buf.size());
+            if (e.impl.requires_authtag_at_end())
+            {
+                d.work.set_size(buf.size() - CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
+            }
+            else
+            {
+                d.work.set_size(buf.size());
+            }
 
             // verify packet ID
             if (!nonce.verify_packet_id(d.pid_recv, now))
@@ -252,8 +268,16 @@ class Crypto : public CryptoDCInstance
 
     void init_cipher(StaticKey &&encrypt_key, StaticKey &&decrypt_key) override
     {
-        e.impl.init(libctx, cipher, encrypt_key.data(), encrypt_key.size(), CRYPTO_API::CipherContextAEAD::ENCRYPT);
-        d.impl.init(libctx, cipher, decrypt_key.data(), decrypt_key.size(), CRYPTO_API::CipherContextAEAD::DECRYPT);
+        e.impl.init(libctx,
+                    cipher,
+                    encrypt_key.data(),
+                    numeric_cast<unsigned int>(encrypt_key.size()),
+                    CRYPTO_API::CipherContextAEAD::ENCRYPT);
+        d.impl.init(libctx,
+                    cipher,
+                    decrypt_key.data(),
+                    numeric_cast<unsigned int>(decrypt_key.size()),
+                    CRYPTO_API::CipherContextAEAD::DECRYPT);
     }
 
     void init_hmac(StaticKey &&encrypt_key,
@@ -354,7 +378,6 @@ class CryptoContext : public CryptoDCContext
     SessionStats::Ptr stats;
     SSLLib::Ctx libctx;
 };
-} // namespace AEAD
-} // namespace openvpn
+} // namespace openvpn::AEAD
 
 #endif

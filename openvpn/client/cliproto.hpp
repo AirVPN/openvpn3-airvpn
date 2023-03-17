@@ -49,6 +49,7 @@
 #include <openvpn/common/count.hpp>
 #include <openvpn/common/string.hpp>
 #include <openvpn/common/base64.hpp>
+#include <openvpn/common/clamp_typerange.hpp>
 #include <openvpn/ip/ptb.hpp>
 #include <openvpn/tun/client/tunbase.hpp>
 #include <openvpn/transport/client/transbase.hpp>
@@ -73,8 +74,9 @@
 #define OPENVPN_LOG_CLIPROTO(x)
 #endif
 
-namespace openvpn {
-  namespace ClientProto {
+using openvpn::numeric_util::clamp_to_typerange;
+
+namespace openvpn::ClientProto {
 
 struct NotifyCallback
 {
@@ -416,32 +418,34 @@ struct NotifyCallback
 		}
 	    }
 
-	  // encrypt packet
-	  if (buf.size())
-	    {
-	      const ProtoContext::Config& c = Base::conf();
-	      // when calculating mss, we take IPv4 and TCP headers into account
-	      // here we need to add it back since we check the whole IP packet size, not just TCP payload
-	      size_t mss_no_tcp_ip_encap = (size_t)c.mss_fix + (20 + 20);
-	      if (c.mss_fix > 0 && buf.size() > mss_no_tcp_ip_encap)
-		{
-		  Ptb::generate_icmp_ptb(buf, mss_no_tcp_ip_encap);
-		  tun->tun_send(buf);
-		}
-	      else
-		{
-		  Base::data_encrypt(buf);
-		  if (buf.size())
-		  {
-		    // send packet via transport to destination
-		    OPENVPN_LOG_CLIPROTO("Transport SEND " << server_endpoint_render() << ' ' << Base::dump_packet(buf));
-		    if (transport->transport_send(buf))
-		      Base::update_last_sent();
-		    else if (halt)
-		      return;
-		  }
-		}
-	    }
+            // encrypt packet
+            if (buf.size())
+            {
+                const ProtoContext::Config &c = Base::conf();
+                // when calculating mss, we take IPv4 and TCP headers into account
+                // here we need to add it back since we check the whole IP packet size, not just TCP payload
+                constexpr size_t MinTcpHeader = 20;
+                constexpr size_t MinIpHeader = 20;
+                size_t mss_no_tcp_ip_encap = c.mss_fix + (MinTcpHeader + MinIpHeader);
+                if (c.mss_fix > 0 && buf.size() > mss_no_tcp_ip_encap)
+                {
+                    Ptb::generate_icmp_ptb(buf, clamp_to_typerange<unsigned short>(mss_no_tcp_ip_encap));
+                    tun->tun_send(buf);
+                }
+                else
+                {
+                    Base::data_encrypt(buf);
+                    if (buf.size())
+                    {
+                        // send packet via transport to destination
+                        OPENVPN_LOG_CLIPROTO("Transport SEND " << server_endpoint_render() << ' ' << Base::dump_packet(buf));
+                        if (transport->transport_send(buf))
+                            Base::update_last_sent();
+                        else if (halt)
+                            return;
+                    }
+                }
+            }
 
 	  // do a lightweight flush
 	  Base::flush(false);
@@ -852,26 +856,25 @@ struct NotifyCallback
 
 		unsigned int timeout = 0;
 
-		if (string::starts_with(msg, "AUTH_PENDING,"))
-		  {
-		    key_words = msg.substr(::strlen("AUTH_PENDING,"));
-		    auto opts = OptionList::parse_from_csv_static(key_words, nullptr);
-		    std::string timeout_str = opts.get_optional("timeout", 1, 20);
-		    if (timeout_str != "")
-		      {
-			try
-			  {
-			    timeout = std::stoul(timeout_str);
-			    // Cap the timeout to end well before renegotiation starts
-			    timeout = std::min(timeout, static_cast<decltype(timeout)>(conf().renegotiate.to_seconds() / 2));
-			  }
-			catch (const std::logic_error& e)
-			  {
-			    OPENVPN_LOG("could not parse AUTH_PENDING timeout: " << timeout_str);
-			  }
-		      }
-		  }
-
+                if (string::starts_with(msg, "AUTH_PENDING,"))
+                {
+                    key_words = msg.substr(::strlen("AUTH_PENDING,"));
+                    auto opts = OptionList::parse_from_csv_static(key_words, nullptr);
+                    std::string timeout_str = opts.get_optional("timeout", 1, 20);
+                    if (timeout_str != "")
+                    {
+                        try
+                        {
+                            timeout = clamp_to_typerange<unsigned int>(std::stoul(timeout_str));
+                            // Cap the timeout to end well before renegotiation starts
+                            timeout = std::min(timeout, static_cast<decltype(timeout)>(conf().renegotiate.to_seconds() / 2));
+                        }
+                        catch (const std::logic_error &e)
+                        {
+                            OPENVPN_LOG("could not parse AUTH_PENDING timeout: " << timeout_str);
+                        }
+                    }
+                }
 
 
 		if (notify_callback && timeout > 0)
@@ -1435,8 +1438,7 @@ struct NotifyCallback
 #ifdef OPENVPN_PACKET_LOG
       std::ofstream packet_log;
 #endif
-    };
-} // namespace ClientProto
-} // namespace openvpn
+};
+} // namespace openvpn::ClientProto
 
 #endif

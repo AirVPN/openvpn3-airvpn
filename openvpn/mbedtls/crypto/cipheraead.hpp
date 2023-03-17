@@ -72,15 +72,10 @@ class CipherContextAEAD
             SUPPORTS_IN_PLACE_ENCRYPT = 1,
         };
 
-#if 0
-        // mbed TLS encrypt/decrypt return values
-        
-        enum
+        bool constexpr requires_authtag_at_end()
         {
-            AEAD_AUTH_FAILED = MBEDTLS_ERR_CIPHER_AUTH_FAILED,
-            SUCCESS = 0,
-        };
-#endif
+            return false;
+        }
 
         CipherContextAEAD()	: initialized(false)
         {
@@ -107,7 +102,7 @@ class CipherContextAEAD
 
             const mbedtls_cipher_id_t cid = cipher_type(alg, ckeysz);
 
-            if (cid == MBEDTLS_CIPHER_NONE)
+            if (cid == MBEDTLS_CIPHER_ID_NONE)
                 OPENVPN_THROW(mbedtls_aead_error, CryptoAlgs::name(alg) << ": not usable");
 
             if(ckeysz > keysize)
