@@ -660,27 +660,17 @@ namespace openvpn {
     // without raising an exception.
     bool endpoint_available(std::string* server_host, std::string* server_port, Protocol* transport_protocol) const
     {
-      const Item& item = *list[item_index()];
-      if (server_host)
-	*server_host = item.actual_host();
-      if (server_port)
-	*server_port = item.server_port;
-      const bool cached = (item.res_addr_list && index.item_addr() < item.res_addr_list->size());
-      if (transport_protocol)
-	{
-	  if (cached)
-	    {
-	      // Since we know whether resolved address is IPv4 or IPv6, add
-	      // that info to the returned Protocol object.
-	      Protocol proto(item.transport_protocol);
-	      const IP::Addr& addr = (*item.res_addr_list)[index.item_addr()]->addr;
-	      proto.mod_addr_version(addr.version());
-	      *transport_protocol = proto;
-	    }
-	  else
-	    *transport_protocol = item.transport_protocol;
-	}
-      return cached;
+        const Item &item = *list[item_index()];
+        if (server_host)
+            *server_host = item.actual_host();
+        if (server_port)
+            *server_port = item.server_port;
+        const bool cached = (item.res_addr_list && index.item_addr() < item.res_addr_list->size());
+        if (transport_protocol)
+        {
+            *transport_protocol = item.transport_protocol;
+        }
+        return cached;
     }
 
     // cache a list of DNS-resolved IP addresses

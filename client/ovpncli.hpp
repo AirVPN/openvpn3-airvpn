@@ -26,6 +26,7 @@
 
 #include <string>
 #include <vector>
+#include <unordered_set>
 #include <utility>
 
 #ifndef OPENVPN_LOG
@@ -112,14 +113,17 @@ namespace openvpn {
       // cipher in config
       std::string cipher;
 
+      // optional, values are "tap-windows6" and "wintun"
+      std::string windowsDriver;
+
+      bool dcoCompatible;
+      std::string dcoIncompatibilityReason;
+
       // optional list of user-selectable VPN servers
       std::vector<ServerEntry> serverList;
 
       // list of remote servers
       std::vector<RemoteEntry> remoteList;
-
-      // optional, values are "tap-windows6" and "wintun"
-      std::string windowsDriver;
     };
 
     // used to pass credentials to VPN core
@@ -338,8 +342,12 @@ namespace openvpn {
       // Custom proxy implementation
       bool altProxy = false;
 
-      // Enable automatic Data Channel Offload
-      bool dco = true;
+    // Enable automatic Data Channel Offload
+#if defined(ENABLE_OVPNDCO) || defined(ENABLE_OVPNDCOWIN)
+    bool dco = true;
+#else
+    bool dco = false;
+#endif
 
       // pass through pushed "echo" directives via "ECHO" event
       bool echo = false;
@@ -593,19 +601,30 @@ class OpenVPNClientHelper
       // Return SSL version
       static std::string ssl_library_version();
       
-private:
-      static MergeConfig build_merge_config(const ProfileMerge&);
+    // If those options are present, dco cannot be used
+    inline static std::unordered_set<std::string> dco_incompatible_opts = {
+        "http-proxy",
+        "compress",
+        "comp-lzo"};
+
+    private:
+      static MergeConfig build_merge_config(const ProfileMerge &);
 
       static void parse_config(const Config&, EvalConfig&, OptionList&);
 
-      /* including initprocess.hpp here break since it pulls in logging
-       * (OPENVPN_LOG) which not setup when including this header, so break that
-       * cycle here with a pointer instead a normal member, std::unique_ptr
-       * and std::unique_ptr because they still need to have the initprocess.hpp
-       * included in the same compilation unit which breaks in the swig wrapped
-       * class, so we use a plain pointer and new/delete in constructor/destructor */
-      InitProcess::Init* init;
-    };
+    /* including initprocess.hpp here break since it pulls in logging
+     * (OPENVPN_LOG) which not setup when including this header, so break that
+     * cycle here with a pointer instead a normal member, std::unique_ptr
+     * and std::unique_ptr because they still need to have the initprocess.hpp
+     * included in the same compilation unit which breaks in the swig wrapped
+     * class, so we use a plain pointer and new/delete in constructor/destructor */
+    InitProcess::Init *init;
+
+    /* Checks if there are dco-incompatible options in options list or config has
+     * dco-incompatible settings. Sets dcoCompatible flag and dcoIncompatibilityReason
+     * string property (if applicable) in EvalConfig object */
+    static void check_dco_compatibility(const Config &, EvalConfig &, OptionList &);
+};
 
     // Top-level OpenVPN client class.
     class OpenVPNClient : public TunBuilderBase,            // expose tun builder virtual methods

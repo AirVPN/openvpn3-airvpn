@@ -121,48 +121,49 @@ namespace openvpn {
 
     struct Config
     {
-      std::string gui_version;
-      std::string sso_methods;
-      std::string server_override;
-      std::string port_override;
-      std::string hw_addr_override;
-      std::string platform_version;
-      Protocol proto_override;
-      CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
-      IP::Addr::Version proto_version_override = IP::Addr::Version::UNSPEC;
-      TriStateSetting allowUnusedAddrFamilies;
-      int conn_timeout = 0;
-      unsigned int tcp_queue_limit = 64;
-      SessionStats::Ptr cli_stats;
-      ClientEvent::Queue::Ptr cli_events;
-      ProtoContextOptions::Ptr proto_context_options;
-      HTTPProxyTransport::Options::Ptr http_proxy_options;
-      bool alt_proxy = false;
-      bool ncp_disable = false;
-      bool dco = true;
-      bool echo = false;
-      bool info = false;
-      bool tun_persist = false;
-      bool wintun = false;
-      bool allow_local_dns_resolvers = false;
-      bool google_dns_fallback = false;
-      bool synchronous_dns_lookup = false;
-      bool generate_tun_builder_capture_event = false;
-      std::string private_key_password;
-      bool disable_client_cert = false;
-      int ssl_debug_level = 0;
-      int default_key_direction = -1;
-      bool autologin_sessions = false;
-      bool retry_on_auth_failed = false;
-      bool allow_local_lan_access = false;
-      bool preferred_security = true;
-      std::string tls_version_min_override;
-      std::string tls_cert_profile_override;
-      std::string tls_cipher_list;
-      std::string tls_ciphersuite_list;
-      bool enable_legacy_algorithms = false;
-      bool enable_nonpreferred_dcalgs = false;
-      PeerInfo::Set::Ptr extra_peer_info;
+        std::string gui_version;
+        std::string sso_methods;
+        std::string server_override;
+        std::string port_override;
+        std::string hw_addr_override;
+        std::string platform_version;
+        Protocol proto_override;
+        CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
+        IP::Addr::Version proto_version_override = IP::Addr::Version::UNSPEC;
+        TriStateSetting allowUnusedAddrFamilies;
+        int conn_timeout = 0;
+        unsigned int tcp_queue_limit = 64;
+        SessionStats::Ptr cli_stats;
+        ClientEvent::Queue::Ptr cli_events;
+        ProtoContextOptions::Ptr proto_context_options;
+        HTTPProxyTransport::Options::Ptr http_proxy_options;
+        bool alt_proxy = false;
+        bool ncp_disable = false;
+        bool dco = true;
+        bool dco_compatible = false;
+        bool echo = false;
+        bool info = false;
+        bool tun_persist = false;
+        bool wintun = false;
+        bool allow_local_dns_resolvers = false;
+        bool google_dns_fallback = false;
+        bool synchronous_dns_lookup = false;
+        bool generate_tun_builder_capture_event = false;
+        std::string private_key_password;
+        bool disable_client_cert = false;
+        int ssl_debug_level = 0;
+        int default_key_direction = -1;
+        bool autologin_sessions = false;
+        bool retry_on_auth_failed = false;
+        bool allow_local_lan_access = false;
+        bool preferred_security = true;
+        std::string tls_version_min_override;
+        std::string tls_cert_profile_override;
+        std::string tls_cipher_list;
+        std::string tls_ciphersuite_list;
+        bool enable_legacy_algorithms = false;
+        bool enable_nonpreferred_dcalgs = false;
+        PeerInfo::Set::Ptr extra_peer_info;
 #ifdef OPENVPN_PLATFORM_ANDROID
       bool enable_route_emulation = true;
 #endif
@@ -266,6 +267,12 @@ namespace openvpn {
 							   !config.enable_nonpreferred_dcalgs,
 							   config.enable_legacy_algorithms);
 
+        // throw an exception of dco is requested but config/options are dco-incompatible
+        if (config.dco && !config.dco_compatible)
+        {
+            throw option_error("dco_compatibility: config/options are not compatible with dco");
+        }
+
 #if (defined(ENABLE_KOVPN) || defined(ENABLE_OVPNDCO) || defined(ENABLE_OVPNDCOWIN)) && !defined(OPENVPN_FORCE_TUN_NULL) && !defined(OPENVPN_EXTERNAL_TUN_FACTORY)
       if (config.dco)
 #if defined(USE_TUN_BUILDER)
@@ -357,14 +364,15 @@ namespace openvpn {
 #if defined(OPENVPN_COMMAND_AGENT) && defined(OPENVPN_PLATFORM_WIN)
 	  tunconf.setup_factory = WinCommandAgent::new_agent(opt);
 #endif
-	  tunconf.tun_prop.layer = layer;
-	  tunconf.tun_prop.session_name = session_name;
-	  if (tun_mtu)
-	    tunconf.tun_prop.mtu = tun_mtu;
-	  tunconf.tun_prop.mtu_max = tun_mtu_max;
-	  tunconf.tun_prop.google_dns_fallback = config.google_dns_fallback;
-	  tunconf.tun_prop.remote_list = remote_list;
-	  tunconf.stop = config.stop;
+          tunconf.tun_prop.layer = layer;
+          tunconf.tun_prop.session_name = session_name;
+          if (tun_mtu)
+              tunconf.tun_prop.mtu = tun_mtu;
+          tunconf.tun_prop.mtu_max = tun_mtu_max;
+          tunconf.tun_prop.google_dns_fallback = config.google_dns_fallback;
+          tunconf.tun_prop.remote_list = remote_list;
+          tunconf.stop = config.stop;
+          tunconf.allow_local_dns_resolvers = config.allow_local_dns_resolvers;
 #if defined(OPENVPN_PLATFORM_WIN)
 	  if (config.tun_persist)
 	    tunconf.tun_persist.reset(new TunWin::DcoTunPersist(true, TunWrapObjRetain::NO_RETAIN_NO_REPLACE, nullptr));
@@ -476,21 +484,22 @@ namespace openvpn {
 	    tun_factory = tunconf;
 	  }
 #elif defined(OPENVPN_PLATFORM_WIN) && !defined(OPENVPN_FORCE_TUN_NULL)
-	  {
-	    TunWin::ClientConfig::Ptr tunconf = TunWin::ClientConfig::new_obj();
-	    tunconf->tun_prop.layer = layer;
-	    tunconf->tun_prop.session_name = session_name;
-	    tunconf->tun_prop.google_dns_fallback = config.google_dns_fallback;
-	    if (tun_mtu)
-	      tunconf->tun_prop.mtu = tun_mtu;
-	    tunconf->tun_prop.mtu_max = tun_mtu_max;
-	    tunconf->frame = frame;
-	    tunconf->stats = cli_stats;
-	    tunconf->stop = config.stop;
-	    tunconf->tun_type = config.wintun ? TunWin::Wintun : TunWin::TapWindows6;
-	    if (config.tun_persist)
-	      {
-		tunconf->tun_persist.reset(new TunWin::TunPersist(true, TunWrapObjRetain::NO_RETAIN, nullptr));
+            {
+                TunWin::ClientConfig::Ptr tunconf = TunWin::ClientConfig::new_obj();
+                tunconf->tun_prop.layer = layer;
+                tunconf->tun_prop.session_name = session_name;
+                tunconf->tun_prop.google_dns_fallback = config.google_dns_fallback;
+                if (tun_mtu)
+                    tunconf->tun_prop.mtu = tun_mtu;
+                tunconf->tun_prop.mtu_max = tun_mtu_max;
+                tunconf->frame = frame;
+                tunconf->stats = cli_stats;
+                tunconf->stop = config.stop;
+                tunconf->tun_type = config.wintun ? TunWin::Wintun : TunWin::TapWindows6;
+                tunconf->allow_local_dns_resolvers = config.allow_local_dns_resolvers;
+                if (config.tun_persist)
+                {
+                    tunconf->tun_persist.reset(new TunWin::TunPersist(true, TunWrapObjRetain::NO_RETAIN, nullptr));
 #ifndef OPENVPN_COMMAND_AGENT
 		/* remote_list is required by remote_bypass to work */
 		tunconf->tun_prop.remote_bypass = true;

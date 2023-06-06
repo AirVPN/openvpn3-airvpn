@@ -1265,56 +1265,59 @@ enum
 	    // get packet header byte
 	    const unsigned int op = buf[0];
 
-	    // examine opcode
-	    {
-	      const unsigned int opc = opcode_extract(op);
-	      switch (opc)
-		{
-		case CONTROL_SOFT_RESET_V1:
-		case CONTROL_V1:
-		case ACK_V1:
-		  {
-		    flags |= CONTROL;
-		    opcode = opc;
-		    break;
-		  }
-		case DATA_V2:
-		  {
-		    if (unlikely(buf.size() < 4))
-		      return;
-		    const int opi = ntohl(*(const std::uint32_t *)buf.c_data()) & 0x00FFFFFF;
-		    if (opi != OP_PEER_ID_UNDEF)
-		      peer_id_ = opi;
-		    opcode = opc;
-		    break;
-		  }
-		case DATA_V1:
-		  {
-		    opcode = opc;
-		    break;
-		  }
-		case CONTROL_HARD_RESET_CLIENT_V2:
-		case CONTROL_HARD_RESET_CLIENT_V3:
-		  {
-		    if (!proto.is_server())
-		      return;
-		    flags |= CONTROL;
-		    opcode = opc;
-		    break;
-		  }
-		case CONTROL_HARD_RESET_SERVER_V2:
-                case CONTROL_WKC_V1:
-		  {
-		    if (proto.is_server())
-		      return;
-		    flags |= CONTROL;
-		    opcode = opc;
-		    break;
-		  }
-		default:
-		  return;
-		}
-	    }
+                // examine opcode
+                {
+                    const unsigned int opc = opcode_extract(op);
+                    switch (opc)
+                    {
+                    case CONTROL_SOFT_RESET_V1:
+                    case CONTROL_V1:
+                    case ACK_V1:
+                        {
+                            flags |= CONTROL;
+                            opcode = opc;
+                            break;
+                        }
+                    case DATA_V2:
+                        {
+                            if (unlikely(buf.size() < 4))
+                                return;
+                            std::uint32_t opi;
+                            // avoid unaligned access
+                            std::memcpy(&opi, buf.c_data(), sizeof(opi));
+                            opi = ntohl(opi) & 0x00FFFFFF;
+                            if (opi != OP_PEER_ID_UNDEF)
+                                peer_id_ = opi;
+                            opcode = opc;
+                            break;
+                        }
+                    case DATA_V1:
+                        {
+                            opcode = opc;
+                            break;
+                        }
+                    case CONTROL_HARD_RESET_CLIENT_V2:
+                    case CONTROL_HARD_RESET_CLIENT_V3:
+                        {
+                            if (!proto.is_server())
+                                return;
+                            flags |= CONTROL;
+                            opcode = opc;
+                            break;
+                        }
+                    case CONTROL_HARD_RESET_SERVER_V2:
+                    case CONTROL_WKC_V1:
+                        {
+                            if (proto.is_server())
+                                return;
+                            flags |= CONTROL;
+                            opcode = opc;
+                            break;
+                        }
+                    default:
+                        return;
+                    }
+                }
 
 	    // examine key ID
 	    {
@@ -2198,13 +2201,16 @@ enum
 	    target -= 1;
 	  }
 
-	c.mss_fix = target - payload_overhead;
-            OPENVPN_LOG("mssfix=" << c.mss_fix
-                                  << " (upper bound=" << c.mss_parms.mssfix
-                                  << ", overhead=" << overhead
-                                  << ", payload_overhead=" << payload_overhead
-                                  << ", target=" << target << ")");
-      }
+            c.mss_fix = target - payload_overhead;
+            if (c.debug_level > 1)
+            {
+                OPENVPN_LOG("mssfix=" << c.mss_fix
+                                      << " (upper bound=" << c.mss_parms.mssfix
+                                      << ", overhead=" << overhead
+                                      << ", payload_overhead=" << payload_overhead
+                                      << ", target=" << target << ")");
+            }
+        }
 
       // Initialize the components of the OpenVPN data channel protocol
       void init_data_channel()
@@ -3264,14 +3270,17 @@ enum
 	if (orig_size < (tls_frame_size + hmac_size))
 	  return false;
 
-	// the ``WKc`` is just appended after the standard tls-crypt frame
-	const unsigned char *wkc_raw = orig_data + tls_frame_size;
-	const size_t wkc_raw_size = orig_size - tls_frame_size - sizeof(uint16_t);
-	// retrieve the ``WKc`` len from the bottom of the packet and convert it to Host Order
-	uint16_t wkc_len = ntohs(*(uint16_t *)(wkc_raw + wkc_raw_size));
-	// length sanity check (the size of the ``len`` field is included in the value)
-	if ((wkc_len - sizeof(uint16_t)) != wkc_raw_size)
-	  return false;
+            // the ``WKc`` is just appended after the standard tls-crypt frame
+            const unsigned char *wkc_raw = orig_data + tls_frame_size;
+            const size_t wkc_raw_size = orig_size - tls_frame_size - sizeof(uint16_t);
+            // retrieve the ``WKc`` len from the bottom of the packet and convert it to Host Order
+            uint16_t wkc_len;
+            // avoid unaligned access
+            std::memcpy(&wkc_len, wkc_raw + wkc_raw_size, sizeof(wkc_len));
+            wkc_len = ntohs(wkc_len);
+            // length sanity check (the size of the ``len`` field is included in the value)
+            if ((wkc_len - sizeof(uint16_t)) != wkc_raw_size)
+                return false;
 
 	BufferAllocated plaintext(wkc_len, BufferAllocated::CONSTRUCT_ZERO);
             // plaintext will be used to compute the Auth Tag, therefore start by prepending

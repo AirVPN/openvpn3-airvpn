@@ -488,10 +488,11 @@ namespace openvpn {
 #ifdef OPENVPN_GREMLIN
 	Gremlin::Config::Ptr gremlin_config;
 #endif
-	bool alt_proxy = false;
-	bool dco = true;
-	bool echo = false;
-	bool info = false;
+        bool alt_proxy = false;
+        bool dco = true;
+        bool echo = false;
+        bool info = false;
+        bool dco_compatible = false;
 
 	// Ensure that init is called
 	InitProcess::Init init;
@@ -656,27 +657,30 @@ namespace openvpn {
 	if (!config.protoOverride.empty())
 	  Protocol::parse(config.protoOverride, Protocol::NO_SUFFIX);
 
-    // validate cipher_override
-    if(!config.cipherOverrideAlgorithm.empty())
-    {
-        CryptoAlgs::lookup(config.cipherOverrideAlgorithm);
+        // validate cipher_override
+        if(!config.cipherOverrideAlgorithm.empty())
+        {
+            CryptoAlgs::lookup(config.cipherOverrideAlgorithm);
 
-        OPENVPN_LOG("CIPHER OVERRIDE: " << CryptoAlgs::name(CryptoAlgs::lookup(config.cipherOverrideAlgorithm)));
-    }
+            OPENVPN_LOG("CIPHER OVERRIDE: " << CryptoAlgs::name(CryptoAlgs::lookup(config.cipherOverrideAlgorithm)));
+        }
 
 	// validate IPv6 setting
 	if (!config.allowUnusedAddrFamilies.empty())
 	  TriStateSetting::parse(config.allowUnusedAddrFamilies);
 
-	// parse config
-	OptionList::KeyValueList kvl;
-	kvl.reserve(config.contentList.size());
-	for (size_t i = 0; i < config.contentList.size(); ++i)
-	  {
-	    const KeyValue& kv = config.contentList[i];
-	    kvl.push_back(new OptionList::KeyValue(kv.key, kv.value));
-	  }
-	const ParseClientConfig cc = ParseClientConfig::parse(config.content, &kvl, options);
+        // parse config
+        OptionList::KeyValueList kvl;
+        kvl.reserve(config.contentList.size());
+        for (size_t i = 0; i < config.contentList.size(); ++i)
+        {
+            const KeyValue &kv = config.contentList[i];
+            kvl.push_back(new OptionList::KeyValue(kv.key, kv.value));
+        }
+        const ParseClientConfig cc = ParseClientConfig::parse(config.content, &kvl, options);
+
+        check_dco_compatibility(config, eval, options);
+
 #ifdef OPENVPN_DUMP_CONFIG
 	std::cout << "---------- ARGS ----------" << std::endl;
 	std::cout << options.render(Option::RENDER_PASS_FMT|Option::RENDER_NUMBER|Option::RENDER_BRACKET) << std::endl;
@@ -777,96 +781,95 @@ namespace openvpn {
 	}
     }
 
-    OPENVPN_CLIENT_EXPORT void OpenVPNClient::parse_extras(const Config& config, EvalConfig& eval)
+    OPENVPN_CLIENT_EXPORT void OpenVPNClient::parse_extras(const Config &config, EvalConfig &eval)
     {
-    try
-    {
-	state->server_override = config.serverOverride;
-	state->port_override = config.portOverride;
-	state->conn_timeout = config.connTimeout;
-	state->tun_persist = config.tunPersist;
-	state->wintun = config.wintun;
-	state->allow_local_dns_resolvers = config.allowLocalDnsResolvers;
-	state->google_dns_fallback = config.googleDnsFallback;
-	state->synchronous_dns_lookup = config.synchronousDnsLookup;
-	state->generate_tun_builder_capture_event = config.generate_tun_builder_capture_event;
-	state->autologin_sessions = config.autologinSessions;
-	state->retry_on_auth_failed = config.retryOnAuthFailed;
-	state->private_key_password = config.privateKeyPassword;
-	if (!config.protoOverride.empty())
-	  state->proto_override = Protocol::parse(config.protoOverride, Protocol::NO_SUFFIX);
+        try
+        {
+            state->server_override = config.serverOverride;
+            state->port_override = config.portOverride;
+            state->conn_timeout = config.connTimeout;
+            state->tun_persist = config.tunPersist;
+            state->wintun = config.wintun;
+            state->allow_local_dns_resolvers = config.allowLocalDnsResolvers;
+            state->google_dns_fallback = config.googleDnsFallback;
+            state->synchronous_dns_lookup = config.synchronousDnsLookup;
+            state->generate_tun_builder_capture_event = config.generate_tun_builder_capture_event;
+            state->autologin_sessions = config.autologinSessions;
+            state->retry_on_auth_failed = config.retryOnAuthFailed;
+            state->private_key_password = config.privateKeyPassword;
 
-    {
-        if(!config.cipherOverrideAlgorithm.empty())
-            state->cipher_override = CryptoAlgs::lookup(config.cipherOverrideAlgorithm);
-        else
-            state->cipher_override = CryptoAlgs::Type::NONE;
-    }
+            if(!config.cipherOverrideAlgorithm.empty())
+                state->cipher_override = CryptoAlgs::lookup(config.cipherOverrideAlgorithm);
+            else
+                state->cipher_override = CryptoAlgs::Type::NONE;
 
-	if (config.protoVersionOverride == 4)
-	  state->proto_version_override = IP::Addr::Version::V4;
-	else if (config.protoVersionOverride == 6)
-	  state->proto_version_override = IP::Addr::Version::V6;
-	if (!config.allowUnusedAddrFamilies.empty())
-	  state->allowUnusedAddrFamilies = TriStateSetting::parse(config.allowUnusedAddrFamilies);
-	if (!config.compressionMode.empty())
-	  state->proto_context_options->parse_compression_mode(config.compressionMode);
-	if (eval.externalPki)
-	  state->external_pki_alias = config.externalPkiAlias;
-	state->disable_client_cert = config.disableClientCert;
-	state->ssl_debug_level = config.sslDebugLevel;
-	state->default_key_direction = config.defaultKeyDirection;
-	state->tls_version_min_override = config.tlsVersionMinOverride;
-	state->tls_cert_profile_override = config.tlsCertProfileOverride;
-	state->tls_cipher_list = config.tlsCipherList;
-	state->tls_ciphersuite_list = config.tlsCiphersuitesList;
-	state->enable_legacy_algorithms = config.enableLegacyAlgorithms;
-	state->enable_nonpreferred_dcalgs = config.enableNonPreferredDCAlgorithms;
-	state->allow_local_lan_access = config.allowLocalLanAccess;
-	state->gui_version = config.guiVersion;
-	state->sso_methods = config.ssoMethods;
-	state->platform_version = config.platformVersion;
-	state->hw_addr_override = config.hwAddrOverride;
-	state->alt_proxy = config.altProxy;
-	
-        if(config.tcpQueueLimit > 0)
-            state->tcp_queue_limit = config.tcpQueueLimit;
-	
-        state->ncp_disable = config.disableNCP;
-	state->dco = config.dco;
-	state->echo = config.echo;
-	state->info = config.info;
-	state->clock_tick_ms = config.clockTickMS;
+            if (!config.protoOverride.empty())
+                state->proto_override = Protocol::parse(config.protoOverride, Protocol::NO_SUFFIX);
+            if (config.protoVersionOverride == 4)
+                state->proto_version_override = IP::Addr::Version::V4;
+            else if (config.protoVersionOverride == 6)
+                state->proto_version_override = IP::Addr::Version::V6;
+            if (!config.allowUnusedAddrFamilies.empty())
+                state->allowUnusedAddrFamilies = TriStateSetting::parse(config.allowUnusedAddrFamilies);
+            if (!config.compressionMode.empty())
+                state->proto_context_options->parse_compression_mode(config.compressionMode);
+            if (eval.externalPki)
+                state->external_pki_alias = config.externalPkiAlias;
+            state->disable_client_cert = config.disableClientCert;
+            state->ssl_debug_level = config.sslDebugLevel;
+            state->default_key_direction = config.defaultKeyDirection;
+            state->tls_version_min_override = config.tlsVersionMinOverride;
+            state->tls_cert_profile_override = config.tlsCertProfileOverride;
+            state->tls_cipher_list = config.tlsCipherList;
+            state->tls_ciphersuite_list = config.tlsCiphersuitesList;
+            state->enable_legacy_algorithms = config.enableLegacyAlgorithms;
+            state->enable_nonpreferred_dcalgs = config.enableNonPreferredDCAlgorithms;
+            state->allow_local_lan_access = config.allowLocalLanAccess;
+            state->gui_version = config.guiVersion;
+            state->sso_methods = config.ssoMethods;
+            state->platform_version = config.platformVersion;
+            state->hw_addr_override = config.hwAddrOverride;
+            state->alt_proxy = config.altProxy;
+
+            if(config.tcpQueueLimit > 0)
+                state->tcp_queue_limit = config.tcpQueueLimit;
+            
+            state->ncp_disable = config.disableNCP;
+            state->dco = config.dco;
+            state->echo = config.echo;
+            state->info = config.info;
+            state->clock_tick_ms = config.clockTickMS;
 #ifdef OPENVPN_PLATFORM_ANDROID
-	state->enable_route_emulation = config.enableRouteEmulation;
+            state->enable_route_emulation = config.enableRouteEmulation;
 #endif
-	if (!config.gremlinConfig.empty())
-	  {
+            if (!config.gremlinConfig.empty())
+            {
 #ifdef OPENVPN_GREMLIN
-	  state->gremlin_config.reset(new Gremlin::Config(config.gremlinConfig));
+                state->gremlin_config.reset(new Gremlin::Config(config.gremlinConfig));
 #else
-	  throw Exception("client not built with OPENVPN_GREMLIN");
+                throw Exception("client not built with OPENVPN_GREMLIN");
 #endif
-	  }
-	state->extra_peer_info = PeerInfo::Set::new_from_foreign_set(config.peerInfo);
-	if (!config.proxyHost.empty())
-	  {
-	    HTTPProxyTransport::Options::Ptr ho(new HTTPProxyTransport::Options());
-	    ho->set_proxy_server(config.proxyHost, config.proxyPort);
-	    ho->username = config.proxyUsername;
-	    ho->password = config.proxyPassword;
-	    ho->allow_cleartext_auth = config.proxyAllowCleartextAuth;
-	    state->http_proxy_options = ho;
-	  }
-      }
-      catch (const std::exception& e)
-	{
-	  eval.error = true;
-	  eval.message = Unicode::utf8_printable<std::string>(e.what(), 256);
-	}
+            }
+            state->extra_peer_info = PeerInfo::Set::new_from_foreign_set(config.peerInfo);
+            if (!config.proxyHost.empty())
+            {
+                HTTPProxyTransport::Options::Ptr ho(new HTTPProxyTransport::Options());
+                ho->set_proxy_server(config.proxyHost, config.proxyPort);
+                ho->username = config.proxyUsername;
+                ho->password = config.proxyPassword;
+                ho->allow_cleartext_auth = config.proxyAllowCleartextAuth;
+                state->http_proxy_options = ho;
+            }
+            state->dco_compatible = eval.dcoCompatible;
+        }
+        catch (const std::exception &e)
+        {
+            eval.error = true;
+            eval.message = Unicode::utf8_printable<std::string>(e.what(), 256);
+        }
     }
 
-OpenVPNClientHelper::OpenVPNClientHelper()
+    OpenVPNClientHelper::OpenVPNClientHelper()
     : init(new InitProcess::Init())
     {
     }
@@ -1104,53 +1107,54 @@ OpenVPNClientHelper::OpenVPNClientHelper()
       mbedtls_debug_set_threshold(state->ssl_debug_level); // fixme -- using a global method for this seems wrong
 #endif
 
-      // load options
-      ClientOptions::Config cc;
-      cc.cli_stats = state->stats;
-      cc.cli_events = state->events;
-      cc.server_override = state->server_override;
-      cc.port_override = state->port_override;
-      cc.proto_override = state->proto_override;
-      cc.cipher_override = state->cipher_override;
-      cc.proto_version_override = state->proto_version_override;
-      cc.allowUnusedAddrFamilies = state->allowUnusedAddrFamilies;
-      cc.conn_timeout = state->conn_timeout;
-      cc.tun_persist = state->tun_persist;
-      cc.wintun = state->wintun;
-      cc.allow_local_dns_resolvers = state->allow_local_dns_resolvers;
-      cc.google_dns_fallback = state->google_dns_fallback;
-      cc.synchronous_dns_lookup = state->synchronous_dns_lookup;
-      cc.generate_tun_builder_capture_event = state->generate_tun_builder_capture_event;
-      cc.autologin_sessions = state->autologin_sessions;
-      cc.retry_on_auth_failed = state->retry_on_auth_failed;
-      cc.proto_context_options = state->proto_context_options;
-      cc.http_proxy_options = state->http_proxy_options;
-      cc.alt_proxy = state->alt_proxy;
-      cc.tcp_queue_limit = state->tcp_queue_limit;
-      cc.ncp_disable = state->ncp_disable;
-      cc.dco = state->dco;
-      cc.echo = state->echo;
-      cc.info = state->info;
-      cc.reconnect_notify = &state->reconnect_notify;
-      if (remote_override_enabled())
-	cc.remote_override = &state->remote_override;
-      cc.private_key_password = state->private_key_password;
-      cc.disable_client_cert = state->disable_client_cert;
-      cc.ssl_debug_level = state->ssl_debug_level;
-      cc.default_key_direction = state->default_key_direction;
-      cc.tls_version_min_override = state->tls_version_min_override;
-      cc.tls_cert_profile_override = state->tls_cert_profile_override;
-      cc.tls_cipher_list = state->tls_cipher_list;
-      cc.tls_ciphersuite_list = state->tls_ciphersuite_list;
-	  cc.enable_legacy_algorithms = state->enable_legacy_algorithms;
-      cc.enable_nonpreferred_dcalgs = state->enable_nonpreferred_dcalgs;
-      cc.gui_version = state->gui_version;
-      cc.sso_methods = state->sso_methods;
-      cc.hw_addr_override = state->hw_addr_override;
-      cc.platform_version = state->platform_version;
-      cc.extra_peer_info = state->extra_peer_info;
-      cc.stop = state->async_stop_local();
-      cc.allow_local_lan_access = state->allow_local_lan_access;
+    // load options
+    ClientOptions::Config cc;
+    cc.cli_stats = state->stats;
+    cc.cli_events = state->events;
+    cc.server_override = state->server_override;
+    cc.port_override = state->port_override;
+    cc.proto_override = state->proto_override;
+    cc.cipher_override = state->cipher_override;
+    cc.proto_version_override = state->proto_version_override;
+    cc.allowUnusedAddrFamilies = state->allowUnusedAddrFamilies;
+    cc.conn_timeout = state->conn_timeout;
+    cc.tun_persist = state->tun_persist;
+    cc.wintun = state->wintun;
+    cc.allow_local_dns_resolvers = state->allow_local_dns_resolvers;
+    cc.google_dns_fallback = state->google_dns_fallback;
+    cc.synchronous_dns_lookup = state->synchronous_dns_lookup;
+    cc.generate_tun_builder_capture_event = state->generate_tun_builder_capture_event;
+    cc.autologin_sessions = state->autologin_sessions;
+    cc.retry_on_auth_failed = state->retry_on_auth_failed;
+    cc.proto_context_options = state->proto_context_options;
+    cc.http_proxy_options = state->http_proxy_options;
+    cc.alt_proxy = state->alt_proxy;
+    cc.tcp_queue_limit = state->tcp_queue_limit;
+    cc.ncp_disable = state->ncp_disable;
+    cc.dco = state->dco;
+    cc.dco_compatible = state->dco_compatible;
+    cc.echo = state->echo;
+    cc.info = state->info;
+    cc.reconnect_notify = &state->reconnect_notify;
+    if (remote_override_enabled())
+        cc.remote_override = &state->remote_override;
+    cc.private_key_password = state->private_key_password;
+    cc.disable_client_cert = state->disable_client_cert;
+    cc.ssl_debug_level = state->ssl_debug_level;
+    cc.default_key_direction = state->default_key_direction;
+    cc.tls_version_min_override = state->tls_version_min_override;
+    cc.tls_cert_profile_override = state->tls_cert_profile_override;
+    cc.tls_cipher_list = state->tls_cipher_list;
+    cc.tls_ciphersuite_list = state->tls_ciphersuite_list;
+    cc.enable_legacy_algorithms = state->enable_legacy_algorithms;
+    cc.enable_nonpreferred_dcalgs = state->enable_nonpreferred_dcalgs;
+    cc.gui_version = state->gui_version;
+    cc.sso_methods = state->sso_methods;
+    cc.hw_addr_override = state->hw_addr_override;
+    cc.platform_version = state->platform_version;
+    cc.extra_peer_info = state->extra_peer_info;
+    cc.stop = state->async_stop_local();
+    cc.allow_local_lan_access = state->allow_local_lan_access;
 #ifdef OPENVPN_GREMLIN
       cc.gremlin_config = state->gremlin_config;
 #endif
@@ -1597,9 +1601,53 @@ OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &data,
         return pull_filter_options_;
     }
             
-    OPENVPN_CLIENT_EXPORT OpenVPNClient::~OpenVPNClient()
+OPENVPN_CLIENT_EXPORT void OpenVPNClientHelper::check_dco_compatibility(const Config &config, EvalConfig &eval, OptionList &opt)
+{
+#if defined(ENABLE_KOVPN)
+    // only care about dco/dco-win
+    eval.dcoCompatible = true;
+    return;
+#endif
+
+    std::vector<std::string> reasons;
+
+    for (auto &optname : dco_incompatible_opts)
     {
-      delete state;
+        if (opt.exists(optname))
+        {
+            reasons.push_back("option " + optname + " is not compatible with dco");
+        }
     }
+
+    if (config.enableLegacyAlgorithms)
+    {
+        reasons.push_back("legacy algorithms are not compatible with dco");
+    }
+
+    if (config.enableNonPreferredDCAlgorithms)
+    {
+        reasons.push_back("non-preferred data channel algorithms are not compatible with dco");
+    }
+
+    if (!config.proxyHost.empty())
+    {
+        reasons.push_back("proxyHost config setting is not compatible with dco");
+    }
+
+    if (reasons.empty())
+    {
+        eval.dcoCompatible = true;
+    }
+    else
+    {
+        eval.dcoCompatible = false;
+        eval.dcoIncompatibilityReason = string::join(reasons, "\n");
+    }
+}
+
+OPENVPN_CLIENT_EXPORT OpenVPNClient::~OpenVPNClient()
+{
+    delete state;
+}
 } // namespace ClientAPI
 } // namespace openvpn

@@ -791,20 +791,18 @@ struct NotifyCallback
 	    if (msg.length() >= 13)
 	      reason = string::trim_left_copy(std::string(msg, 12));
 
-	    // If session token problem (such as expiration), and we have a cached
-	    // password, retry with it.  Otherwise, fail without retry.
-	    if (string::starts_with(reason, "SESSION:")
-		&& ((creds && creds->reset_to_cached_password())
-		    || autologin_sessions))
-	      {
-		if (creds && creds->session_id_defined())
-		  creds->purge_session_id();
-		log_reason = "SESSION_AUTH_FAILED";
-	      }
-	    // If session token problem (such as expiration), and we have a cached
-	    // password, retry with it.  Otherwise, fail without retry.
-	    if (string::starts_with(reason, "TEMP"))
-	      {
+            // If session token problem (such as expiration), and we have a cached
+            // password, retry with it.  Otherwise, fail without retry.
+            if (string::starts_with(reason, "SESSION:")
+                && ((creds && creds->reset_to_cached_password())
+                    || autologin_sessions))
+            {
+                if (creds && creds->session_id_defined())
+                    creds->purge_session_id();
+                log_reason = "SESSION_AUTH_FAILED";
+            }
+            else if (string::starts_with(reason, "TEMP"))
+            {
                 log_reason = "AUTH_FAILED_TEMP:" + parse_auth_failed_temp(std::string(reason, 4));
 	      }
 	    else
