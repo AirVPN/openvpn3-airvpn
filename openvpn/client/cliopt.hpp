@@ -649,6 +649,9 @@ namespace openvpn {
         "persist-key",
         "persist-tun",
         "preresolve",
+        "ping",
+        "ping-exit",
+        "ping-restart", /* ping related options are pull only in v3, v2 needs them in the config for pure p2p */
         "providers",       /* Done via client options */
         "remap-usr1",
         "reneg-bytes",
@@ -760,9 +763,6 @@ namespace openvpn {
         "auth-token-user",
         "echo",
         "parameter",
-        "ping",
-        "ping-exit",
-        "ping-restart", /* ping related options are pull only in v3, v2 needs them in the config for pure p2p */
         "key-derivation",
         "peer-id",
         "protocol-flags",

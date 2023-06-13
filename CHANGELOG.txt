@@ -1,3 +1,11 @@
+Changelog 3.8.5 AirVPN - Release date: xx xx 2023 by ProMIND
+
+- [ProMIND] [2023/06/12] openvpn/client/cliopt.hpp: ping, ping-exit and ping-restart moved from vector settings_pushonlyoptions to settings_ignoreWithWarning
+
+
+*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
+
+
 Changelog 3.8.4 AirVPN - Release date: 28 February 2023 by ProMIND
 
 - [ProMIND] [2023/01/20] openvpn/client/optfilt.hpp: fixed bug in PushedOptionsFilter() contructor which
