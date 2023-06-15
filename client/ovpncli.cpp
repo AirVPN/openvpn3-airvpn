@@ -766,13 +766,29 @@ namespace openvpn {
         else
             OPENVPN_LOG("PARSE CONFIG: remote server list is empty");
 
-	for (ParseClientConfig::ServerList::const_iterator i = cc.serverList().begin(); i != cc.serverList().end(); ++i)
+        eval.serverList.clear();
+
+        for (ParseClientConfig::ServerList::const_iterator i = cc.serverList().begin(); i != cc.serverList().end(); ++i)
 	  {
 	    ServerEntry se;
 	    se.server = i->server;
 	    se.friendlyName = i->friendlyName;
 	    eval.serverList.push_back(se);
 	  }
+
+        eval.routeList.clear();
+
+        for(ParseClientConfig::RouteList::const_iterator i = cc.routeList().begin(); i != cc.routeList().end(); ++i)
+        {
+            RouteEntry re;
+            re.networkIP = i->networkIP;
+            re.netmask = i->netmask;
+            re.prefix_length = i->prefix_length;
+            re.gateway = i->gateway;
+            re.metric = i->metric;
+
+            eval.routeList.push_back(re);
+        }
       }
       catch (const std::exception& e)
 	{

@@ -60,12 +60,23 @@ namespace openvpn {
     };
 
     // Represents an OpenVPN remote entry
-    // (client reads)
+
     struct RemoteEntry
     {
       std::string server;
       std::string port;
       std::string protocol;
+    };
+
+    // Represents an OpenVPN route entry
+
+    struct RouteEntry
+    {
+      std::string networkIP;
+      std::string netmask;
+      int prefix_length;
+      std::string gateway;
+      int metric;
     };
 
     // return properties of config
@@ -124,6 +135,9 @@ namespace openvpn {
 
       // list of remote servers
       std::vector<RemoteEntry> remoteList;
+
+      // list of routes
+      std::vector<RouteEntry> routeList;
     };
 
     // used to pass credentials to VPN core

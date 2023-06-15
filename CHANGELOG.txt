@@ -1,6 +1,13 @@
-Changelog 3.8.5 AirVPN - Release date: xx xx 2023 by ProMIND
+Changelog 3.8.5 AirVPN - Release date: xx xx 2023 by ProMIND (under development)
 
 - [ProMIND] [2023/06/12] openvpn/client/cliopt.hpp: ping, ping-exit and ping-restart moved from vector settings_pushonlyoptions to settings_ignoreWithWarning
+- [ProMIND] [2023/06/14] client/ovpncli.hpp: added struct RouteEntry
+- [ProMIND] [2023/06/14] client/ovpncli.hpp: added member routeList to struct EvalConfig
+- [ProMIND] [2023/06/14] client/ovpncli.cpp: populate EvalConfig.routeList with routeList from class ParseClientConfig
+- [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: added struct RouteEntry
+- [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: added struct RouteList
+- [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: added member routeList_ and method routeList()
+- [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: ParseClientConfig() process route and route-ipv6 directives and populate routeList_
 
 
 *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
