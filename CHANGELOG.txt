@@ -7,7 +7,8 @@ Changelog 3.8.5 AirVPN - Release date: xx xx 2023 by ProMIND (under development)
 - [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: added struct RouteEntry
 - [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: added struct RouteList
 - [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: added member routeList_ and method routeList()
-- [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: ParseClientConfig() process route and route-ipv6 directives and populate routeList_
+- [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: added method parse_extra() for custom and extra option processing (used, at the moment, for parsing route and route-ipv6 directives and populate routeList_)
+- [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: ParseClientConfig() call parse_extra()
 
 
 *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*

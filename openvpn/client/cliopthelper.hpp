@@ -336,110 +336,10 @@ class ParseClientConfig
             {
 	  sslConfig.reset();
 	}
-	
-	// process route directives (ProMIND)
 
-	routeList_.clear();
+	// parse extra cases (ProMIND)
 
-	std::string netIP, nmask, gw, m, s;
-	std::vector<std::string> nlist;
-	Option o;
-	RouteEntry re;
-	bool include_route = false;
-	
-	for(Option o : options)
-	{
-	    include_route = false;
-
-	    if(o.size() > 1)
-	    {
-		s = o.get(0, 256);
-
-		for(auto &c : s)
-		    c = tolower(c);
-
-		if(s == "route")
-		{
-		    netIP = o.get_optional(1, 256);
-		    nmask = o.get_optional(2, 256);
-		    gw = o.get_optional(3, 256);
-		    m = o.get_optional(4, 256);
-
-		    re.networkIP = netIP;
-
-		    if(nmask != "")
-			re.netmask = nmask;
-		    else
-			re.netmask = "255.255.255.255";
-
-		    if(gw != "")
-			re.gateway = gw;
-		    else
-			re.gateway = "default";
-
-		    re.prefix_length = 0;
-
-		    try
-		    {
-			re.metric = std::stoi(m);
-		    }
-		    catch(const std::exception &e)
-		    {
-			re.metric = 0;
-		    }
-
-		    if(re.networkIP != "")
-			include_route = true;
-		}
-		else if(s == "route-ipv6")
-		{
-		    netIP = o.get_optional(1, 256);
-		    gw = o.get_optional(2, 256);
-		    m = o.get_optional(3, 256);
-
-		    nlist = Split::by_char<std::vector<std::string>, NullLex, Split::NullLimit>(netIP, '/', 0, 1);
-
-		    re.networkIP = nlist[0];
-		    re.netmask = "";
-
-		    if(gw != "")
-			re.gateway = gw;
-		    else
-			re.gateway = "default";
-
-		    try
-		    {
-			re.metric = std::stoi(m);
-		    }
-		    catch(const std::exception &e)
-		    {
-			re.metric = 0;
-		    }
-
-		    if(nlist.size() > 1)
-		    {
-			try
-			{
-			    re.prefix_length = std::stoi(nlist[1]);
-			}
-			catch(const std::exception &e)
-			{
-			    re.prefix_length = 128;
-			}
-		    }
-		    else
-			re.prefix_length = 128;
-
-		    if(re.networkIP != "")
-			include_route = true;
-		}
-
-		if(include_route == true)
-		    routeList_.push_back(re);
-	    }
-	}
-	
-	// End process route directives (ProMIND)
+	parse_extra(options);
       }
       catch (const option_error& e)
 	{
@@ -912,6 +812,111 @@ class ParseClientConfig
 	return true;
       else
 	throw option_error(title + ": parameter must be 0 or 1");
+    }
+
+    // process extra cases (ProMIND)
+
+    void parse_extra(const OptionList &options)
+    {
+	routeList_.clear();
+
+	std::string netIP, nmask, gw, m, s;
+	std::vector<std::string> nlist;
+	Option o;
+	RouteEntry re;
+	bool include_route = false;
+	
+	for(Option o : options)
+	{
+	    include_route = false;
+
+	    if(o.size() > 1)
+	    {
+		s = o.get(0, 256);
+
+		for(auto &c : s)
+		    c = tolower(c);
+
+		if(s == "route")
+		{
+		    netIP = o.get_optional(1, 256);
+		    nmask = o.get_optional(2, 256);
+		    gw = o.get_optional(3, 256);
+		    m = o.get_optional(4, 256);
+
+		    re.networkIP = netIP;
+
+		    if(nmask != "")
+			re.netmask = nmask;
+		    else
+			re.netmask = "255.255.255.255";
+
+		    if(gw != "")
+			re.gateway = gw;
+		    else
+			re.gateway = "default";
+
+		    re.prefix_length = 0;
+
+		    try
+		    {
+			re.metric = std::stoi(m);
+		    }
+		    catch(const std::exception &e)
+		    {
+			re.metric = 0;
+		    }
+
+		    if(re.networkIP != "")
+			include_route = true;
+		}
+		else if(s == "route-ipv6")
+		{
+		    netIP = o.get_optional(1, 256);
+		    gw = o.get_optional(2, 256);
+		    m = o.get_optional(3, 256);
+
+		    nlist = Split::by_char<std::vector<std::string>, NullLex, Split::NullLimit>(netIP, '/', 0, 1);
+
+		    re.networkIP = nlist[0];
+		    re.netmask = "";
+
+		    if(gw != "")
+			re.gateway = gw;
+		    else
+			re.gateway = "default";
+
+		    try
+		    {
+			re.metric = std::stoi(m);
+		    }
+		    catch(const std::exception &e)
+		    {
+			re.metric = 0;
+		    }
+
+		    if(nlist.size() > 1)
+		    {
+			try
+			{
+			    re.prefix_length = std::stoi(nlist[1]);
+			}
+			catch(const std::exception &e)
+			{
+			    re.prefix_length = 128;
+			}
+		    }
+		    else
+			re.prefix_length = 128;
+
+		    if(re.networkIP != "")
+			include_route = true;
+		}
+
+		if(include_route == true)
+		    routeList_.push_back(re);
+	    }
+	}
     }
 
     bool error_;
