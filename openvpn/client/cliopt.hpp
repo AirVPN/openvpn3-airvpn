@@ -1279,15 +1279,15 @@ namespace openvpn {
 	  if (!transport_protocol.is_tcp())
 	    throw option_error("internal error: no TCP server entries for HTTP proxy transport");
 
-	  // HTTP Proxy transport
-	  HTTPProxyTransport::ClientConfig::Ptr httpconf = HTTPProxyTransport::ClientConfig::new_obj();
-	  httpconf->remote_list = remote_list;
-	  httpconf->frame = frame;
-	  httpconf->stats = cli_stats;
-	  httpconf->digest_factory.reset(new CryptoDigestFactory<SSLLib::CryptoAPI>());
-	  httpconf->socket_protect = socket_protect;
-	  httpconf->http_proxy_options = http_proxy_options;
-	  httpconf->rng = rng;
+        // HTTP Proxy transport
+        HTTPProxyTransport::ClientConfig::Ptr httpconf = HTTPProxyTransport::ClientConfig::new_obj();
+        httpconf->remote_list = remote_list;
+        httpconf->frame = frame;
+        httpconf->stats = cli_stats;
+        httpconf->digest_factory.reset(new CryptoDigestFactory<SSLLib::CryptoAPI>(cp_main->ssl_factory->libctx()));
+        httpconf->socket_protect = socket_protect;
+        httpconf->http_proxy_options = http_proxy_options;
+        httpconf->rng = rng;
 #ifdef PRIVATE_TUNNEL_PROXY
 	  httpconf->skip_html = true;
 #endif

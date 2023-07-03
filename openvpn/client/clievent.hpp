@@ -71,84 +71,87 @@ enum Type
       TUN_ERROR,
       CLIENT_RESTART,
 
-      // start of errors, must be marked by FATAL_ERROR_START below
-      AUTH_FAILED,
-      CERT_VERIFY_FAIL,
-      TLS_VERSION_MIN,
-      CLIENT_HALT,
-      CLIENT_SETUP,
-      TUN_HALT,
-      CONNECTION_TIMEOUT,
-      INACTIVE_TIMEOUT,
-      DYNAMIC_CHALLENGE,
-      PROXY_NEED_CREDS,
-      PROXY_ERROR,
-      TUN_SETUP_FAILED,
-      TUN_IFACE_CREATE,
-      TUN_IFACE_DISABLED,
-      EPKI_ERROR,          // EPKI refers to External PKI errors, i.e. errors in accessing external
-      EPKI_INVALID_ALIAS,  //    certificates or keys.
-      RELAY_ERROR,
+    // start of errors, must be marked by FATAL_ERROR_START below
+    AUTH_FAILED,
+    CERT_VERIFY_FAIL,
+    TLS_VERSION_MIN,
+    CLIENT_HALT,
+    CLIENT_SETUP,
+    TUN_HALT,
+    CONNECTION_TIMEOUT,
+    INACTIVE_TIMEOUT,
+    DYNAMIC_CHALLENGE,
+    PROXY_NEED_CREDS,
+    PROXY_ERROR,
+    TUN_SETUP_FAILED,
+    TUN_IFACE_CREATE,
+    TUN_IFACE_DISABLED,
+    EPKI_ERROR,         // EPKI refers to External PKI errors, i.e. errors in accessing external
+    EPKI_INVALID_ALIAS, //    certificates or keys.
+    RELAY_ERROR,
+    COMPRESS_ERROR,
+    NTLM_MISSING_CRYPTO,
 
       N_TYPES
     };
 
 enum
 {
-      NONFATAL_ERROR_START = TRANSPORT_ERROR, // start of nonfatal errors that automatically reconnect
-      FATAL_ERROR_START    = AUTH_FAILED,     // start of fatal errors
-    };
+    NONFATAL_ERROR_START = TRANSPORT_ERROR, // start of nonfatal errors that automatically reconnect
+    FATAL_ERROR_START = AUTH_FAILED,        // start of fatal errors
+};
 
-    inline const char *event_name(const Type type)
-    {
-      static const char *names[] = {
-	"DISCONNECTED",
-	"CONNECTED",
-	"RECONNECTING",
-	"AUTH_PENDING",
-	"RESOLVE",
-	"WAIT",
-	"WAIT_PROXY",
-	"CONNECTING",
-	"GET_CONFIG",
-	"ASSIGN_IP",
-	"ADD_ROUTES",
-	"ECHO",
-	"INFO",
+inline const char *event_name(const Type type)
+{
+    static const char *names[] = {
+        "DISCONNECTED",
+        "CONNECTED",
+        "RECONNECTING",
+        "AUTH_PENDING",
+        "RESOLVE",
+        "WAIT",
+        "WAIT_PROXY",
+        "CONNECTING",
+        "GET_CONFIG",
+        "ASSIGN_IP",
+        "ADD_ROUTES",
+        "ECHO",
+        "INFO",
 #ifdef HAVE_JSON
-	"INFO_JSON",
+        "INFO_JSON",
 #endif
-	"WARN",
-	"PAUSE",
-	"RESUME",
-	"RELAY",
-	"COMPRESSION_ENABLED",
-	"UNSUPPORTED_FEATURE",
+        "WARN",
+        "PAUSE",
+        "RESUME",
+        "RELAY",
+        "COMPRESSION_ENABLED",
+        "UNSUPPORTED_FEATURE",
 
-	// nonfatal errors
-	"TRANSPORT_ERROR",
-	"TUN_ERROR",
-	"CLIENT_RESTART",
+        // nonfatal errors
+        "TRANSPORT_ERROR",
+        "TUN_ERROR",
+        "CLIENT_RESTART",
 
-	// fatal errors
-	"AUTH_FAILED",
-	"CERT_VERIFY_FAIL",
-	"TLS_VERSION_MIN",
-	"CLIENT_HALT",
-	"CLIENT_SETUP",
-	"TUN_HALT",
-	"CONNECTION_TIMEOUT",
-	"INACTIVE_TIMEOUT",
-	"DYNAMIC_CHALLENGE",
-	"PROXY_NEED_CREDS",
-	"PROXY_ERROR",
-	"TUN_SETUP_FAILED",
-	"TUN_IFACE_CREATE",
-	"TUN_IFACE_DISABLED",
-	"EPKI_ERROR",
-	"EPKI_INVALID_ALIAS",
-	"RELAY_ERROR",
-      };
+        // fatal errors
+        "AUTH_FAILED",
+        "CERT_VERIFY_FAIL",
+        "TLS_VERSION_MIN",
+        "CLIENT_HALT",
+        "CLIENT_SETUP",
+        "TUN_HALT",
+        "CONNECTION_TIMEOUT",
+        "INACTIVE_TIMEOUT",
+        "DYNAMIC_CHALLENGE",
+        "PROXY_NEED_CREDS",
+        "PROXY_ERROR",
+        "TUN_SETUP_FAILED",
+        "TUN_IFACE_CREATE",
+        "TUN_IFACE_DISABLED",
+        "EPKI_ERROR",
+        "EPKI_INVALID_ALIAS",
+        "RELAY_ERROR",
+        "COMPRESS_ERROR",
+        "NTLM_MISSING_CRYPTO"};
 
       static_assert(N_TYPES == array_size(names), "event names array inconsistency");
       if (type < N_TYPES)
@@ -490,8 +493,16 @@ struct ReasonBase : public Base
     }
     };
 
-    struct DynamicChallenge : public ReasonBase
+struct CompressError : public ReasonBase
+{
+    CompressError(std::string reason)
+        : ReasonBase(COMPRESS_ERROR, std::move(reason))
     {
+    }
+};
+
+struct DynamicChallenge : public ReasonBase
+{
     DynamicChallenge(std::string reason)
         : ReasonBase(DYNAMIC_CHALLENGE, std::move(reason))
     {
@@ -514,8 +525,16 @@ struct ReasonBase : public Base
     }
     };
 
-    struct ProxyNeedCreds : public ReasonBase
+struct NtlmMissingCryptoError : public ReasonBase
+{
+    NtlmMissingCryptoError(std::string reason)
+        : ReasonBase(NTLM_MISSING_CRYPTO, std::move(reason))
     {
+    }
+};
+
+struct ProxyNeedCreds : public ReasonBase
+{
     ProxyNeedCreds(std::string reason)
         : ReasonBase(PROXY_NEED_CREDS, std::move(reason))
     {

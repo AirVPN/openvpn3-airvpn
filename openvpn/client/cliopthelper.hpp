@@ -818,6 +818,7 @@ class ParseClientConfig
 
     void parse_extra(const OptionList &options)
     {
+
 	routeList_.clear();
 
 	std::string netIP, nmask, gw, m, s;

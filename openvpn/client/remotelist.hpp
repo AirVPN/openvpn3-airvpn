@@ -158,30 +158,38 @@ namespace openvpn {
 	OPENVPN_LOG_REMOTELIST("*** RemoteList::Item endpoint SET " << to_string());
       }
 
-      // cache a list of DNS-resolved IP addresses
-      template <class EPRANGE>
-      void set_endpoint_range(const EPRANGE& endpoint_range, RandomAPI* rng, std::size_t addr_lifetime)
-      {
-	// Keep addresses in case there are no results
-	if (endpoint_range.size())
-	  {
-	    res_addr_list.reset(new ResolvedAddrList());
-	    for (const auto &i : endpoint_range)
-	      {
-		// Skip addresses with incompatible family
-		if ((transport_protocol.is_ipv6() && i.endpoint().address().is_v4())
-		    || (transport_protocol.is_ipv4() && i.endpoint().address().is_v6()))
-		  continue;
-		ResolvedAddr::Ptr addr(new ResolvedAddr());
-		addr->addr = IP::Addr::from_asio(i.endpoint().address());
-		res_addr_list->push_back(addr);
-	      }
-	    if (rng && res_addr_list->size() >= 2)
-	      std::shuffle(res_addr_list->begin(), res_addr_list->end(), *rng);
-	    OPENVPN_LOG_REMOTELIST("*** RemoteList::Item endpoint SET " << to_string());
-	  }
-	else if (!res_addr_list)
-	  res_addr_list.reset(new ResolvedAddrList());
+        // cache a list of DNS-resolved IP addresses
+        template <class EPRANGE>
+        void set_endpoint_range(const EPRANGE &endpoint_range, RandomAPI *rng, std::size_t addr_lifetime)
+        {
+            // Keep addresses in case there are no results
+            if (endpoint_range.size())
+            {
+                res_addr_list.reset(new ResolvedAddrList());
+                for (const auto &i : endpoint_range)
+                {
+                    std::string ep_af = "(unspec)";
+                    if (i.endpoint().address().is_v6())
+                        ep_af = "IPv6";
+                    else if (i.endpoint().address().is_v4())
+                        ep_af = "IPv4";
+                    // Skip addresses with incompatible family
+                    if ((transport_protocol.is_ipv6() && i.endpoint().address().is_v4())
+                        || (transport_protocol.is_ipv4() && i.endpoint().address().is_v6()))
+                    {
+                        OPENVPN_LOG("Endpoint address family (" << ep_af << ") is incompatible with transport protocol (" << transport_protocol.protocol_to_string() << ")");
+                        continue;
+                    }
+                    ResolvedAddr::Ptr addr(new ResolvedAddr());
+                    addr->addr = IP::Addr::from_asio(i.endpoint().address());
+                    res_addr_list->push_back(addr);
+                }
+                if (rng && res_addr_list->size() >= 2)
+                    std::shuffle(res_addr_list->begin(), res_addr_list->end(), *rng);
+                OPENVPN_LOG_REMOTELIST("*** RemoteList::Item endpoint SET " << to_string());
+            }
+            else if (!res_addr_list)
+                res_addr_list.reset(new ResolvedAddrList());
 
 	if (addr_lifetime)
 	  decay_time = time(nullptr) + addr_lifetime;

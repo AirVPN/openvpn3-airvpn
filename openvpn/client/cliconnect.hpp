@@ -553,73 +553,89 @@ namespace openvpn {
 		    client_options->events().add_event(std::move(ev));
 		    client_options->stats().error(Error::INACTIVE_TIMEOUT);
 
-		    // explicit exit notify is sent earlier by
-		    // ClientProto::Session::inactive_callback()
-		    stop();
-		  }
-		  break;
-		case Error::TRANSPORT_ERROR:
-		  {
-		    ClientEvent::Base::Ptr ev = new ClientEvent::TransportError(client->fatal_reason());
-		    client_options->events().add_event(std::move(ev));
-		    client_options->stats().error(Error::TRANSPORT_ERROR);
-		    queue_restart(5000); // use a larger timeout to allow preemption from higher levels
-		  }
-		  break;
-		case Error::TUN_ERROR:
-		  {
-		    ClientEvent::Base::Ptr ev = new ClientEvent::TunError(client->fatal_reason());
-		    client_options->events().add_event(std::move(ev));
-		    client_options->stats().error(Error::TUN_ERROR);
-		    queue_restart(5000);
-		  }
-		  break;
-		case Error::TUN_HALT:
-		  {
-		    ClientEvent::Base::Ptr ev = new ClientEvent::TunHalt(client->fatal_reason());
-		    client_options->events().add_event(std::move(ev));
-		    client_options->stats().error(Error::TUN_HALT);
-		    stop();
-		  }
-		  break;
-		case Error::RELAY:
-		  {
-		    ClientEvent::Base::Ptr ev = new ClientEvent::Relay();
-		    client_options->events().add_event(std::move(ev));
-		    client_options->stats().error(Error::RELAY);
-		    transport_factory_relay = client->transport_factory_relay();
-		    queue_restart(0);
-		  }
-		  break;
-		case Error::RELAY_ERROR:
-		  {
-		    ClientEvent::Base::Ptr ev = new ClientEvent::RelayError(client->fatal_reason());
-		    client_options->events().add_event(std::move(ev));
-		    client_options->stats().error(Error::RELAY_ERROR);
-		    stop();
-		  }
-		  break;
-		case Error::BAD_DC_CIPHER_ERROR:
-		  {
-		    ClientEvent::Base::Ptr ev = new ClientEvent::ClientSetup(client->fatal_reason(), "");
-		    client_options->events().add_event(std::move(ev));
-		    client_options->stats().error(Error::BAD_DC_CIPHER_ERROR);
-		    stop();
-		  }
-		  break;
-		case Error::BAD_DC_DIGEST_ERROR:
-		  {
-		    ClientEvent::Base::Ptr ev = new ClientEvent::ClientSetup(client->fatal_reason(), "");
-		    client_options->events().add_event(std::move(ev));
-		    client_options->stats().error(Error::BAD_DC_DIGEST_ERROR);
-		    stop();
-		  }
-		  break;
-		default:
-		  throw client_connect_unhandled_exception();
-		}
-	    }
-	}
+                        // explicit exit notify is sent earlier by
+                        // ClientProto::Session::inactive_callback()
+                        stop();
+                    }
+                    break;
+                case Error::TRANSPORT_ERROR:
+                    {
+                        ClientEvent::Base::Ptr ev = new ClientEvent::TransportError(client->fatal_reason());
+                        client_options->events().add_event(std::move(ev));
+                        client_options->stats().error(Error::TRANSPORT_ERROR);
+                        queue_restart(5000); // use a larger timeout to allow preemption from higher levels
+                    }
+                    break;
+                case Error::TUN_ERROR:
+                    {
+                        ClientEvent::Base::Ptr ev = new ClientEvent::TunError(client->fatal_reason());
+                        client_options->events().add_event(std::move(ev));
+                        client_options->stats().error(Error::TUN_ERROR);
+                        queue_restart(5000);
+                    }
+                    break;
+                case Error::TUN_HALT:
+                    {
+                        ClientEvent::Base::Ptr ev = new ClientEvent::TunHalt(client->fatal_reason());
+                        client_options->events().add_event(std::move(ev));
+                        client_options->stats().error(Error::TUN_HALT);
+                        stop();
+                    }
+                    break;
+                case Error::RELAY:
+                    {
+                        ClientEvent::Base::Ptr ev = new ClientEvent::Relay();
+                        client_options->events().add_event(std::move(ev));
+                        client_options->stats().error(Error::RELAY);
+                        transport_factory_relay = client->transport_factory_relay();
+                        queue_restart(0);
+                    }
+                    break;
+                case Error::RELAY_ERROR:
+                    {
+                        ClientEvent::Base::Ptr ev = new ClientEvent::RelayError(client->fatal_reason());
+                        client_options->events().add_event(std::move(ev));
+                        client_options->stats().error(Error::RELAY_ERROR);
+                        stop();
+                    }
+                    break;
+                case Error::COMPRESS_ERROR:
+                    {
+                        ClientEvent::Base::Ptr ev = new ClientEvent::CompressError(client->fatal_reason());
+                        client_options->events().add_event(std::move(ev));
+                        client_options->stats().error(Error::COMPRESS_ERROR);
+                        stop();
+                    }
+                    break;
+                case Error::NTLM_MISSING_CRYPTO:
+                    {
+                        ClientEvent::Base::Ptr ev = new ClientEvent::NtlmMissingCryptoError(client->fatal_reason());
+                        client_options->events().add_event(std::move(ev));
+                        client_options->stats().error(Error::NTLM_MISSING_CRYPTO);
+                        stop();
+                    }
+                    break;
+                case Error::BAD_DC_CIPHER_ERROR:
+                  {
+                    ClientEvent::Base::Ptr ev = new ClientEvent::ClientSetup(client->fatal_reason(), "");
+                    client_options->events().add_event(std::move(ev));
+                    client_options->stats().error(Error::BAD_DC_CIPHER_ERROR);
+                    stop();
+                  }
+                  break;
+                case Error::BAD_DC_DIGEST_ERROR:
+                  {
+                    ClientEvent::Base::Ptr ev = new ClientEvent::ClientSetup(client->fatal_reason(), "");
+                    client_options->events().add_event(std::move(ev));
+                    client_options->stats().error(Error::BAD_DC_DIGEST_ERROR);
+                    stop();
+                  }
+                  break;
+                default:
+                    throw client_connect_unhandled_exception();
+                }
+            }
+        }
     }
 
     void new_client()
