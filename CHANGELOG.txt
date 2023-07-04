@@ -9,6 +9,8 @@ Changelog 3.8.5 AirVPN - Release date: xx xx 2023 by ProMIND (under development)
 - [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: added member routeList_ and method routeList()
 - [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: added method parse_extra() for custom and extra option processing (used, at the moment, for parsing route and route-ipv6 directives and populate routeList_)
 - [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: ParseClientConfig() call parse_extra()
+- [ProMIND] [2023/07/04] openvpn/client/cliconnect.hpp: client_proto_terminate() case Error::COMPRESS_ERROR commented out for back compatibility
+- [ProMIND] [2023/07/04] openvpn/client/cliproto.hpp: check_proto_warnings() if (comp_type != CompressContext::COMP_STUBv2... commented out for back compatibility
 
 
 *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*

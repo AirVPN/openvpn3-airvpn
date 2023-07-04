@@ -599,14 +599,15 @@ namespace openvpn {
                         stop();
                     }
                     break;
-                case Error::COMPRESS_ERROR:
+                /* ProMIND: commented out for back compatibility
+                    case Error::COMPRESS_ERROR:
                     {
                         ClientEvent::Base::Ptr ev = new ClientEvent::CompressError(client->fatal_reason());
                         client_options->events().add_event(std::move(ev));
                         client_options->stats().error(Error::COMPRESS_ERROR);
                         stop();
                     }
-                    break;
+                    break; */
                 case Error::NTLM_MISSING_CRYPTO:
                     {
                         ClientEvent::Base::Ptr ev = new ClientEvent::NtlmMissingCryptoError(client->fatal_reason());

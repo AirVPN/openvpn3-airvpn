@@ -24,5 +24,5 @@
 #pragma once
 
 #ifndef OPENVPN_VERSION
-#define OPENVPN_VERSION "3.8.5 AirVPN"
+#define OPENVPN_VERSION "3.8.5 AirVPN dev"
 #endif
