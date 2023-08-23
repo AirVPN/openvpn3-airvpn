@@ -25,9 +25,9 @@
 // and TunBuilderBase.
 
 #include <string>
-#include <vector>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #ifndef OPENVPN_LOG
 
@@ -207,21 +207,14 @@ namespace openvpn {
       std::string value;
     };
 
-    // OpenVPN config-file/profile
-    // (client writes)
-    struct Config
-    {
-      // OpenVPN profile as a string
-      std::string content;
-
-      // OpenVPN profile as series of key/value pairs (may be provided exclusively
-      // or in addition to content string above).
-      std::vector<KeyValue> contentList;
-
-      // Set to identity OpenVPN GUI version.
-      // Format should be "<gui_identifier><space><version>"
-      // Passed to server as IV_GUI_VER.
-      std::string guiVersion;
+/* Settings in this struct do not need to be parsed, so we can share them
+ * between the parsed and unparsed client settings */
+struct ConfigCommon
+{
+    // Set to identity OpenVPN GUI version.
+    // Format should be "<gui_identifier><space><version>"
+    // Passed to server as IV_GUI_VER.
+    std::string guiVersion;
 
       // Set to a comma seperated list of supported SSO mechanisms that may
       // be signalled via INFO_PRE to the client.
@@ -246,32 +239,8 @@ namespace openvpn {
       // option of profile
       std::string portOverride;
 
-      // Force a given transport protocol
-      // Should be tcp, udp, or adaptive.
-      std::string protoOverride;
-
-      // Force a given cipher algorithm
-      // Must be one of CryptoAlgs::Type (string)
-      std::string cipherOverrideAlgorithm;
-
-      // Force transport protocol IP version
-      // Should be 4 for IPv4 or 6 for IPv6.
-      int protoVersionOverride = 0;
-
-      // allowUnusedAddrFamilies preference
-      //  no      -- disable IPv6/IPv4, so tunnel will be IPv4 or IPv6 only if not dualstack
-      //  yes     -- Allow continuing using native IPv4/IPv6 connectivity for single IP family tunnel
-      //  default (or empty string) -- leave decision to server/config
-      std::string allowUnusedAddrFamilies;
-
       // Connection timeout in seconds, or 0 to retry indefinitely
       int connTimeout = 0;
-
-      // TCP queue limit in packets, or 0 for default 64 packets
-      unsigned int tcpQueueLimit = 0;
-
-      // If true, disable negotiable crypto parameters
-      bool disableNCP = false;
 
       // Keep tun interface active during pauses or reconnections
       bool tunPersist = false;
@@ -290,21 +259,11 @@ namespace openvpn {
       // and retry the connection after a pause.
       bool retryOnAuthFailed = false;
 
-      // An ID used for get-certificate and RSA signing callbacks
-      // for External PKI profiles.
-      std::string externalPkiAlias;
-
       // If true, don't send client cert/key to peer.
       bool disableClientCert = false;
 
       // SSL library debug level
       int sslDebugLevel = 0;
-
-      // Compression mode, one of:
-      // yes -- allow compression on both uplink and downlink
-      // asym -- allow compression on downlink only (i.e. server -> client)
-      // no (default if empty) -- support compression stubs only
-      std::string compressionMode;
 
       // private key password (optional)
       std::string privateKeyPassword;
@@ -342,9 +301,6 @@ namespace openvpn {
       // Overrides the list of TLS 1.3 ciphersuites like the tls-ciphersuites
       // option
       std::string tlsCiphersuitesList;
-
-      // Pass custom key/value pairs to OpenVPN server.
-      std::vector<KeyValue> peerInfo;
 
       // HTTP Proxy parameters (optional)
       std::string proxyHost;         // hostname or IP address of proxy
@@ -406,168 +362,218 @@ namespace openvpn {
       // supported by the crypto library)
       bool enableNonPreferredDCAlgorithms = false;
 
-      // Generate an INFO_JSON/TUN_BUILDER_CAPTURE event
-      // with all tun builder properties pushed by server.
-      // Currently only implemented on Linux.
-      bool generate_tun_builder_capture_event = false;
-    };
+    // Generate an INFO_JSON/TUN_BUILDER_CAPTURE event
+    // with all tun builder properties pushed by server.
+    // Currently only implemented on Linux.
+    bool generateTunBuilderCaptureEvent = false;
+};
 
-    // used to communicate VPN events such as connect, disconnect, etc.
-    // (client reads)
-    struct Event
-    {
-      bool error = false;    // true if error (fatal or nonfatal)
-      bool fatal = false;    // true if fatal error (will disconnect)
-      std::string name;      // event name
-      std::string info;      // additional event info
-    };
+// OpenVPN config-file/profile. Includes a few settings that we do not just
+// copy but also parse
+// (client writes)
+struct Config : public ConfigCommon
+{
+    // OpenVPN profile as a string
+    std::string content;
 
-    // used to communicate extra details about successful connection
-    // (client reads)
-    struct ConnectionInfo
-    {
-      bool defined = false;
-      std::string user;
-      std::string serverHost;
-      std::string serverPort;
-      std::string serverProto;
-      std::string serverIp;
-      std::string vpnIp4;
-      std::string vpnIp6;
-      std::string vpnMtu;
-      std::string gw4;
-      std::string gw6;
-      std::string clientIp;
-      std::string tunName;
-      std::string topology;
-      std::string cipher;
-      int ping;
-      int ping_restart;
-    };
+    // OpenVPN profile as series of key/value pairs (may be provided exclusively
+    // or in addition to content string above).
+    std::vector<KeyValue> contentList;
 
-    // returned by some methods as a status/error indication
-    // (client reads)
-    struct Status
-    {
-      bool error = false;   // true if error
-      std::string status;   // an optional short error label that identifies the error
-      std::string message;  // if error, message given here
-    };
+    // Force a given cipher algorithm
+    // Must be one of CryptoAlgs::Type (string)
+    std::string cipherOverrideAlgorithm;
 
-    // used to pass log lines
-    // (client reads)
-    struct LogInfo
-    {
+    // Force a given transport protocol
+    // Should be tcp, udp, or adaptive.
+    std::string protoOverride;
+
+    // Force transport protocol IP version
+    // Should be 4 for IPv4 or 6 for IPv6.
+    int protoVersionOverride = 0;
+
+    // allowUnusedAddrFamilies preference
+    //  no      -- disable IPv6/IPv4, so tunnel will be IPv4 or IPv6 only if not dualstack
+    //  yes     -- Allow continuing using native IPv4/IPv6 connectivity for single IP family tunnel
+    //  default (or empty string) -- leave decision to server/config
+    std::string allowUnusedAddrFamilies;
+
+    // TCP queue limit in packets, or 0 for default 64 packets
+    unsigned int tcpQueueLimit = 64;
+
+    // If true, disable negotiable crypto parameters
+    bool disableNCP = false;
+
+    // Compression mode, one of:
+    // yes -- allow compression on both uplink and downlink
+    // asym -- allow compression on downlink only (i.e. server -> client)
+    // no (default if empty) -- support compression stubs only
+    std::string compressionMode;
+
+    // An ID used for get-certificate and RSA signing callbacks
+    // for External PKI profiles.
+    std::string externalPkiAlias;
+
+    // Pass custom key/value pairs to OpenVPN server.
+    std::vector<KeyValue> peerInfo;
+};
+
+// used to communicate VPN events such as connect, disconnect, etc.
+// (client reads)
+struct Event
+{
+    bool error = false;    // true if error (fatal or nonfatal)
+    bool fatal = false;    // true if fatal error (will disconnect)
+    std::string name;      // event name
+    std::string info;      // additional event info
+};
+
+// used to communicate extra details about successful connection
+// (client reads)
+struct ConnectionInfo
+{
+    bool defined = false;
+    std::string user;
+    std::string serverHost;
+    std::string serverPort;
+    std::string serverProto;
+    std::string serverIp;
+    std::string vpnIp4;
+    std::string vpnIp6;
+    std::string vpnMtu;
+    std::string gw4;
+    std::string gw6;
+    std::string clientIp;
+    std::string tunName;
+    std::string topology;
+    std::string cipher;
+    int ping;
+    int ping_restart;
+};
+
+// returned by some methods as a status/error indication
+// (client reads)
+struct Status
+{
+    bool error = false;   // true if error
+    std::string status;   // an optional short error label that identifies the error
+    std::string message;  // if error, message given here
+};
+
+// used to pass log lines
+// (client reads)
+struct LogInfo
+{
     LogInfo()
     {
     }
-      LogInfo(std::string str)
-        : text(std::move(str))
+    LogInfo(std::string str)
+      : text(std::move(str))
     {
     }
-      std::string text;     // log output (usually but not always one line)
-    };
+    std::string text;     // log output (usually but not always one line)
+};
 
-    // receives log messages
-    struct LogReceiver
-    {
-      virtual void log(const LogInfo&) = 0;
+// receives log messages
+struct LogReceiver
+{
+    virtual void log(const LogInfo&) = 0;
     virtual ~LogReceiver()
     {
     }
-    };
+};
 
-    // used to pass stats for an interface
-    struct InterfaceStats
-    {
-      long long bytesIn;
-      long long packetsIn;
-      long long errorsIn;
-      long long bytesOut;
-      long long packetsOut;
-      long long errorsOut;
-    };
+// used to pass stats for an interface
+struct InterfaceStats
+{
+    long long bytesIn;
+    long long packetsIn;
+    long long errorsIn;
+    long long bytesOut;
+    long long packetsOut;
+    long long errorsOut;
+};
 
-    // used to pass basic transport stats
-    struct TransportStats
-    {
-      long long bytesIn;
-      long long bytesOut;
-      long long packetsIn;
-      long long packetsOut;
+// used to pass basic transport stats
+struct TransportStats
+{
+    long long bytesIn;
+    long long bytesOut;
+    long long packetsIn;
+    long long packetsOut;
 
-      // number of binary milliseconds (1/1024th of a second) since
-      // last packet was received, or -1 if undefined
-      int lastPacketReceived;
-    };
+    // number of binary milliseconds (1/1024th of a second) since
+    // last packet was received, or -1 if undefined
+    int lastPacketReceived;
+};
 
-    // return value of merge_config methods
-    struct MergeConfig
-    {
-      std::string status;                   // ProfileMerge::Status codes rendered as string
-      std::string errorText;                // error string (augments status)
-      std::string basename;                 // profile basename
-      std::string profileContent;           // unified profile
-      std::vector<std::string> refPathList; // list of all reference paths successfully read
-    };
+// return value of merge_config methods
+struct MergeConfig
+{
+    std::string status;                   // ProfileMerge::Status codes rendered as string
+    std::string errorText;                // error string (augments status)
+    std::string basename;                 // profile basename
+    std::string profileContent;           // unified profile
+    std::vector<std::string> refPathList; // list of all reference paths successfully read
+};
 
-    // base class for External PKI queries
-    struct ExternalPKIRequestBase
-    {
-      bool error = false;        // true if error occurred (client writes)
-      std::string errorText;     // text describing error (client writes)
-      bool invalidAlias = false; // true if the error is caused by an invalid alias (client writes)
-      std::string alias;         // the alias string, used to query cert/key (client reads)
-    };
+// base class for External PKI queries
+struct ExternalPKIRequestBase
+{
+    bool error = false;        // true if error occurred (client writes)
+    std::string errorText;     // text describing error (client writes)
+    bool invalidAlias = false; // true if the error is caused by an invalid alias (client writes)
+    std::string alias;         // the alias string, used to query cert/key (client reads)
+};
 
-    // used to query for External PKI certificate
-    struct ExternalPKICertRequest : public ExternalPKIRequestBase
-    {
-      // leaf cert
-      std::string cert; // (client writes)
+// used to query for External PKI certificate
+struct ExternalPKICertRequest : public ExternalPKIRequestBase
+{
+    // leaf cert
+    std::string cert; // (client writes)
 
-      // chain of intermediates and root (optional)
-      std::string supportingChain; // (client writes)
-    };
+    // chain of intermediates and root (optional)
+    std::string supportingChain; // (client writes)
+};
 
-    // Used to request an external certificate signature.
-    // algorithm will determinate what signature is expected:
-	// algorithm, hashalg and saltlen together determine what
-	// should be used. hashalg and saltlen can be empty
-	// - ECDSA
-	// 			do a ECDSA signature.
-	// - ECDSA  hashalg=ALG
-	// 			Use hashAlg for the ECDSA signature (e.g. SHA512withECDSA in Java)
-    // - RSA_PKCS1_PADDING
-	// 			data will be prefixed by an optional PKCS#1 digest prefix per RFC 3447.
-	// - RSA_PKCS1_PSS_PADDING
-	// 			Use PSS padding for the signature
-	// - RSA_PKCS1_PSS_PADDING,saltlen=digest,hashalg=ALG
-	//			Use a PSS padding with hash algorithm ALG and a salt of length
-	//			of the digest (hash ALG).
-    struct ExternalPKISignRequest : public ExternalPKIRequestBase
-    {
-      std::string data;  // data rendered as base64 (client reads)
-      std::string sig;   // RSA signature, rendered as base64 (client writes)
-      std::string algorithm;
-      std::string hashalg;		// If non-empty use this algorith for hashing (e.g. SHA384)
-      std::string saltlen;
-    };
+// Used to request an external certificate signature.
+// algorithm will determinate what signature is expected:
+// algorithm, hashalg and saltlen together determine what
+// should be used. hashalg and saltlen can be empty
+// - ECDSA
+// 			do a ECDSA signature.
+// - ECDSA  hashalg=ALG
+// 			Use hashAlg for the ECDSA signature (e.g. SHA512withECDSA in Java)
+// - RSA_PKCS1_PADDING
+// 			data will be prefixed by an optional PKCS#1 digest prefix per RFC 3447.
+// - RSA_PKCS1_PSS_PADDING
+// 			Use PSS padding for the signature
+// - RSA_PKCS1_PSS_PADDING,saltlen=digest,hashalg=ALG
+//			Use a PSS padding with hash algorithm ALG and a salt of length
+//			of the digest (hash ALG).
+struct ExternalPKISignRequest : public ExternalPKIRequestBase
+{
+    std::string data;  // data rendered as base64 (client reads)
+    std::string sig;   // RSA signature, rendered as base64 (client writes)
+    std::string algorithm;
+    std::string hashalg;		// If non-empty use this algorith for hashing (e.g. SHA384)
+    std::string saltlen;
+};
 
-    // used to override "remote" directives
-    struct RemoteOverride
-    {
-      // components of "remote" directive (client writes),
-      std::string host;   // either one of host
-      std::string ip;     //   or ip must be defined (or both)
-      std::string port;
-      std::string proto;
-      std::string error;  // if non-empty, indicates an error
-    };
+// used to override "remote" directives
+struct RemoteOverride
+{
+    // components of "remote" directive (client writes),
+    std::string host;   // either one of host
+    std::string ip;     //   or ip must be defined (or both)
+    std::string port;
+    std::string proto;
+    std::string error;  // if non-empty, indicates an error
+};
 
-    namespace Private {
-      class ClientState;
-    };
+namespace Private {
+    class ClientState;
+};
 
     /**
      * Helper class for OpenVPN clients. Provider helper method to be used with
@@ -615,12 +621,6 @@ class OpenVPNClientHelper
       // Return SSL version
       static std::string ssl_library_version();
       
-    // If those options are present, dco cannot be used
-    inline static std::unordered_set<std::string> dco_incompatible_opts = {
-        "http-proxy",
-        "compress",
-        "comp-lzo"};
-
     private:
       static MergeConfig build_merge_config(const ProfileMerge &);
 
@@ -633,11 +633,6 @@ class OpenVPNClientHelper
      * included in the same compilation unit which breaks in the swig wrapped
      * class, so we use a plain pointer and new/delete in constructor/destructor */
     InitProcess::Init *init;
-
-    /* Checks if there are dco-incompatible options in options list or config has
-     * dco-incompatible settings. Sets dcoCompatible flag and dcoIncompatibilityReason
-     * string property (if applicable) in EvalConfig object */
-    static void check_dco_compatibility(const Config &, EvalConfig &, OptionList &);
 };
 
     // Top-level OpenVPN client class.

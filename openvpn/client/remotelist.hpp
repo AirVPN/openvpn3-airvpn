@@ -987,19 +987,19 @@ namespace openvpn {
 
     void randomize_host(Item& item)
     {
-      if (!random_hostname || !rng)
-	return;
+        if (!random_hostname || !rng)
+            return;
 
-      try
-	{
-	  // Throws if server_host is not an IP address
-	  IP::Addr(item.server_host);
-	}
-      catch (const IP::ip_exception& e)
-	{
-	  // Produce 6 bytes of random prefix data
-	  unsigned char prefix[6];
-	  rng->rand_bytes(prefix, sizeof(prefix));
+        try
+        {
+            // Throws if server_host is not an IP address
+            IP::Addr(item.server_host);
+        }
+        catch (const IP::ip_exception &)
+        {
+            // Produce 6 bytes of random prefix data
+            unsigned char prefix[6];
+            rng->rand_bytes(prefix, sizeof(prefix));
 
 	  // Prepend it to the server_host
 	  std::ostringstream random_host;

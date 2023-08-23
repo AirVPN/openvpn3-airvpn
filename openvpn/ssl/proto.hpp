@@ -1461,13 +1461,13 @@ enum
 
     static void write_uint16_length(const size_t size, Buffer& buf)
     {
-      if (size > 0xFFFF)
-	throw proto_error("auth_string_overflow");
-      const std::uint16_t net_size = htons(size);
-      buf.write((const unsigned char *)&net_size, sizeof(net_size));
+        if (size > 0xFFFF)
+            throw proto_error("auth_string_overflow");
+        const std::uint16_t net_size = htons(static_cast<std::uint16_t>(size));
+        buf.write((const unsigned char *)&net_size, sizeof(net_size));
     }
 
-    static size_t read_uint16_length(Buffer& buf)
+    static uint16_t read_uint16_length(Buffer &buf)
     {
       if (buf.size())
 	{
@@ -4486,19 +4486,20 @@ enum
 	      if (primary)
                     primary->key_limit_reneg(KeyContext::KEV_RENEGOTIATE_FORCE,
                                              secondary->become_primary_time());
-	      break;
-	    case KeyContext::KEV_NEGOTIATE:
-	      stats->error(Error::HANDSHAKE_TIMEOUT);
-	    case KeyContext::KEV_PRIMARY_PENDING:
-	    case KeyContext::KEV_RENEGOTIATE_FORCE:
-	      renegotiate();
-	      break;
-	    default:
-	      break;
-	    }
-	}
-      if (secondary)
-	secondary->set_next_event_if_unspecified();
+                break;
+            case KeyContext::KEV_NEGOTIATE:
+                stats->error(Error::HANDSHAKE_TIMEOUT);
+                [[fallthrough]];
+            case KeyContext::KEV_PRIMARY_PENDING:
+            case KeyContext::KEV_RENEGOTIATE_FORCE:
+                renegotiate();
+                break;
+            default:
+                break;
+            }
+        }
+        if (secondary)
+            secondary->set_next_event_if_unspecified();
     }
 
     std::string debug_prefix()
