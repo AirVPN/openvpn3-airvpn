@@ -318,38 +318,38 @@ class ParseClientConfig
 
 	// protocol configuration
 	{
-	  protoConfig.reset(new ProtoContext::Config());
-	  protoConfig->tls_auth_factory.reset(new CryptoOvpnHMACFactory<SSLLib::CryptoAPI>());
-	  protoConfig->tls_crypt_factory.reset(new CryptoTLSCryptFactory<SSLLib::CryptoAPI>());
-	  protoConfig->load(options, ProtoContextOptions(), -1, false);
+	    protoConfig.reset(new ProtoContext::ProtoConfig());
+	    protoConfig->tls_auth_factory.reset(new CryptoOvpnHMACFactory<SSLLib::CryptoAPI>());
+	    protoConfig->tls_crypt_factory.reset(new CryptoTLSCryptFactory<SSLLib::CryptoAPI>());
+	    protoConfig->load(options, ProtoContextCompressionOptions(), -1, false);
 	}
 
 	unsigned int lflags = SSLConfigAPI::LF_PARSE_MODE;
 
 	// ssl lib configuration
-            try
-            {
-	  sslConfig.reset(new SSLLib::SSLAPI::Config());
-	  sslConfig->load(options, lflags);
-            }
-            catch (...)
-            {
-	  sslConfig.reset();
+	try
+	{
+	    sslConfig.reset(new SSLLib::SSLAPI::Config());
+	    sslConfig->load(options, lflags);
+	}
+	catch (...)
+	{
+	    sslConfig.reset();
 	}
 
 	// parse extra cases (ProMIND)
 
 	parse_extra(options);
-      }
-      catch (const option_error& e)
-	{
-	  error_ = true;
-	  message_ = Unicode::utf8_printable<std::string>(std::string("ERR_PROFILE_OPTION: ") + e.what(), 256);
 	}
-      catch (const std::exception& e)
+	catch (const option_error& e)
 	{
-	  error_ = true;
-	  message_ = Unicode::utf8_printable<std::string>(std::string("ERR_PROFILE_GENERIC: ") + e.what(), 256);
+	    error_ = true;
+	    message_ = Unicode::utf8_printable<std::string>(std::string("ERR_PROFILE_OPTION: ") + e.what(), 256);
+	}
+	catch (const std::exception& e)
+	{
+	    error_ = true;
+	    message_ = Unicode::utf8_printable<std::string>(std::string("ERR_PROFILE_GENERIC: ") + e.what(), 256);
 	}
     }
 
@@ -940,7 +940,7 @@ class ParseClientConfig
     RemoteItem firstRemoteListItem_;
     RouteList routeList_;
     PeerInfo::Set::Ptr peerInfoUV_;
-    ProtoContext::Config::Ptr protoConfig;
+    ProtoContext::ProtoConfig::Ptr protoConfig;
     SSLLib::SSLAPI::Config::Ptr sslConfig;
     std::string dev;
     std::string windowsDriver_;

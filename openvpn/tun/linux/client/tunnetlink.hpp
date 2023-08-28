@@ -30,6 +30,7 @@
 #include <openvpn/asio/asioerr.hpp>
 #include <openvpn/netconf/linux/gwnetlink.hpp>
 #include <openvpn/common/action.hpp>
+#include <openvpn/common/numeric_cast.hpp>
 #include <openvpn/tun/builder/setup.hpp>
 #include <openvpn/tun/client/tunbase.hpp>
 #include <openvpn/tun/client/tunconfigflags.hpp>
@@ -67,7 +68,7 @@ struct NetlinkLinkSet : public Action
 
     virtual void execute(std::ostream &os) override
     {
-        int ret;
+        ssize_t ret;
 
         if (dev.empty())
         {
@@ -112,7 +113,7 @@ struct NetlinkAddr4 : public Action
 
     NetlinkAddr4(std::string dev_arg,
                  IPv4::Addr &addr_arg,
-                 int prefixlen_arg,
+                 unsigned char prefixlen_arg,
                  IPv4::Addr &broadcast_arg,
                  bool add_arg)
         : dev(dev_arg),
@@ -136,7 +137,7 @@ struct NetlinkAddr4 : public Action
 
     virtual void execute(std::ostream &os) override
     {
-        int ret;
+        ssize_t ret;
 
         if (dev.empty())
         {
@@ -171,7 +172,7 @@ struct NetlinkAddr4 : public Action
 
     std::string dev;
     IPv4::Addr addr;
-    int prefixlen = 0;
+    unsigned char prefixlen = 0;
     IPv4::Addr broadcast;
     bool add = true;
 };
@@ -186,7 +187,7 @@ struct NetlinkAddr6 : public Action
 
     NetlinkAddr6(std::string dev_arg,
                  IPv6::Addr &addr_arg,
-                 int prefixlen_arg,
+                 unsigned char prefixlen_arg,
                  bool add_arg)
         : dev(dev_arg),
           addr(addr_arg),
@@ -207,7 +208,7 @@ struct NetlinkAddr6 : public Action
 
     virtual void execute(std::ostream &os) override
     {
-        int ret;
+        ssize_t ret;
 
         if (dev.empty())
         {
@@ -241,7 +242,7 @@ struct NetlinkAddr6 : public Action
 
     std::string dev;
     IPv6::Addr addr;
-    int prefixlen = 0;
+    unsigned char prefixlen = 0;
     bool add = true;
 };
 
@@ -276,7 +277,7 @@ struct NetlinkAddr4PtP : public Action
 
     virtual void execute(std::ostream &os) override
     {
-        int ret;
+        ssize_t ret;
 
         if (dev.empty())
         {
@@ -343,7 +344,7 @@ struct NetlinkRoute4 : public Action
 
     virtual void execute(std::ostream &os) override
     {
-        int ret;
+        ssize_t ret;
 
         if (dev.empty())
         {
@@ -412,7 +413,7 @@ struct NetlinkRoute6 : public Action
 
     virtual void execute(std::ostream &os) override
     {
-        int ret;
+        ssize_t ret;
 
         if (dev.empty())
         {
@@ -466,9 +467,9 @@ enum
  * @param type interface link type (such as "ovpn-dco")
  * @return int 0 on success, negative error code on error
  */
-inline int iface_new(std::ostringstream &os, const std::string &dev, const std::string &type)
+inline ssize_t iface_new(std::ostringstream &os, const std::string &dev, const std::string &type)
 {
-    int ret = -1;
+    ssize_t ret = -1;
 
     if (dev.empty())
     {
@@ -491,9 +492,9 @@ inline int iface_new(std::ostringstream &os, const std::string &dev, const std::
     return ret;
 }
 
-inline int iface_del(std::ostringstream &os, const std::string &dev)
+inline ssize_t iface_del(std::ostringstream &os, const std::string &dev)
 {
-    int ret = -1;
+    ssize_t ret = -1;
 
     if (dev.empty())
     {

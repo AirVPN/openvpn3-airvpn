@@ -449,13 +449,12 @@ namespace openvpn {
 	unsigned int tcp_queue_limit = 64;
 	bool ncp_disable = false;
 
-        // extra settings submitted by API client
+    // extra settings submitted by API client
+    ClientConfigParsed clientconf;
 
-      ClientConfigParsed clientconf;
-
-      ProtoContextOptions::Ptr proto_context_options;
-      PeerInfo::Set::Ptr extra_peer_info;
-      HTTPProxyTransport::Options::Ptr http_proxy_options;
+    ProtoContextCompressionOptions::Ptr proto_context_options;
+    PeerInfo::Set::Ptr extra_peer_info;
+    HTTPProxyTransport::Options::Ptr http_proxy_options;
 
 #ifdef OPENVPN_GREMLIN
 	Gremlin::Config::Ptr gremlin_config;
@@ -608,11 +607,10 @@ namespace openvpn {
       // to periodically reinitialize the base.
       Time::reset_base_conditional();
 #endif
+      pull_filter_options_ = nullptr;
 
       state = new Private::ClientState();
-      state->proto_context_options.reset(new ProtoContextOptions());
-
-      pull_filter_options_ = nullptr;
+      state->proto_context_options.reset(new ProtoContextCompressionOptions());
     }
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClientHelper::parse_config(const Config& config, EvalConfig& eval, OptionList& options)

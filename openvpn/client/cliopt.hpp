@@ -170,7 +170,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         unsigned int tcp_queue_limit = 64;
         SessionStats::Ptr cli_stats;
         ClientEvent::Queue::Ptr cli_events;
-        ProtoContextOptions::Ptr proto_context_options;
+        ProtoContextCompressionOptions::Ptr proto_context_options;
         HTTPProxyTransport::Options::Ptr http_proxy_options;
         bool alt_proxy = false;
 
@@ -1433,7 +1433,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
     CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
     int conn_timeout_;
     unsigned int tcp_queue_limit = 64;
-    ProtoContextOptions::Ptr proto_context_options;
+    ProtoContextCompressionOptions::Ptr proto_context_options;
     HTTPProxyTransport::Options::Ptr http_proxy_options;
 #ifdef OPENVPN_GREMLIN
     Gremlin::Config::Ptr gremlin_config;

@@ -34,6 +34,7 @@
 #include <optional>
 
 
+#include <openvpn/common/clamp_typerange.hpp>
 #include <openvpn/common/exception.hpp>
 #include <openvpn/common/size.hpp>
 #include <openvpn/common/version.hpp>
@@ -47,6 +48,7 @@
 #include <openvpn/common/likely.hpp>
 #include <openvpn/common/string.hpp>
 #include <openvpn/common/to_string.hpp>
+#include <openvpn/common/numeric_cast.hpp>
 #include <openvpn/buffer/buffer.hpp>
 #include <openvpn/buffer/safestr.hpp>
 #include <openvpn/buffer/bufcomposed.hpp>
@@ -262,9 +264,11 @@ enum
       return opcode_extract(op) == DATA_V2 ? OP_SIZE_V2 : 1;
     }
 
-    static unsigned int op_compose(const unsigned int opcode, const unsigned int key_id)
+    static unsigned char op_compose(const unsigned int opcode, const unsigned int key_id)
     {
-      return (opcode << OPCODE_SHIFT) | key_id;
+        // As long as 'opcode' stays within the range specified by the enum the cast should be safe.
+        // TODO: Use a more constrained type for opcode to ensure range violations can't happen.
+        return static_cast<unsigned char>((opcode << OPCODE_SHIFT) | key_id);
     }
 
     static unsigned int op32_compose(const unsigned int opcode,
@@ -280,10 +284,10 @@ enum
     OPENVPN_EXCEPTION_INHERIT(option_error, proto_option_error);
 
     // configuration data passed to ProtoContext constructor
-    class Config : public RCCopyable<thread_unsafe_refcount>
+    class ProtoConfig : public RCCopyable<thread_unsafe_refcount>
     {
-    public:
-      typedef RCPtr<Config> Ptr;
+      public:
+        typedef RCPtr<ProtoConfig> Ptr;
 
       // master SSL context factory
       SSLFactoryAPI::Ptr ssl_factory;
@@ -397,7 +401,7 @@ enum
       std::string initial_options;
 
         void load(const OptionList &opt,
-                  const ProtoContextOptions &pco,
+                  const ProtoContextCompressionOptions &pco,
                   const int default_key_direction,
                   const bool server)
       {
@@ -662,188 +666,204 @@ enum
 	load_common(opt, pco, server ? LOAD_COMMON_SERVER : LOAD_COMMON_CLIENT);
       }
 
-      // load options string pushed by server
-      void process_push(const OptionList& opt, const ProtoContextOptions& pco)
-      {
-	// data channel
-	{
-	  // cipher
-	  std::string new_cipher;
-                try
+        // load options string pushed by server
+        void process_push(const OptionList &opt, const ProtoContextCompressionOptions &pco)
+        {
+            // data channel
+            parse_pushed_data_channel_options(opt);
+
+            // protocol-flags
+            parse_pushed_protocol_flags(opt);
+
+            // compression
+            parse_pushed_compression(opt, pco);
+
+            // peer ID
+            parse_pushed_peer_id(opt);
+
+            try
+            {
+                // load parameters that can be present in both config file or pushed options
+                load_common(opt, pco, LOAD_COMMON_CLIENT_PUSHED);
+            }
+            catch (const std::exception &e)
+            {
+                OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed parameter: " << e.what());
+            }
+
+            // show negotiated options
+            OPENVPN_LOG_STRING_PROTO(show_options());
+        }
+        void parse_pushed_data_channel_options(const OptionList &opt)
+        {
+            // cipher
+            std::string new_cipher;
+            try
+            {
+                const Option *o = opt.get_ptr("cipher");
+                if (o)
                 {
-	    const Option *o = opt.get_ptr("cipher");
-	    if (o)
-	      {
-		new_cipher = o->get(1, 128);
-		if (new_cipher != "none")
-		  dc.set_cipher(CryptoAlgs::lookup(new_cipher));
-	      }
-	  }
-	  catch (const std::exception& e)
-	    {
-	      OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed cipher '" << new_cipher << "': " << e.what());
-	    }
+                    new_cipher = o->get(1, 128);
+                    if (new_cipher != "none")
+                        dc.set_cipher(CryptoAlgs::lookup(new_cipher));
+                }
+            }
+            catch (const std::exception &e)
+            {
+                OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed cipher '" << new_cipher << "': " << e.what());
+            }
 
-	  // digest
-	  std::string new_digest;
-                try
+            // digest
+            std::string new_digest;
+            try
+            {
+                const Option *o = opt.get_ptr("auth");
+                if (o)
                 {
-	    const Option *o = opt.get_ptr("auth");
-	    if (o)
-	      {
-		new_digest = o->get(1, 128);
-		if (new_digest != "none")
-		  dc.set_digest(CryptoAlgs::lookup(new_digest));
-	      }
-	  }
-	  catch (const std::exception& e)
-	    {
-	      OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed digest '" << new_digest << "': " << e.what());
-	    }
+                    new_digest = o->get(1, 128);
+                    if (new_digest != "none")
+                        dc.set_digest(CryptoAlgs::lookup(new_digest));
+                }
+            }
+            catch (const std::exception &e)
+            {
+                OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed digest '" << new_digest << "': " << e.what());
+            }
+        }
 
-
-	  // tls key-derivation method
-	  std::string key_method;
-                try
+        void parse_pushed_peer_id(const OptionList &opt)
+        {
+            try
+            {
+                const Option *o = opt.get_ptr("peer-id");
+                if (o)
                 {
-	      const Option *o = opt.get_ptr("key-derivation");
-	      if (o)
-		{
-		  key_method = o->get(1, 128);
-		  if (key_method == "tls-ekm")
-		    dc.set_key_derivation(CryptoAlgs::KeyDerivation::TLS_EKM);
-		  else
-		    OPENVPN_THROW(process_server_push_error, "Problem accepting key-derivation method '" << key_method << "'");
-		}
-	      else
-		dc.set_key_derivation(CryptoAlgs::KeyDerivation::OPENVPN_PRF);
-	    }
-	  catch (const std::exception& e)
-	    {
-	      OPENVPN_THROW(process_server_push_error, "Problem accepting key-derivation method '" << key_method << "': " << e.what());
-	    }
-	}
+                    bool status = parse_number_validate<int>(o->get(1, 16),
+                                                             16,
+                                                             -1,
+                                                             0xFFFFFE,
+                                                             &remote_peer_id);
+                    if (!status)
+                        throw Exception("parse/range issue");
+                    enable_op32 = true;
+                }
+            }
+            catch (const std::exception &e)
+            {
+                OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed peer-id: " << e.what());
+            }
+        }
 
-	// protocol-flags
-	try
-	  {
-	    const Option *o = opt.get_ptr("protocol-flags");
-	    if (o)
-	      {
-		o->min_args(2);
-		for (std::size_t i = 1; i < o->size(); i++)
-		  {
-		    std::string flag = o->get(i, 128);
-		    if (flag == "cc-exit")
-		      {
-			cc_exit_notify = true;
-		      }
+        void parse_pushed_protocol_flags(const OptionList &opt)
+        {
+            // tls key-derivation method with old key-derivation option
+            std::string key_method;
+            try
+            {
+                const Option *o = opt.get_ptr("key-derivation");
+                if (o)
+                {
+                    key_method = o->get(1, 128);
+                    if (key_method == "tls-ekm")
+                        dc.set_key_derivation(CryptoAlgs::KeyDerivation::TLS_EKM);
+                    else
+                        OPENVPN_THROW(process_server_push_error, "Problem accepting key-derivation method '" << key_method << "'");
+                }
+                else
+                    dc.set_key_derivation(CryptoAlgs::KeyDerivation::OPENVPN_PRF);
+            }
+            catch (const std::exception &e)
+            {
+                OPENVPN_THROW(process_server_push_error, "Problem accepting key-derivation method '" << key_method << "': " << e.what());
+            }
+
+            try
+            {
+                const Option *o = opt.get_ptr("protocol-flags");
+                if (o)
+                {
+                    o->min_args(2);
+                    for (std::size_t i = 1; i < o->size(); i++)
+                    {
+                        std::string flag = o->get(i, 128);
+                        if (flag == "cc-exit")
+                        {
+                            cc_exit_notify = true;
+                        }
                         else if (flag == "dyn-tls-crypt")
                         {
                             set_tls_crypt_algs();
-                            tls_crypt_ |= TLSCrypt::Dynamic;
+                            tls_crypt_ |= Dynamic;
                         }
-		    else if (flag == "tls-ekm")
-		      {
-			// Overrides "key-derivation" method set above
-			dc.set_key_derivation(CryptoAlgs::KeyDerivation::TLS_EKM);
-		      }
-		    else
-		      {
-			OPENVPN_THROW(process_server_push_error, "unknown flag '" << flag << "'");
-		      }
-		  }
-	      }
-	  }
-	catch (const std::exception& e)
-	  {
-	    OPENVPN_THROW(process_server_push_error, "Problem accepting protocol-flags: " << e.what());
-	  }
+                        else if (flag == "tls-ekm")
+                        {
+                            // Overrides "key-derivation" method set above
+                            dc.set_key_derivation(CryptoAlgs::KeyDerivation::TLS_EKM);
+                        }
+                        else
+                        {
+                            OPENVPN_THROW(process_server_push_error, "unknown flag '" << flag << "'");
+                        }
+                    }
+                }
+            }
+            catch (const std::exception &e)
+            {
+                OPENVPN_THROW(process_server_push_error, "Problem accepting protocol-flags: " << e.what());
+            }
+        }
 
-	// compression
-	std::string new_comp;
+        void parse_pushed_compression(const OptionList &opt, const ProtoContextCompressionOptions &pco)
+        {
+            std::string new_comp;
             try
             {
-	  const Option *o;
-	  o = opt.get_ptr("compress");
-	  if (o)
-	    {
-	      new_comp = o->get(1, 128);
-	      CompressContext::Type meth = CompressContext::parse_method(new_comp);
-	      if (meth != CompressContext::NONE)
-		{
-		  // if compression is not availabe, CompressContext ctor throws an exception
-		  if (pco.is_comp())
-		    comp_ctx = CompressContext(meth, pco.is_comp_asym());
-		  else
-		    {
-		      // server pushes compression but client has compression disabled
-		      // degrade to asymmetric compression (downlink only)
-		      comp_ctx = CompressContext(meth, true);
-		      if (!comp_ctx.is_any_stub(meth))
-		        {
-			  OPENVPN_LOG("Server has pushed compressor "
-				      << comp_ctx.str()
-			              << ", but client has disabled compression, switching to asymmetric");
-		        }
-		    }
-		}
-	    }
-	  else
-	    {
-	      o = opt.get_ptr("comp-lzo");
-	      if (o)
-		{
-		  if (o->size() == 2 && o->ref(1) == "no")
-		    {
-		      comp_ctx = CompressContext(CompressContext::LZO_STUB, false);
-		    }
-		  else
-		    {
-		      comp_ctx = CompressContext(pco.is_comp() ? CompressContext::LZO : CompressContext::LZO_STUB, pco.is_comp_asym());
-		    }
-		}
-	    }
-	}
-	catch (const std::exception& e)
-	  {
-	    OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed compressor '" << new_comp << "': " << e.what());
-	  }
-
-	// peer ID
-            try
+                const Option *o;
+                o = opt.get_ptr("compress");
+                if (o)
+                {
+                    new_comp = o->get(1, 128);
+                    CompressContext::Type meth = CompressContext::parse_method(new_comp);
+                    if (meth != CompressContext::NONE)
+                    {
+                        // if compression is not availabe, CompressContext ctor throws an exception
+                        if (pco.is_comp())
+                            comp_ctx = CompressContext(meth, pco.is_comp_asym());
+                        else
+                        {
+                            // server pushes compression but client has compression disabled
+                            // degrade to asymmetric compression (downlink only)
+                            comp_ctx = CompressContext(meth, true);
+                            if (!comp_ctx.is_any_stub(meth))
+                            {
+                                OPENVPN_LOG("Server has pushed compressor "
+                                            << comp_ctx.str()
+                                            << ", but client has disabled compression, switching to asymmetric");
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    o = opt.get_ptr("comp-lzo");
+                    if (o)
+                    {
+                        if (o->size() == 2 && o->ref(1) == "no")
+                        {
+                            comp_ctx = CompressContext(CompressContext::LZO_STUB, false);
+                        }
+                        else
+                        {
+                            comp_ctx = CompressContext(pco.is_comp() ? CompressContext::LZO : CompressContext::LZO_STUB, pco.is_comp_asym());
+                        }
+                    }
+                }
+            }
+            catch (const std::exception &e)
             {
-	  const Option *o = opt.get_ptr("peer-id");
-	  if (o)
-	    {
-	      bool status = parse_number_validate<int>(o->get(1, 16),
-						       16,
-						       -1,
-						       0xFFFFFE,
-						       &remote_peer_id);
-	      if (!status)
-		throw Exception("parse/range issue");
-	      enable_op32 = true;
-	    }
-	}
-	catch (const std::exception& e)
-	  {
-	    OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed peer-id: " << e.what());
-	  }
-
-            try
-            {
-	  // load parameters that can be present in both config file or pushed options
-	  load_common(opt, pco, LOAD_COMMON_CLIENT_PUSHED);
-	}
-	catch (const std::exception& e)
-	  {
-	    OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed parameter: " << e.what());
-	  }
-
-	// show negotiated options
-	OPENVPN_LOG_STRING_PROTO(show_options());
-      }
+                OPENVPN_THROW(process_server_push_error, "Problem accepting server-pushed compressor '" << new_comp << "': " << e.what());
+            }
+        }
 
       std::string show_options() const
       {
@@ -1166,25 +1186,25 @@ enum
 
       // load parameters that can be present in both config file or pushed options
         void load_common(const OptionList &opt,
-                         const ProtoContextOptions &pco,
-		       const LoadCommonType type)
-      {
-	// duration parms
-	load_duration_parm(renegotiate, "reneg-sec", opt, 10, false, false);
-	expire = renegotiate;
-	load_duration_parm(expire, "tran-window", opt, 10, false, false);
-	expire += renegotiate;
-	load_duration_parm(handshake_window, "hand-window", opt, 10, false, false);
-	if (is_bs64_cipher(dc.cipher())) // special data limits for 64-bit block-size ciphers (CVE-2016-6329)
-	  {
-	    become_primary = Time::Duration::seconds(5);
-	    tls_timeout = Time::Duration::milliseconds(1000);
-	  }
-	else
-	  become_primary = Time::Duration::seconds(std::min(handshake_window.to_seconds(),
-							    renegotiate.to_seconds() / 2));
-	load_duration_parm(become_primary, "become-primary", opt, 0, false, false);
-	load_duration_parm(tls_timeout, "tls-timeout", opt, 100, false, true);
+                         const ProtoContextCompressionOptions &pco,
+                         const LoadCommonType type)
+        {
+            // duration parms
+            load_duration_parm(renegotiate, "reneg-sec", opt, 10, false, false);
+            expire = renegotiate;
+            load_duration_parm(expire, "tran-window", opt, 10, false, false);
+            expire += renegotiate;
+            load_duration_parm(handshake_window, "hand-window", opt, 10, false, false);
+            if (is_bs64_cipher(dc.cipher())) // special data limits for 64-bit block-size ciphers (CVE-2016-6329)
+            {
+                become_primary = Time::Duration::seconds(5);
+                tls_timeout = Time::Duration::milliseconds(1000);
+            }
+            else
+                become_primary = Time::Duration::seconds(std::min(handshake_window.to_seconds(),
+                                                                  renegotiate.to_seconds() / 2));
+            load_duration_parm(become_primary, "become-primary", opt, 0, false, false);
+            load_duration_parm(tls_timeout, "tls-timeout", opt, 100, false, true);
 
 	if (type == LOAD_COMMON_SERVER)
 	  renegotiate += handshake_window; // avoid renegotiation collision with client
@@ -1903,29 +1923,30 @@ enum
 		    invalidate(err);
 		}
 
-	      // trigger renegotiation if we hit decrypt data limit
-	      if (data_limit)
-		data_limit_add(DataLimit::Decrypt, buf.size());
+                    // trigger renegotiation if we hit decrypt data limit
+                    if (data_limit)
+                        if (!data_limit_add(DataLimit::Decrypt, buf.size()))
+                            throw proto_option_error("Unable to add data limit");
 
 	      // decompress packet
 	      if (compress)
 		compress->decompress(buf);
 
-	      // set MSS for segments server can receive
-	      if (proto.config->mss_fix > 0)
-		MSSFix::mssfix(buf, proto.config->mss_fix);
-	    }
-	  else
-	    buf.reset_size(); // no crypto context available
-	}
-	catch (BufferException&)
-	  {
-	    proto.stats->error(Error::BUFFER_ERROR);
-	    buf.reset_size();
-	    if (proto.is_tcp())
-	      invalidate(Error::BUFFER_ERROR);
-	  }
-      }
+                    // set MSS for segments server can receive
+                    if (proto.config->mss_fix > 0)
+                        MSSFix::mssfix(buf, numeric_cast<uint16_t>(proto.config->mss_fix));
+                }
+                else
+                    buf.reset_size(); // no crypto context available
+            }
+            catch (std::exception &)
+            {
+                proto.stats->error(Error::BUFFER_ERROR);
+                buf.reset_size();
+                if (proto.is_tcp())
+                    invalidate(Error::BUFFER_ERROR);
+            }
+        }
 
       // usually called by parent ProtoContext object when this KeyContext
       // has been retired.
@@ -2128,15 +2149,15 @@ enum
             dck.swap(data_channel_key);
         }
 
-      void calculate_mssfix(Config& c)
-      {
-	if (c.mss_parms.fixed)
-	  {
-	    // substract IPv4 and TCP overhead, mssfix method will add extra 20 bytes for IPv6
-	    c.mss_fix = c.mss_parms.mssfix - (20 + 20);
-	    OPENVPN_LOG("fixed mssfix=" << c.mss_fix);
-	    return;
-	  }
+        void calculate_mssfix(ProtoConfig &c)
+        {
+            if (c.mss_parms.fixed)
+            {
+                // substract IPv4 and TCP overhead, mssfix method will add extra 20 bytes for IPv6
+                c.mss_fix = c.mss_parms.mssfix - (20 + 20);
+                OPENVPN_LOG("fixed mssfix=" << c.mss_fix);
+                return;
+            }
 
 	/* If we are running default mssfix but have a different tun-mtu pushed
 	 * disable mssfix */
@@ -2148,7 +2169,7 @@ enum
 			  return;
 	}
 
-	int payload_overhead = 0;
+            auto payload_overhead = size_t(0);
 
 	// compv2 doesn't increase payload size
 	switch (c.comp_ctx.type())
@@ -2168,9 +2189,9 @@ enum
             // will add 20 extra bytes if payload is IPv6
 	payload_overhead += 20 + 20;
 
-            int overhead = c.protocol.extra_transport_bytes()
-                           + (enable_op32 ? OP_SIZE_V2 : 1)
-                           + c.dc.context().encap_overhead();
+            auto overhead = c.protocol.extra_transport_bytes()
+                            + (enable_op32 ? OP_SIZE_V2 : 1)
+                            + c.dc.context().encap_overhead();
 
 	// in CBC mode, the packet id is part of the payload size / overhead
 	if (CryptoAlgs::mode(c.dc.cipher()) != CryptoAlgs::CBC_HMAC)
@@ -2186,22 +2207,30 @@ enum
                                 : sizeof(struct UDPHeader);
 	  }
 
-	int target = c.mss_parms.mssfix - overhead;
-	if (CryptoAlgs::mode(c.dc.cipher()) == CryptoAlgs::CBC_HMAC)
-	  {
+            auto target = c.mss_parms.mssfix - overhead;
+            if (CryptoAlgs::mode(c.dc.cipher()) == CryptoAlgs::CBC_HMAC)
+            {
                 // openvpn3 crypto includes blocksize in overhead, but we can
                 // be a bit smarter here and instead make sure that resulting
                 // ciphertext size (which is always multiple blocksize) is not
                 // larger than target by running down target to the nearest
                 // multiple of multiple and substracting 1.
 
-	    int block_size = CryptoAlgs::block_size(c.dc.cipher());
-	    target += block_size;
-	    target = (target / block_size) * block_size;
-	    target -= 1;
-	  }
+                auto block_size = CryptoAlgs::block_size(c.dc.cipher());
+                target += block_size;
+                target = (target / block_size) * block_size;
+                target -= 1;
+            }
 
-            c.mss_fix = target - payload_overhead;
+            if (!is_safe_conversion<decltype(c.mss_fix)>(target - payload_overhead))
+            {
+                OPENVPN_LOG("mssfix disabled since computed value is outside type bounds ("
+                            << c.mss_fix << ")");
+                c.mss_fix = 0;
+                return;
+            }
+
+            c.mss_fix = static_cast<decltype(c.mss_fix)>(target - payload_overhead);
             if (c.debug_level > 1)
             {
                 OPENVPN_LOG("mssfix=" << c.mss_fix
@@ -2220,11 +2249,11 @@ enum
 	  return;
 	generate_datachannel_keys();
 
-	// set up crypto for data channel
-	bool enable_compress = true;
-	Config& c = *proto.config;
-	const unsigned int key_dir = proto.is_server() ? OpenVPNStaticKey::INVERSE : OpenVPNStaticKey::NORMAL;
-	const OpenVPNStaticKey& key = data_channel_key->key;
+            // set up crypto for data channel
+            bool enable_compress = true;
+            ProtoConfig &c = *proto.config;
+            const unsigned int key_dir = proto.is_server() ? OpenVPNStaticKey::INVERSE : OpenVPNStaticKey::NORMAL;
+            const OpenVPNStaticKey &key = data_channel_key->key;
 
 	// special data limits for 64-bit block-size ciphers (CVE-2016-6329)
 	if (is_bs64_cipher(c.dc.cipher()))
@@ -2427,21 +2456,25 @@ enum
 	return true;
       }
 
-      bool do_encrypt(BufferAllocated& buf, const bool compress_hint)
-      {
-	bool pid_wrap;
+        bool do_encrypt(BufferAllocated &buf, const bool compress_hint)
+        {
+            if (!is_safe_conversion<uint16_t>(proto.config->mss_fix))
+                return false;
 
-	// set MSS for segments client can receive
-	if (proto.config->mss_fix > 0)
-	  MSSFix::mssfix(buf, proto.config->mss_fix);
+            // set MSS for segments client can receive
+            if (proto.config->mss_fix > 0)
+                MSSFix::mssfix(buf, static_cast<uint16_t>(proto.config->mss_fix));
 
 	// compress packet
 	if (compress)
 	  compress->compress(buf, compress_hint);
 
-	// trigger renegotiation if we hit encrypt data limit
-	if (data_limit)
-	  data_limit_add(DataLimit::Encrypt, buf.size());
+            // trigger renegotiation if we hit encrypt data limit
+            if (data_limit)
+                if (!data_limit_add(DataLimit::Encrypt, buf.size()))
+                    return false;
+
+            bool pid_wrap;
 
 	if (enable_op32)
 	  {
@@ -2534,13 +2567,16 @@ enum
       }
         }
 
-      // Handle data-limited keys such as Blowfish and other 64-bit block-size ciphers.
-      void data_limit_add(const DataLimit::Mode mode, const size_t size)
-      {
-	const DataLimit::State state = data_limit->add(mode, size);
-	if (state > DataLimit::None)
-	  data_limit_event(mode, state);
-      }
+        // Handle data-limited keys such as Blowfish and other 64-bit block-size ciphers.
+        bool data_limit_add(const DataLimit::Mode mode, const size_t size)
+        {
+            if (is_safe_conversion<DataLimit::size_type>(size))
+                return false;
+            const DataLimit::State state = data_limit->add(mode, static_cast<DataLimit::size_type>(size));
+            if (state > DataLimit::None)
+                data_limit_event(mode, state);
+            return true;
+        }
 
       // Handle a DataLimit event.
       void data_limit_event(const DataLimit::Mode mode, const DataLimit::State state)
@@ -3412,15 +3448,15 @@ enum
 	  }
       }
 
-      // for debugging
-      int seconds_until(const Time& next_time)
-      {
-	Time::Duration d = next_time - *now;
-	if (d.is_infinite())
-	  return -1;
-	else
-	  return d.to_seconds();
-      }
+        // for debugging
+        int seconds_until(const Time &next_time)
+        {
+            Time::Duration d = next_time - *now;
+            if (d.is_infinite())
+                return -1;
+            else
+                return numeric_cast<int>(d.to_seconds());
+        }
 
       // BEGIN KeyContext data members
 
@@ -3470,10 +3506,10 @@ enum
     public:
       OPENVPN_SIMPLE_EXCEPTION(tls_auth_pre_validate);
 
-      TLSAuthPreValidate(const Config& c, const bool server)
-      {
-	if (!c.tls_auth_enabled())
-	  throw tls_auth_pre_validate();
+        TLSAuthPreValidate(const ProtoConfig &c, const bool server)
+        {
+            if (!c.tls_auth_enabled())
+                throw tls_auth_pre_validate();
 
 	// save hard reset op we expect to receive from peer
 	reset_op = server ? CONTROL_HARD_RESET_CLIENT_V2 : CONTROL_HARD_RESET_SERVER_V2;
@@ -3531,10 +3567,10 @@ enum
     public:
       OPENVPN_SIMPLE_EXCEPTION(tls_crypt_pre_validate);
 
-      TLSCryptPreValidate(const Config& c, const bool server)
-      {
-	if (!c.tls_crypt_enabled())
-	  throw tls_crypt_pre_validate();
+        TLSCryptPreValidate(const ProtoConfig &c, const bool server)
+        {
+            if (!c.tls_crypt_enabled())
+                throw tls_crypt_pre_validate();
 
 	// save hard reset op we expect to receive from peer
 	reset_op = server ? CONTROL_HARD_RESET_CLIENT_V2 : CONTROL_HARD_RESET_SERVER_V2;
@@ -3605,9 +3641,9 @@ enum
         public:
           OPENVPN_SIMPLE_EXCEPTION(tls_crypt_v2_pre_validate);
 
-          TLSCryptV2PreValidate(const Config& c, const bool server)
-	    : TLSCryptPreValidate(c, server)
-          {
+        TLSCryptV2PreValidate(const ProtoConfig &c, const bool server)
+            : TLSCryptPreValidate(c, server)
+        {
             if (!c.tls_crypt_v2_enabled())
               throw tls_crypt_v2_pre_validate();
 
@@ -3619,18 +3655,18 @@ enum
 
     OPENVPN_SIMPLE_EXCEPTION(select_key_context_error);
 
-    ProtoContext(const Config::Ptr& config_arg,             // configuration
-		 const SessionStats::Ptr& stats_arg)        // error stats
-      : config(config_arg),
-	stats(stats_arg),
-	mode_(config_arg->ssl_factory->mode()),
-	n_key_ids(0),
-	now_(config_arg->now)
+    ProtoContext(const ProtoConfig::Ptr &config_arg, // configuration
+                 const SessionStats::Ptr &stats_arg) // error stats
+        : config(config_arg),
+          stats(stats_arg),
+          mode_(config_arg->ssl_factory->mode()),
+          n_key_ids(0),
+          now_(config_arg->now)
     {
         reset_tls_wrap_mode(*config);
     }
 
-    void reset_tls_wrap_mode(const Config &c)
+    void reset_tls_wrap_mode(const ProtoConfig &c)
     {
       // tls-auth setup
       if (c.tls_crypt_v2_enabled())
@@ -3675,7 +3711,7 @@ enum
       return is_bs64_cipher(conf().dc.cipher());
     }
 
-    void reset_tls_crypt(const Config& c, const OpenVPNStaticKey& key)
+    void reset_tls_crypt(const ProtoConfig &c, const OpenVPNStaticKey &key)
     {
       tls_crypt_send = c.tls_crypt_context->new_obj_send();
       tls_crypt_recv = c.tls_crypt_context->new_obj_recv();
@@ -3691,7 +3727,7 @@ enum
                              key.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::DECRYPT | key_dir));
     }
 
-    void set_dynamic_tls_crypt(const Config &c, const KeyContext::Ptr &key_ctx)
+    void set_dynamic_tls_crypt(const ProtoConfig &c, const KeyContext::Ptr &key_ctx)
     {
         OpenVPNStaticKey dyn_key;
         key_ctx->export_key_material(dyn_key, "EXPORTER-OpenVPN-dynamic-tls-crypt");
@@ -3710,7 +3746,7 @@ enum
         reset_tls_crypt(c, dyn_key);
     }
 
-    void reset_tls_crypt_server(const Config& c)
+    void reset_tls_crypt_server(const ProtoConfig &c)
     {
       //tls-crypt session key is derived later from WKc received from the client
       tls_crypt_send.reset();
@@ -3730,7 +3766,7 @@ enum
 
     void reset()
     {
-      const Config& c = *config;
+        const ProtoConfig &c = *config;
 
       // defer data channel initialization until after client options pull?
       dc_deferred = c.dc_deferred;
@@ -4092,7 +4128,7 @@ enum
     }
 
     // Call on client with server-pushed options
-    void process_push(const OptionList& opt, const ProtoContextOptions& pco)
+    void process_push(const OptionList &opt, const ProtoContextCompressionOptions &pco)
     {
       // modify config with pushed options
       config->process_push(opt, pco);
@@ -4120,10 +4156,10 @@ enum
 			   unsigned int& keepalive_timeout)
     {
         keepalive_ping = config->keepalive_ping.enabled()
-                             ? config->keepalive_ping.to_seconds()
+                             ? clamp_to_typerange<std::remove_reference_t<decltype(keepalive_ping)>>(config->keepalive_ping.to_seconds())
                              : 0;
         keepalive_timeout = config->keepalive_timeout.enabled()
-                                ? config->keepalive_timeout.to_seconds()
+                                ? clamp_to_typerange<std::remove_reference_t<decltype(keepalive_timeout)>>(config->keepalive_timeout.to_seconds())
                                 : 0;
       config->keepalive_ping = Time::Duration::infinite();
       config->keepalive_timeout = Time::Duration::infinite();
@@ -4205,15 +4241,15 @@ enum
     }
 
     // configuration
-    const Config &conf() const
+    const ProtoConfig &conf() const
     {
         return *config;
     }
-    Config &conf()
+    ProtoConfig &conf()
     {
         return *config;
     }
-    Config::Ptr conf_ptr() const
+    ProtoConfig::Ptr conf_ptr() const
     {
         return config;
     }
@@ -4551,7 +4587,7 @@ enum
 
     // BEGIN ProtoContext data members
 
-    Config::Ptr config;
+    ProtoConfig::Ptr config;
     SessionStats::Ptr stats;
 
     size_t hmac_size;

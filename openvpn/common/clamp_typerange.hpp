@@ -24,6 +24,7 @@
 
 #include <limits>
 #include <algorithm>
+#include <functional>
 
 #include "numeric_util.hpp"
 
@@ -65,6 +66,59 @@ OutT clamp_to_typerange(InT inVal)
         auto outMax = static_cast<InT>(std::numeric_limits<OutT>::max());
         return static_cast<OutT>(std::clamp(inVal, outMin, outMax));
     }
+}
+
+/* ============================================================================================================= */
+//  clamp_to_default
+/* ============================================================================================================= */
+
+/**
+ * @brief Adjusts the input value to the default if the input value exceeds the range of the output type
+ *
+ * @tparam OutT Output type
+ * @tparam InT  Input type
+ * @param inVal Input value
+ * @param defVal Input value
+ * @return OutT safely converted from InT, potentially adjusted
+ */
+
+template <typename OutT, typename InT>
+OutT clamp_to_default(InT inVal, OutT defVal)
+{
+    if constexpr (!numeric_util::is_int_rangesafe<OutT, InT>())
+    {
+        if (!is_safe_conversion<OutT>(inVal))
+            return defVal;
+    }
+
+    return static_cast<OutT>(inVal);
+}
+
+/* ============================================================================================================= */
+//  clamp_notify
+/* ============================================================================================================= */
+
+/**
+ * @brief Calls FuncT cb if the input value exceeds the range of the output type.
+ *
+ * @tparam OutT Output type
+ * @tparam InT  Input type
+ * @tparam FuncT Invokable type that accepts InT and returns OutT
+ * @param inVal Input value
+ * @param cb Notification callback
+ * @return Result of the FuncT callback
+ */
+
+template <typename OutT, typename InT, typename FuncT>
+OutT clamp_notify(InT inVal, FuncT cb)
+{
+    if constexpr (!numeric_util::is_int_rangesafe<OutT, InT>())
+    {
+        if (!is_safe_conversion<OutT>(inVal))
+            return std::invoke(cb, inVal);
+    }
+
+    return static_cast<OutT>(inVal);
 }
 
 } // namespace openvpn::numeric_util

@@ -29,6 +29,7 @@
 #include <openssl/rand.h>
 
 #include <openvpn/random/randapi.hpp>
+#include <openvpn/common/numeric_util.hpp>
 
 namespace openvpn {
 class OpenSSLRandom : public RandomAPI
@@ -70,7 +71,7 @@ class OpenSSLRandom : public RandomAPI
   private:
     bool rndbytes(unsigned char *buf, size_t size)
     {
-        return RAND_bytes(buf, size) == 1;
+        return is_safe_conversion<int>(size) ? RAND_bytes(buf, static_cast<int>(size)) == 1 : false;
     }
 };
 } // namespace openvpn
