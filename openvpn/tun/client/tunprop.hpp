@@ -543,28 +543,34 @@ class TunProp
       //   [dhcp-option] [PROXY_AUTO_CONFIG_URL] [http://...]
       unsigned int flags = 0;
 
-      DnsOptions dns_options(opt);
-      for (const auto& domain : dns_options.search_domains)
-	{
-	  if (!tb->tun_builder_add_search_domain(domain))
-	    throw tun_prop_dhcp_option_error("tun_builder_add_search_domain failed");
-	}
-      for (const auto& keyval : dns_options.servers)
-	{
-	  const auto& server = keyval.second;
-	  if (server.address4.specified())
-	    {
-	      if (!tb->tun_builder_add_dns_server(server.address4.to_string(), false))
-		throw tun_prop_dhcp_option_error("tun_builder_add_dns_server failed");
-	      flags |= F_ADD_DNS;
-	    }
-	  if (server.address6.specified())
-	    {
-	      if (!tb->tun_builder_add_dns_server(server.address6.to_string(), true))
-		throw tun_prop_dhcp_option_error("tun_builder_add_dns_server failed");
-	      flags |= F_ADD_DNS;
-	    }
-	}
+        DnsOptions dns_options(opt);
+        for (const auto &domain : dns_options.search_domains)
+        {
+            if (!tb->tun_builder_set_adapter_domain_suffix(domain))
+                throw tun_prop_dhcp_option_error("tun_builder_set_adapter_domain_suffix");
+            break; // use only the first domain for now
+        }
+        for (const auto &keyval : dns_options.servers)
+        {
+            const auto &server = keyval.second;
+            if (server.address4.specified())
+            {
+                if (!tb->tun_builder_add_dns_server(server.address4.to_string(), false))
+                    throw tun_prop_dhcp_option_error("tun_builder_add_dns_server failed");
+                flags |= F_ADD_DNS;
+            }
+            if (server.address6.specified())
+            {
+                if (!tb->tun_builder_add_dns_server(server.address6.to_string(), true))
+                    throw tun_prop_dhcp_option_error("tun_builder_add_dns_server failed");
+                flags |= F_ADD_DNS;
+            }
+            for (const auto &domain : server.domains)
+            {
+                if (!tb->tun_builder_add_search_domain(domain))
+                    throw tun_prop_dhcp_option_error("tun_builder_add_search_domain failed");
+            }
+        }
 
       OptionList::IndexMap::const_iterator dopt = opt.map().find("dhcp-option"); // DIRECTIVE
       if (dopt != opt.map().end())
@@ -579,86 +585,86 @@ class TunProp
 	      const Option& o = opt[*i];
                 try
                 {
-		const std::string& type = o.get(1, 64);
-		if ((type == "DNS" || type == "DNS6") && dns_options.servers.empty())
-		  {
-		    o.exact_args(3);
-		    const IP::Addr ip = IP::Addr::from_string(o.get(2, 256), "dns-server-ip");
-		    if (!tb->tun_builder_add_dns_server(ip.to_string(),
-							ip.version() == IP::Addr::V6))
-		      throw tun_prop_dhcp_option_error("tun_builder_add_dns_server failed");
-		    flags |= F_ADD_DNS;
-		  }
-		else if ((type == "DOMAIN" || type == "DOMAIN-SEARCH") && dns_options.search_domains.empty())
-		  {
-		    o.min_args(3);
-		    for (size_t j = 2; j < o.size(); ++j)
-		      {
-			typedef std::vector<std::string> strvec;
-			strvec v = Split::by_space<strvec, StandardLex, SpaceMatch, Split::NullLimit>(o.get(j, 256));
-			for (size_t k = 0; k < v.size(); ++k)
-			  {
-			    if (!tb->tun_builder_add_search_domain(v[k]))
-			      throw tun_prop_dhcp_option_error("tun_builder_add_search_domain failed");
-			  }
-		      }
-		  }
-		else if (type == "ADAPTER_DOMAIN_SUFFIX")
-		  {
-		    o.exact_args(3);
-		    const std::string& adapter_domain_suffix = o.get(2, 256);
-		    if (!tb->tun_builder_set_adapter_domain_suffix(adapter_domain_suffix))
-		      throw tun_prop_dhcp_option_error("tun_builder_set_adapter_domain_suffix");
-		  }
-		else if (type == "PROXY_BYPASS")
-		  {
-		    o.min_args(3);
-		    for (size_t j = 2; j < o.size(); ++j)
-		      {
-			typedef std::vector<std::string> strvec;
-			strvec v = Split::by_space<strvec, StandardLex, SpaceMatch, Split::NullLimit>(o.get(j, 256));
-			for (size_t k = 0; k < v.size(); ++k)
-			  {
-			    if (!tb->tun_builder_add_proxy_bypass(v[k]))
-			      throw tun_prop_dhcp_option_error("tun_builder_add_proxy_bypass");
-			  }
-		      }
-		  }
-		else if (type == "PROXY_AUTO_CONFIG_URL")
-		  {
-		    o.exact_args(3);
-		    auto_config_url = o.get(2, 256);
-		  }
-		else if (type == "PROXY_HTTP")
-		  {
-		    o.exact_args(4);
-		    http_host = o.get(2, 256);
-		    HostPort::validate_port(o.get(3, 256), "PROXY_HTTP", &http_port);
-		  }
-		else if (type == "PROXY_HTTPS")
-		  {
-		    o.exact_args(4);
-		    https_host = o.get(2, 256);
-		    HostPort::validate_port(o.get(3, 256), "PROXY_HTTPS", &https_port);
-		  }
-		else if (type == "WINS")
-		  {
-		    o.exact_args(3);
-		    const IP::Addr ip = IP::Addr::from_string(o.get(2, 256), "wins-server-ip");
-		    if (ip.version() != IP::Addr::V4)
-		      throw tun_prop_dhcp_option_error("WINS addresses must be IPv4");
-		    if (!tb->tun_builder_add_wins_server(ip.to_string()))
-		      throw tun_prop_dhcp_option_error("tun_builder_add_wins_server failed");
-		  }
-		else if (!quiet)
-		  OPENVPN_LOG("Unknown pushed DHCP option: " << o.render(OPT_RENDER_FLAGS));
-	      }
-	      catch (const std::exception& e)
-		{
-		  if (!quiet)
-		    OPENVPN_LOG("exception parsing dhcp-option: " << o.render(OPT_RENDER_FLAGS) << " : " << e.what());
-		}
-	    }
+                    const std::string &type = o.get(1, 64);
+                    if ((type == "DNS" || type == "DNS6") && dns_options.servers.empty())
+                    {
+                        o.exact_args(3);
+                        const IP::Addr ip = IP::Addr::from_string(o.get(2, 256), "dns-server-ip");
+                        if (!tb->tun_builder_add_dns_server(ip.to_string(),
+                                                            ip.version() == IP::Addr::V6))
+                            throw tun_prop_dhcp_option_error("tun_builder_add_dns_server failed");
+                        flags |= F_ADD_DNS;
+                    }
+                    else if ((type == "DOMAIN" || type == "DOMAIN-SEARCH") && dns_options.servers.empty())
+                    {
+                        o.min_args(3);
+                        for (size_t j = 2; j < o.size(); ++j)
+                        {
+                            typedef std::vector<std::string> strvec;
+                            strvec v = Split::by_space<strvec, StandardLex, SpaceMatch, Split::NullLimit>(o.get(j, 256));
+                            for (size_t k = 0; k < v.size(); ++k)
+                            {
+                                if (!tb->tun_builder_add_search_domain(v[k]))
+                                    throw tun_prop_dhcp_option_error("tun_builder_add_search_domain failed");
+                            }
+                        }
+                    }
+                    else if (type == "ADAPTER_DOMAIN_SUFFIX" && dns_options.search_domains.empty())
+                    {
+                        o.exact_args(3);
+                        const std::string &adapter_domain_suffix = o.get(2, 256);
+                        if (!tb->tun_builder_set_adapter_domain_suffix(adapter_domain_suffix))
+                            throw tun_prop_dhcp_option_error("tun_builder_set_adapter_domain_suffix");
+                    }
+                    else if (type == "PROXY_BYPASS")
+                    {
+                        o.min_args(3);
+                        for (size_t j = 2; j < o.size(); ++j)
+                        {
+                            typedef std::vector<std::string> strvec;
+                            strvec v = Split::by_space<strvec, StandardLex, SpaceMatch, Split::NullLimit>(o.get(j, 256));
+                            for (size_t k = 0; k < v.size(); ++k)
+                            {
+                                if (!tb->tun_builder_add_proxy_bypass(v[k]))
+                                    throw tun_prop_dhcp_option_error("tun_builder_add_proxy_bypass");
+                            }
+                        }
+                    }
+                    else if (type == "PROXY_AUTO_CONFIG_URL")
+                    {
+                        o.exact_args(3);
+                        auto_config_url = o.get(2, 256);
+                    }
+                    else if (type == "PROXY_HTTP")
+                    {
+                        o.exact_args(4);
+                        http_host = o.get(2, 256);
+                        HostPort::validate_port(o.get(3, 256), "PROXY_HTTP", &http_port);
+                    }
+                    else if (type == "PROXY_HTTPS")
+                    {
+                        o.exact_args(4);
+                        https_host = o.get(2, 256);
+                        HostPort::validate_port(o.get(3, 256), "PROXY_HTTPS", &https_port);
+                    }
+                    else if (type == "WINS")
+                    {
+                        o.exact_args(3);
+                        const IP::Addr ip = IP::Addr::from_string(o.get(2, 256), "wins-server-ip");
+                        if (ip.version() != IP::Addr::V4)
+                            throw tun_prop_dhcp_option_error("WINS addresses must be IPv4");
+                        if (!tb->tun_builder_add_wins_server(ip.to_string()))
+                            throw tun_prop_dhcp_option_error("tun_builder_add_wins_server failed");
+                    }
+                    else if (!quiet)
+                        OPENVPN_LOG("Unknown pushed DHCP option: " << o.render(OPT_RENDER_FLAGS));
+                }
+                catch (const std::exception &e)
+                {
+                    if (!quiet)
+                        OPENVPN_LOG("exception parsing dhcp-option: " << o.render(OPT_RENDER_FLAGS) << " : " << e.what());
+                }
+            }
             try
             {
 	    if (!http_host.empty())

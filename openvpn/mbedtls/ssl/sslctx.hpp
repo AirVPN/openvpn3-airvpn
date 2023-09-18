@@ -538,12 +538,12 @@ namespace openvpn {
 	      }
 	  }
 
-	// DH
-	if (mode.is_server())
-	  {
-	    const std::string& dh_txt = opt.get("dh", 1, Option::MULTILINE);
-	    load_dh(dh_txt);
-	  }
+        // DH
+        if (mode.is_server() && opt.exists("dh"))
+        {
+            const std::string &dh_txt = opt.get("dh", 1, Option::MULTILINE);
+            load_dh(dh_txt);
+        }
 
 	// relay mode
 	std::string relay_prefix;

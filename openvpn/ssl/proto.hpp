@@ -1109,7 +1109,7 @@ enum
         out << "\n";
 
 	/*
-	 * OpenVPN3 allows to be pushed any cipher that it supports as it
+	 * OpenVPN3 allows the push of any cipher that it supports as it
 	 * only implements secure ones and BF-CBC for backwards
 	 * compatibility and generally adopts the concept of the server being
 	 * responsible for sensible choices. Include the cipher here since
@@ -1137,19 +1137,19 @@ enum
 
 	compstr = comp_ctx.peer_info_string();
 
-	if (compstr)
-	  out << compstr;
-	if (extra_peer_info)
-	  out << extra_peer_info->to_string();
-	if (is_bs64_cipher(dc.cipher()))
-	  out << "IV_BS64DL=1\n"; // indicate support for data limits when using 64-bit block-size ciphers, version 1 (CVE-2016-6329)
-	if (relay_mode)
-	  out << "IV_RELAY=1\n";
-	const std::string ret = out.str();
-            OPENVPN_LOG_PROTO("Peer Info:" << std::endl
-                                           << ret);
-	return ret;
-      }
+        if (compstr)
+            out << compstr;
+        if (extra_peer_info)
+            out << extra_peer_info->to_string();
+        if (is_bs64_cipher(dc.cipher()))
+            out << "IV_BS64DL=1\n"; // indicate support for data limits when using 64-bit block-size ciphers, version 1 (CVE-2016-6329)
+        if (relay_mode)
+            out << "IV_RELAY=1\n";
+        const std::string ret = out.str();
+        OPENVPN_LOG_PROTO("Sending Peer Info:" << std::endl
+                                               << ret);
+        return ret;
+    }
 
       // Used to generate link_mtu option sent to peer.
       // Not const because dc.context() caches the DC context.

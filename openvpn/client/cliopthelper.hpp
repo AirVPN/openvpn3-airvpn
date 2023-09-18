@@ -370,34 +370,34 @@ class ParseClientConfig
     {
         try
         {
-	OptionList::Limits limits("profile is too large",
-				  ProfileParseLimits::MAX_PROFILE_SIZE,
-				  ProfileParseLimits::OPT_OVERHEAD,
-				  ProfileParseLimits::TERM_OVERHEAD,
-				  ProfileParseLimits::MAX_LINE_SIZE,
-				  ProfileParseLimits::MAX_DIRECTIVE_SIZE);
-	options.clear();
-	options.parse_from_config(content, &limits);
-	options.parse_meta_from_config(content, "OVPN_ACCESS_SERVER", &limits);
-	if (content_list)
-	  {
-	    content_list->preprocess();
-	    options.parse_from_key_value_list(*content_list, &limits);
-	  }
-	process_setenv_opt(options);
-	options.update_map();
+            OptionList::Limits limits("profile is too large",
+                                      ProfileParseLimits::MAX_PROFILE_SIZE,
+                                      ProfileParseLimits::OPT_OVERHEAD,
+                                      ProfileParseLimits::TERM_OVERHEAD,
+                                      ProfileParseLimits::MAX_LINE_SIZE,
+                                      ProfileParseLimits::MAX_DIRECTIVE_SIZE);
+            options.clear();
+            options.parse_from_config(content, &limits);
+            options.parse_meta_from_config(content, "OVPN_ACCESS_SERVER", &limits);
+            if (content_list)
+            {
+                content_list->preprocess();
+                options.parse_from_key_value_list(*content_list, "OVPN_ACCESS_SERVER", &limits);
+            }
+            process_setenv_opt(options);
+            options.update_map();
 
 	// add in missing options
 	bool added = false;
 
-	// client
-	if (!options.exists("client"))
-	  {
-	    Option opt;
-	    opt.push_back("client");
-	    options.push_back(std::move(opt));
-	    added = true;
-	  }
+            // client
+            if (options.exists("tls-client") && options.exists("pull"))
+            {
+                Option opt;
+                opt.push_back("client");
+                options.push_back(std::move(opt));
+                added = true;
+            }
 
 	// dev
 	if (!options.exists("dev"))
