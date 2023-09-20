@@ -675,9 +675,12 @@ class ClientOptions : public RC<thread_unsafe_refcount>
             throw option_error("Neither 'client' nor both 'tls-client' and 'pull' options declared. OpenVPN3 client only supports --client mode.");
 
         // Only p2p mode accept
+        // ProMIND - "mode" restored as optional directive. Also fixed the subsequent
+        // if statement because of the incongruence of the condition, not to mention, impossible
+        if (opt.exists("mode"))
         {
             auto mode = opt.get("mode");
-            if (mode.size() != 1 || mode.get(1, 128) != "p2p")
+            if (mode.size() != 2 || mode.get(1, 128) != "p2p")
             {
                 throw option_error("Only 'mode p2p' supported");
             }
