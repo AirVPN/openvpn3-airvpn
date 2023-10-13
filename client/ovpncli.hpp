@@ -652,10 +652,10 @@ class OpenVPNClientHelper
       // Provide credentials and other options.  Call before connect().
       Status provide_creds(const ProvideCreds&);
 
-      // Callback to "protect" a socket from being routed through the tunnel.
-      // Will be called from the thread executing connect().
-      // The remote and ipv6 are the remote host this socket will connect to
-      virtual bool socket_protect(int socket, std::string remote, bool ipv6);
+    // Callback to "protect" a socket from being routed through the tunnel.
+    // Will be called from the thread executing connect().
+    // The remote and ipv6 are the remote host this socket will connect to
+    virtual bool socket_protect(openvpn_io::detail::socket_type socket, std::string remote, bool ipv6);
 
       // Primary VPN client connect method, doesn't return until disconnect.
       // Should be called by a worker thread.  This method will make callbacks

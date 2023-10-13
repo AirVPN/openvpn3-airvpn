@@ -732,7 +732,7 @@ class NoisyWire
                     }
 #endif
                 }
-                catch (const std::exception &e)
+                catch ([[maybe_unused]] const std::exception &e)
                 {
 #ifdef VERBOSE
                     std::cout << now->raw() << " " << title << " Exception on data channel decrypt: " << e.what() << std::endl;
@@ -803,7 +803,7 @@ class NoisyWire
                 std::cout << now->raw() << " " << title << " Simulating a corrupted packet" << std::endl;
 #endif
                 const size_t pos = random.randrange(bp->size());
-                const unsigned char value = random.randrange(256);
+                const unsigned char value = random.randrange(std::numeric_limits<unsigned char>::max());
                 (*bp)[pos] = value;
             }
 #endif

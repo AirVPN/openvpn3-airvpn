@@ -413,7 +413,7 @@ inline std::string reduce_spaces(const std::string &str, const char rep)
 }
 
 // generate a string with n instances of char c
-inline std::string repeat(const char c, int n)
+inline std::string repeat(const char c, size_t n)
 {
     std::string ret;
     ret.reserve(n);
@@ -423,7 +423,7 @@ inline std::string repeat(const char c, int n)
 }
 
 // generate a string with spaces
-inline std::string spaces(int n)
+inline std::string spaces(size_t n)
 {
     return repeat(' ', n);
 }
@@ -668,6 +668,20 @@ inline std::string remove_blanks(const std::string &str)
     }
     if (!ret.empty() && !ends_with_newline(ret))
         ret += '\n';
+    return ret;
+}
+
+// copy str to the return value, removing all instances of
+// chars that match remove
+inline std::string remove_char(const std::string &str, const char remove)
+{
+    std::string ret;
+    ret.reserve(str.length());
+    for (const auto c : str)
+    {
+        if (c != remove)
+            ret.push_back(c);
+    }
     return ret;
 }
 

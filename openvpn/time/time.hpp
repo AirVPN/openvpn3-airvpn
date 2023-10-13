@@ -136,6 +136,8 @@ class TimeType
 
         Duration operator+(const int delta) const
         {
+            if (is_infinite())
+                return infinite();
             T duration = duration_;
             if (delta >= 0)
                 duration += delta;
@@ -373,12 +375,16 @@ class TimeType
         if (!defined())
             return "UNDEF-TIME";
         if (is_infinite())
-            return "INF";
+            return "+INF";
         const double df = delta_float(t);
         std::string ret;
         if (df >= 0.0)
             ret += '+';
-        ret += openvpn::to_string(df);
+        const int idf = int(df);
+        if (df == static_cast<double>(idf))
+            ret += openvpn::to_string(idf);
+        else
+            ret += openvpn::to_string(df);
         return ret;
     }
 

@@ -85,7 +85,7 @@ class Client : public TransportClient, AsyncResolvableTCP
 {
     typedef RCPtr<Client> Ptr;
 
-    typedef Link<openvpn_io::ip::tcp, Client *, false> LinkImpl;
+    typedef TCPLink<openvpn_io::ip::tcp, Client *, false> LinkImpl;
 #ifdef OPENVPN_TLS_LINK
     typedef TLSLink<openvpn_io::ip::tcp, Client *, false> LinkImplTLS;
 #endif
@@ -171,7 +171,7 @@ class Client : public TransportClient, AsyncResolvableTCP
         return server_endpoint.port();
     }
 
-    int native_handle() override
+    openvpn_io::detail::socket_type native_handle() override
     {
         return socket.native_handle();
     }

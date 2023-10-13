@@ -84,10 +84,10 @@ class Client : public TransportClient, AsyncResolvableUDP
 {
     typedef RCPtr<Client> Ptr;
 
-    friend class ClientConfig;   // calls constructor
-    friend class Link<Client *>; // calls udp_read_handler
+    friend class ClientConfig;      // calls constructor
+    friend class UDPLink<Client *>; // calls udp_read_handler
 
-    typedef Link<Client *> LinkImpl;
+    typedef UDPLink<Client *> LinkImpl;
 
   public:
     void transport_start() override
@@ -171,7 +171,7 @@ class Client : public TransportClient, AsyncResolvableUDP
         return server_endpoint.port();
     }
 
-    int native_handle() override
+    openvpn_io::detail::socket_type native_handle() override
     {
         return socket.native_handle();
     }

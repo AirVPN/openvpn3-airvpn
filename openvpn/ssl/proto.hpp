@@ -1764,21 +1764,22 @@ enum
 	  }
       }
 
-      KeyContext(ProtoContext& p, const bool initiator)
-	: Base(*p.config->ssl_factory,
-                   p.config->now,
-                   p.config->tls_timeout,
-                   p.config->frame,
-                   p.stats),
-	  proto(p),
-	  state(STATE_UNDEF),
-	  crypto_flags(0),
-	  dirty(0),
-	  key_limit_renegotiation_fired(false),
-	  tlsprf(p.config->tlsprf_factory->new_obj(p.is_server()))
-      {
-	// reliable protocol?
-	set_protocol(proto.config->protocol);
+    KeyContext(ProtoContext &p, const bool initiator, bool psid_cookie_mode = false)
+        : Base(*p.config->ssl_factory,
+               p.config->now,
+               p.config->tls_timeout,
+               p.config->frame,
+               p.stats,
+               psid_cookie_mode),
+          proto(p),
+          state(STATE_UNDEF),
+          crypto_flags(0),
+          dirty(0),
+          key_limit_renegotiation_fired(false),
+          tlsprf(p.config->tlsprf_factory->new_obj(p.is_server()))
+    {
+            // reliable protocol?
+    set_protocol(proto.config->protocol);
 
 	// get key_id from parent
 	key_id_ = proto.next_key_id();
@@ -1806,16 +1807,27 @@ enum
 	return Base::get_tls_warnings();
       }
 
-      // need to call only on the initiator side of the connection
-      void start()
-      {
-	if (state == C_INITIAL || state == S_INITIAL)
-	  {
-	    send_reset();
-	    set_state(state+1);
-	    dirty = true;
-	  }
-      }
+        /**
+         * @brief Initialize the state machine and start protocol negotiation
+         *
+         * Called by ProtoContext::start()
+         *
+         * @param cookie_psid  see comment in ProtoContext::reset()
+         */
+        void start(const ProtoSessionID cookie_psid = ProtoSessionID())
+        {
+            if (cookie_psid.defined())
+            {
+                set_state(S_WAIT_RESET_ACK);
+                dirty = true;
+            }
+            if (state == C_INITIAL || state == S_INITIAL)
+            {
+                send_reset();
+                set_state(state + 1);
+                dirty = true;
+            }
+        }
 
       // control channel flush
       void flush()
@@ -2094,31 +2106,31 @@ enum
             {
 	  Buffer recv(net_buf);
 
-	  switch (proto.tls_wrap_mode)
-	  {
-	    case TLS_AUTH:
-	      return validate_tls_auth(recv, proto, now);
-	    case TLS_CRYPT_V2:
-	      if (opcode_extract(recv[0]) == CONTROL_HARD_RESET_CLIENT_V3)
-		{
-		  // skip validation of HARD_RESET_V3 because the tls-crypt
-		  // engine has not been initialized yet
-		  OPENVPN_LOG_PROTO_VERBOSE("SKIPPING VALIDATION OF HARD_RESET_V3");
-		  return true;
-		}
-	      /* no break */
-	    case TLS_CRYPT:
-	      return validate_tls_crypt(recv, proto, now);
-	    case TLS_PLAIN:
-	      return validate_tls_plain(recv, proto, now);
-	    }
-	}
-	catch (BufferException& e)
-	  {
-	    OPENVPN_LOG_PROTO_VERBOSE("validate() exception: " << e.what());
-	  }
-	return false;
-      }
+                switch (proto.tls_wrap_mode)
+                {
+                case TLS_AUTH:
+                    return validate_tls_auth(recv, proto, now);
+                case TLS_CRYPT_V2:
+                    if (opcode_extract(recv[0]) == CONTROL_HARD_RESET_CLIENT_V3)
+                    {
+                        // skip validation of HARD_RESET_V3 because the tls-crypt
+                        // engine has not been initialized yet
+                        OPENVPN_LOG_PROTO_VERBOSE("SKIPPING VALIDATION OF HARD_RESET_V3");
+                        return true;
+                    }
+                    /* no break */
+                case TLS_CRYPT:
+                    return validate_tls_crypt(recv, proto, now);
+                case TLS_PLAIN:
+                    return validate_tls_plain(recv, proto, now);
+                }
+            }
+            catch ([[maybe_unused]] BufferException &e)
+            {
+                OPENVPN_LOG_PROTO_VERBOSE("validate() exception: " << e.what());
+            }
+            return false;
+        }
 
       // Resets data_channel_key but also retains old
       // rekey_defined and rekey_type from previous instance.
@@ -2886,10 +2898,12 @@ enum
 	return true;
       }
 
-      void active()
-      {
-	if (proto.config->debug_level >= 1)
-	  OPENVPN_LOG_SSL("SSL Handshake: " << Base::ssl_handshake_details());
+        void active()
+        {
+            if (proto.config->debug_level >= 1)
+            {
+                OPENVPN_LOG_SSL("SSL Handshake: " << Base::ssl_handshake_details());
+            }
 
 	/* Our internal state machine only decides after push request what protocol
 	 * options we want to use. Therefore we also have to postpone data key
@@ -3492,6 +3506,34 @@ enum
     };
 
   public:
+    class PsidCookieHelper
+    {
+      public:
+        PsidCookieHelper(unsigned int op_field)
+            : op_code_(opcode_extract(op_field)), key_id_(key_id_extract(op_field))
+        {
+        }
+
+        bool is_clients_initial_reset() const
+        {
+            return key_id_ == 0 && op_code_ == CONTROL_HARD_RESET_CLIENT_V2;
+        }
+
+        bool is_clients_server_reset_ack() const
+        {
+            return key_id_ == 0 && (op_code_ == CONTROL_V1 || op_code_ == ACK_V1);
+        }
+
+        static unsigned int get_server_hard_reset_opfield()
+        {
+            return op_compose(CONTROL_HARD_RESET_SERVER_V2, 0);
+        }
+
+      private:
+        const unsigned int op_code_;
+        const unsigned int key_id_;
+    };
+
     class TLSWrapPreValidate : public RC<thread_unsafe_refcount>
     {
     public:
@@ -3764,7 +3806,18 @@ enum
       tls_crypt_metadata = c.tls_crypt_metadata_factory->new_obj();
     }
 
-    void reset()
+    /**
+     * @brief Resets ProtoContext *this to it's initial state
+     *
+     * @param cookie_psid the ProtoSessionID parameter that allows a server
+     *  implementation using the psid cookie mechanism to pass in the verified hmac
+     *  server session cookie.  In the client implementation, the parameter is
+     *  meaningless and defaults to an empty ProtoSessionID which is created at compile
+     *  time since the default ProtoSessionID ctor is constexpr.  For the default
+     *  cookie_psid, defined() returns false (vs true for the verified session cookie)
+     *  so the absence of a parameter selects the correct code path.
+     */
+    void reset(const ProtoSessionID cookie_psid = ProtoSessionID())
     {
         const ProtoConfig &c = *config;
 
@@ -3824,21 +3877,32 @@ enum
 	        ta_hmac_recv->init(c.tls_key.slice(OpenVPNStaticKey::HMAC));
 	      }
 
-	    // init tls_auth packet ID
-	    ta_pid_send.init(PacketID::LONG_FORM);
-	    ta_pid_recv.init(c.pid_mode, PacketID::LONG_FORM, "SSL-CC", 0, stats);
-	    break;
-	  case TLS_PLAIN:
-	    break;
-      }
+            /**
+             * @brief Initialize tls_auth packet ID for the send case
+             *
+             * The second argument sets the expected packet id.  If the server
+             * implementation is using the psid cookie mechanism, the state creation is
+             * deferred until the client's second packet, id 1, is received; otherwise we
+             * expect to handle the 1st packet, id 0.
+             *
+             */
+            ta_pid_send.init(PacketID::LONG_FORM, cookie_psid.defined() ? 1 : 0);
+            ta_pid_recv.init(c.pid_mode, PacketID::LONG_FORM, "SSL-CC", 0, stats);
+            break;
+        case TLS_PLAIN:
+            break;
+        }
 
-      // initialize proto session ID
-      psid_self.randomize(*c.prng);
-      psid_peer.reset();
+        // initialize proto session ID
+        if (cookie_psid.defined())
+            psid_self = cookie_psid;
+        else
+            psid_self.randomize(*c.prng);
+        psid_peer.reset();
 
-      // initialize key contexts
-      primary.reset(new KeyContext(*this, is_client()));
-      OPENVPN_LOG_PROTO_VERBOSE(debug_prefix() << " New KeyContext PRIMARY id=" << primary->key_id());
+        // initialize key contexts
+        primary.reset(new KeyContext(*this, is_client(), cookie_psid.defined()));
+        OPENVPN_LOG_PROTO_VERBOSE(debug_prefix() << " New KeyContext PRIMARY id=" << primary->key_id());
 
       // initialize keepalive timers
       keepalive_expire = Time::infinite();   // initially disabled
@@ -3892,13 +3956,20 @@ enum
       return PacketType(buf, *this);
     }
 
-    // start protocol negotiation
-    void start()
+    /**
+     * @brief Initialize the state machine and start protocol negotiation
+     *
+     * Called by both derived client and server protocol classes, this function hands
+     * off to the implementation in KeyContext::start()
+     *
+     * @param cookie_psid  see ProtoContext::reset()
+     */
+    void start(const ProtoSessionID cookie_psid = ProtoSessionID())
     {
-      if (!primary)
-	throw proto_error("start: no primary key");
-      primary->start();
-      update_last_received(); // set an upper bound on when we expect a response
+        if (!primary)
+            throw proto_error("start: no primary key");
+        primary->start(cookie_psid);
+        update_last_received(); // set an upper bound on when we expect a response
     }
 
     // trigger a protocol renegotiation
@@ -4002,7 +4073,10 @@ enum
       return select_key_context(type, true).net_recv(std::move(pkt));
     }
 
-    bool control_net_recv(const PacketType& type, BufferPtr&& net_bp)
+    // this version only appears to support test_proto.cpp; suggest creating a
+    // local BufferAllocated and move the BufferPtr contents into it; then use
+    // the version above
+    bool control_net_recv(const PacketType &type, BufferPtr &&net_bp)
     {
       Packet pkt(std::move(net_bp), type.opcode);
       if (type.is_soft_reset() && !renegotiate_request(pkt))

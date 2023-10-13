@@ -69,7 +69,7 @@ class Client : public ClientAPI::OpenVPNClient
     }
 
   private:
-    bool socket_protect(int socket, std::string remote, bool ipv6) override
+    bool socket_protect(openvpn_io::detail::socket_type socket, std::string remote, bool ipv6) override
     {
         return true;
     }
@@ -648,7 +648,7 @@ class OMI : public OMICore, public ClientAPI::LogReceiver
             if (thread)
                 thread->join(); // may throw if thread has already exited
         }
-        catch (const std::exception &e)
+        catch (const std::exception &)
         {
         }
     }

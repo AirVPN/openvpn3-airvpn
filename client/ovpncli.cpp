@@ -276,10 +276,10 @@ namespace openvpn {
         rg_local = rg_local_arg;
       }
 
-      bool socket_protect(int socket, IP::Addr endpoint) override
-      {
-	if (parent)
-	  {
+    bool socket_protect(openvpn_io::detail::socket_type socket, IP::Addr endpoint) override
+    {
+        if (parent)
+        {
 #if defined(OPENVPN_COMMAND_AGENT) && defined(OPENVPN_PLATFORM_WIN)
 	    return rg_local ? true : WinCommandAgent::add_bypass_route(endpoint);
 #elif defined(OPENVPN_COMMAND_AGENT) && defined(OPENVPN_PLATFORM_MAC)
@@ -910,12 +910,12 @@ namespace openvpn {
       return ret;
     }
 
-    OPENVPN_CLIENT_EXPORT bool OpenVPNClient::socket_protect(int socket, std::string remote, bool ipv6)
+    OPENVPN_CLIENT_EXPORT bool OpenVPNClient::socket_protect(openvpn_io::detail::socket_type socket, std::string remote, bool ipv6)
     {
-      return true;
+        return true;
     }
 
-    OPENVPN_CLIENT_EXPORT bool OpenVPNClientHelper::parse_dynamic_challenge(const std::string& cookie, DynamicChallenge& dc)
+    OPENVPN_CLIENT_EXPORT bool OpenVPNClientHelper::parse_dynamic_challenge(const std::string &cookie, DynamicChallenge &dc)
     {
     try
     {

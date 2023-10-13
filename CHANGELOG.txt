@@ -11,7 +11,7 @@ Changelog 3.9 AirVPN - Release date: 20 September 2023 by ProMIND
 - [ProMIND] [2023/06/14] openvpn/client/cliopthelper.hpp: ParseClientConfig() call parse_extra()
 - [ProMIND] [2023/07/04] openvpn/client/cliconnect.hpp: client_proto_terminate() case Error::COMPRESS_ERROR commented out for back compatibility
 - [ProMIND] [2023/07/04] openvpn/client/cliproto.hpp: check_proto_warnings() if (comp_type != CompressContext::COMP_STUBv2... commented out for back compatibility
-- [ProMIND] [2023/07/04] openvpn/client/cliopt.hpp: check_for_incompatible_options() "mode" directive restored as optional. Also fixed the subsequent if statement because of the incongruence of the condition, not to mention, impossible
+- [ProMIND] [2023/09/20] openvpn/client/cliopt.hpp: check_for_incompatible_options() "mode" directive restored as optional. Also fixed the subsequent if statement because of the incongruence of the condition, not to mention, impossible
 
 
 

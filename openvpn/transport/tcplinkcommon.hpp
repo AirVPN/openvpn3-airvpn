@@ -50,6 +50,7 @@ class LinkCommon : public LinkBase
   public:
     typedef RCPtr<LinkCommon<Protocol, ReadHandler, RAW_MODE_ONLY>> Ptr;
     typedef Protocol protocol;
+    typedef PacketStream<std::uint16_t> OpenVPNPacketStream;
 
     // In raw mode, data is sent and received without any special encapsulation.
     // In non-raw mode, data is packetized by prepending a 16-bit length word
@@ -158,7 +159,7 @@ class LinkCommon : public LinkBase
         buf->swap(b);
         if (!is_raw_mode_write())
         {
-            PacketStream::prepend_size(*buf);
+            OpenVPNPacketStream::prepend_size(*buf);
         }
         if (mutate)
         {
@@ -344,7 +345,7 @@ class LinkCommon : public LinkBase
                 if (!buf.allocated() && pkt.allocated()) // recycle pkt allocated buffer
                     buf.move(pkt);
             }
-            catch (const std::exception &e)
+            catch ([[maybe_unused]] const std::exception &e)
             {
                 OPENVPN_LOG_TCPLINK_ERROR("TLS-TCP packet extract error: " << e.what());
                 stats->error(Error::TCP_SIZE_ERROR);
@@ -375,7 +376,7 @@ class LinkCommon : public LinkBase
 
     void handle_recv(PacketFrom::SPtr pfp, const openvpn_io::error_code &error, const size_t bytes_recvd)
     {
-        OPENVPN_LOG_TCPLINK_VERBOSE("Link::handle_recv: " << error.message());
+        OPENVPN_LOG_TCPLINK_VERBOSE("TCPLink::handle_recv: " << error.message());
         if (!halt)
         {
             if (!error)
@@ -459,7 +460,7 @@ class LinkCommon : public LinkBase
     const size_t free_list_max_size;
     Queue queue;     // send queue
     Queue free_list; // recycled free buffers for send queue
-    PacketStream pktstream;
+    OpenVPNPacketStream pktstream;
     TransportMutateStream::Ptr mutate;
     bool raw_mode_read;
     bool raw_mode_write;
