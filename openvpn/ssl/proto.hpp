@@ -3524,7 +3524,7 @@ enum
             return key_id_ == 0 && (op_code_ == CONTROL_V1 || op_code_ == ACK_V1);
         }
 
-        static unsigned int get_server_hard_reset_opfield()
+        static unsigned char get_server_hard_reset_opfield()
         {
             return op_compose(CONTROL_HARD_RESET_SERVER_V2, 0);
         }

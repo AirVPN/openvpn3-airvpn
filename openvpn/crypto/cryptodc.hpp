@@ -135,8 +135,7 @@ namespace openvpn {
 
   protected:
     CryptoAlgs::KeyDerivation key_derivation = CryptoAlgs::KeyDerivation::OPENVPN_PRF;
-    ;
-  };
+};
 
   // Factory for CryptoDCContext objects
   class CryptoDCFactory : public RC<thread_unsafe_refcount>

@@ -1,16 +1,16 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.13...3.28)
 
 set(CMAKE_CXX_STANDARD 17)
-
-#cmake_policy(SET CMP0079 NEW)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CORE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
-
 
 set(DEP_DIR ${CORE_DIR}/../deps CACHE PATH "Dependencies")
 option(USE_MBEDTLS "Use mbed TLS instead of OpenSSL")
 
 option(USE_WERROR "Treat compiler warnings as errors (-Werror)")
+option(USE_WCONVERSION "Enable -Wconversion")
 
 if (DEFINED ENV{DEP_DIR})
     message("Overriding DEP_DIR setting with environment variable $ENV{DEP_DIR}")
@@ -128,9 +128,16 @@ function(add_core_dependencies target)
         target_compile_options(${target} PRIVATE /W3 /wd4200 /wd4146)
     else()
         target_compile_options(${target} PRIVATE -Wall -Wsign-compare)
+        if (USE_WCONVERSION)
+            target_compile_options(${target} PRIVATE -Wconversion -Wno-sign-conversion)
+        endif()
         if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
             # disable noisy warnings
             target_compile_options(${target} PRIVATE -Wno-maybe-uninitialized)
+        endif()
+        if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+            # display all warnings
+            target_compile_options(${target} PRIVATE -ferror-limit=0 -Wno-enum-enum-conversion)
         endif()
     endif()
 

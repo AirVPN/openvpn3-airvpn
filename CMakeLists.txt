@@ -1,5 +1,4 @@
-cmake_minimum_required(VERSION 3.12)
-cmake_policy(SET CMP0048 NEW)
+cmake_minimum_required(VERSION 3.13...3.28)
 
 project(OpenVPN3-core VERSION 3)
 
@@ -22,6 +21,8 @@ set(CMAKE_LINKER_FLAGS_ASAN
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake
                       ${CMAKE_MODULE_PATH})
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD 99)
 
 include(CTest)
