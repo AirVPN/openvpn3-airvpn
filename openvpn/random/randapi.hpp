@@ -42,9 +42,6 @@ class RandomAPI : public RC<thread_unsafe_refcount>
     // Random algorithm name
     virtual std::string name() const = 0;
 
-    // Return true if algorithm is crypto-strength
-    virtual bool is_crypto() const = 0;
-
     // Fill buffer with random bytes
     virtual void rand_bytes(unsigned char *buf, size_t size) = 0;
 
@@ -136,15 +133,6 @@ class RandomAPI : public RC<thread_unsafe_refcount>
         return bool(randbyte() & 1);
     }
 
-    // Throw an exception if algorithm is not crypto-strength.
-    // Be sure to always call this method before using an rng
-    // for crypto purposes.
-    void assert_crypto() const
-    {
-        if (!is_crypto())
-            throw Exception("RandomAPI: " + name() + " algorithm is not crypto-strength");
-    }
-
     // UniformRandomBitGenerator for std::shuffle
     typedef unsigned int result_type;
     static constexpr result_type min()
@@ -159,6 +147,23 @@ class RandomAPI : public RC<thread_unsafe_refcount>
     {
         return rand_get<result_type>();
     }
+
+  private:
+    friend class StrongRandomAPI;
+    friend class WeakRandomAPI;
+    RandomAPI() = default;
+};
+
+class StrongRandomAPI : public RandomAPI
+{
+  public:
+    typedef RCPtr<StrongRandomAPI> Ptr;
+};
+
+class WeakRandomAPI : public RandomAPI
+{
+  public:
+    typedef RCPtr<WeakRandomAPI> Ptr;
 };
 
 } // namespace openvpn

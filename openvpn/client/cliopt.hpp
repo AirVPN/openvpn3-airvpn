@@ -41,6 +41,7 @@
 #include <openvpn/frame/frame_init.hpp>
 #include <openvpn/pki/epkibase.hpp>
 #include <openvpn/crypto/cryptodcsel.hpp>
+#include <openvpn/random/mtrandapi.hpp>
 #include <openvpn/ssl/mssparms.hpp>
 #include <openvpn/tun/tunmtu.hpp>
 #include <openvpn/tun/tristate_setting.hpp>
@@ -248,8 +249,8 @@ class ClientOptions : public RC<thread_unsafe_refcount>
       DigestFactory::Ptr digest_factory(new CryptoDigestFactory<SSLLib::CryptoAPI>());
 
       // initialize RNG/PRNG
-      rng.reset(new SSLLib::RandomAPI(false));
-      prng.reset(new SSLLib::RandomAPI(true));
+      rng.reset(new SSLLib::RandomAPI());
+      prng.reset(new MTRand(time(nullptr)));
 
       // frame
       // get tun-mtu and tun-mtu-max parameter from config
@@ -1276,25 +1277,25 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         cc->set_tls_cipher_list(config.clientconf.tlsCipherList);
         cc->set_tls_ciphersuite_list(config.clientconf.tlsCiphersuitesList);
 
-      // client ProtoContext config
-      Client::ProtoConfig::Ptr cp(new Client::ProtoConfig());
-	  cp->ssl_factory = cc->new_factory();
-	  cp->relay_mode = relay_mode;
-      cp->dc.set_factory(new CryptoDCSelect<SSLLib::CryptoAPI>(cp->ssl_factory->libctx(), frame, cli_stats, prng));
-      cp->dc_deferred = true; // defer data channel setup until after options pull
-      cp->tls_auth_factory.reset(new CryptoOvpnHMACFactory<SSLLib::CryptoAPI>());
-      cp->tls_crypt_factory.reset(new CryptoTLSCryptFactory<SSLLib::CryptoAPI>());
-      cp->tls_crypt_metadata_factory.reset(new CryptoTLSCryptMetadataFactory());
-      cp->tlsprf_factory.reset(new CryptoTLSPRFFactory<SSLLib::CryptoAPI>());
-      cp->load(opt, *proto_context_options, config.default_key_direction, false);
-      cp->set_xmit_creds(!autologin || pcc.hasEmbeddedPassword() || autologin_sessions);
-      cp->extra_peer_info = build_peer_info(config, pcc, autologin_sessions);
-      cp->frame = frame;
-      cp->now = &now_;
-      cp->rng = rng;
-      cp->prng = prng;
+        // client ProtoContext config
+        Client::ProtoConfig::Ptr cp(new Client::ProtoConfig());
+        cp->ssl_factory = cc->new_factory();
+        cp->relay_mode = relay_mode;
+        cp->dc.set_factory(new CryptoDCSelect<SSLLib::CryptoAPI>(cp->ssl_factory->libctx(), frame, cli_stats, rng));
+        cp->dc_deferred = true; // defer data channel setup until after options pull
+        cp->tls_auth_factory.reset(new CryptoOvpnHMACFactory<SSLLib::CryptoAPI>());
+        cp->tls_crypt_factory.reset(new CryptoTLSCryptFactory<SSLLib::CryptoAPI>());
+        cp->tls_crypt_metadata_factory.reset(new CryptoTLSCryptMetadataFactory());
+        cp->tlsprf_factory.reset(new CryptoTLSPRFFactory<SSLLib::CryptoAPI>());
+        cp->load(opt, *proto_context_options, config.default_key_direction, false);
+        cp->set_xmit_creds(!autologin || pcc.hasEmbeddedPassword() || autologin_sessions);
+        cp->extra_peer_info = build_peer_info(config, pcc, autologin_sessions);
+        cp->frame = frame;
+        cp->now = &now_;
+        cp->rng = rng;
+        cp->prng = prng;
 
-      return cp;
+        return cp;
     }
 
     std::string load_transport_config()
@@ -1413,7 +1414,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
     ClientConfigParsed clientconf;
 
     Time now_; // current time
-    RandomAPI::Ptr rng;
+    StrongRandomAPI::Ptr rng;
     RandomAPI::Ptr prng;
     Frame::Ptr frame;
     Layer layer;

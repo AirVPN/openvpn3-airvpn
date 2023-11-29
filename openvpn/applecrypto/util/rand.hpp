@@ -31,26 +31,18 @@
 #include <openvpn/random/randapi.hpp>
 
 namespace openvpn {
-class AppleRandom : public RandomAPI
+class AppleRandom : public StrongRandomAPI
 {
   public:
     OPENVPN_EXCEPTION(rand_error_apple);
 
     typedef RCPtr<AppleRandom> Ptr;
 
-    AppleRandom(const bool prng)
-    {
-    }
+    AppleRandom() = default;
 
     virtual std::string name() const
     {
         return "AppleRandom";
-    }
-
-    // Return true if algorithm is crypto-strength
-    virtual bool is_crypto() const
-    {
-        return true;
     }
 
     // Fill buffer with random bytes

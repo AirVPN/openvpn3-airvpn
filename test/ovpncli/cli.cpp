@@ -657,8 +657,7 @@ class Client : public ClientBase
         Client *self = (Client *)arg;
         if (!self->rng)
         {
-            self->rng.reset(new SSLLib::RandomAPI(false));
-            self->rng->assert_crypto();
+            self->rng.reset(new SSLLib::RandomAPI());
         }
         return self->rng->rand_bytes_noexcept(data, len) ? 0 : -1; // using -1 as a general-purpose mbed TLS error code
     }
@@ -708,7 +707,7 @@ class Client : public ClientBase
 
     std::mutex log_mutex;
     std::string dc_cookie;
-    RandomAPI::Ptr rng; // random data source for epki
+    StrongRandomAPI::Ptr rng; // random data source for epki
     volatile ClockTickAction clock_tick_action = CT_UNDEF;
 
 #ifdef OPENVPN_REMOTE_OVERRIDE

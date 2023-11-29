@@ -35,14 +35,14 @@
 
 namespace openvpn {
 
-class MbedTLSRandom : public RandomAPI
+class MbedTLSRandom : public StrongRandomAPI
 {
   public:
     OPENVPN_EXCEPTION(rand_error_mbedtls);
 
     typedef RCPtr<MbedTLSRandom> Ptr;
 
-    MbedTLSRandom(const bool prng, RandomAPI::Ptr entropy_source)
+    MbedTLSRandom(StrongRandomAPI::Ptr entropy_source)
         : entropy(std::move(entropy_source))
     {
         // Init RNG context
@@ -52,15 +52,10 @@ class MbedTLSRandom : public RandomAPI
         const int errnum = mbedtls_ctr_drbg_seed(&ctx, entropy_poll, entropy.get(), nullptr, 0);
         if (errnum < 0)
             throw MbedTLSException("mbedtls_ctr_drbg_seed", errnum);
-
-        // If prng is set, configure for higher performance
-        // by reseeding less frequently.
-        if (prng)
-            mbedtls_ctr_drbg_set_reseed_interval(&ctx, 1000000);
     }
 
-    MbedTLSRandom(const bool prng)
-        : MbedTLSRandom(prng, RandomAPI::Ptr())
+    MbedTLSRandom()
+        : MbedTLSRandom(StrongRandomAPI::Ptr())
     {
     }
 
@@ -78,12 +73,6 @@ class MbedTLSRandom : public RandomAPI
             return n + '+' + entropy->name();
         else
             return n;
-    }
-
-    // Return true if algorithm is crypto-strength
-    virtual bool is_crypto() const
-    {
-        return true;
     }
 
     // Fill buffer with random bytes

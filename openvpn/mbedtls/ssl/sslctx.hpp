@@ -564,17 +564,17 @@ namespace openvpn {
 	// parse verify-x509-name
 	verify_x509_name.init(opt, relay_prefix);
 
-            // parse tls-version-min option
-            {
+    // parse tls-version-min option
+    {
 #if defined(MBEDTLS_SSL_MAJOR_VERSION_3) && defined(MBEDTLS_SSL_MINOR_VERSION_3)
-                const TLSVersion::Type maxver = TLSVersion::Type::V1_2;
+        const TLSVersion::Type maxver = TLSVersion::Type::V1_2;
 #elif defined(MBEDTLS_SSL_MAJOR_VERSION_3) && defined(MBEDTLS_SSL_MINOR_VERSION_2)
-                const TLSVersion::Type maxver = TLSVersion::Type::V1_1;
+        const TLSVersion::Type maxver = TLSVersion::Type::V1_1;
 #else
-                const TLSVersion::Type maxver = TLSVersion::Type::V1_0;
+        const TLSVersion::Type maxver = TLSVersion::Type::V1_0;
 #endif
-                tls_version_min = TLSVersion::parse_tls_version_min(opt, relay_prefix, maxver);
-            }
+        tls_version_min = TLSVersion::parse_tls_version_min(opt, relay_prefix, maxver);
+    }
 
 	// parse tls-cert-profile
 	tls_cert_profile = TLSCertProfile::parse_tls_cert_profile(opt, relay_prefix);
@@ -589,7 +589,7 @@ namespace openvpn {
 	// unsupported cert verification options
 	{
 	}
-      }
+    }
 
 #ifdef OPENVPN_JSON_INTERNAL
       virtual SSLConfigAPI::Ptr json_override(const Json::Value& root, const bool load_cert_key) const
@@ -629,27 +629,27 @@ namespace openvpn {
       MbedTLSPKI::X509Cert::Ptr crt_chain;  // local cert chain (including client cert + extra certs)
       MbedTLSPKI::X509Cert::Ptr ca_chain;   // CA chain for remote verification
 
-    private:
-      MbedTLSPKI::X509CRL::Ptr crl_chain;   // CRL chain for remote verification
-      MbedTLSPKI::PKContext::Ptr priv_key;  // private key
-      std::string priv_key_pwd;              // private key password
-      MbedTLSPKI::DH::Ptr dh;               // diffie-hellman parameters (only needed in server mode)
-      ExternalPKIBase* external_pki;
-      Frame::Ptr frame;
-      int ssl_debug_level;
-      unsigned int flags;           // defined in sslconsts.hpp
-      NSCert::Type ns_cert_type;
-      std::vector<unsigned int> ku; // if defined, peer cert X509 key usage must match one of these values
-      std::string eku;              // if defined, peer cert X509 extended key usage must match this OID/string
-      std::string tls_remote;
-      VerifyX509Name verify_x509_name;  // --verify-x509-name feature
-      TLSVersion::Type tls_version_min; // minimum TLS version that we will negotiate
-      TLSCertProfile::Type tls_cert_profile;
-      std::string tls_cipher_list;
-      std::string tls_groups;
-      X509Track::ConfigSet x509_track_config;
-      bool local_cert_enabled;
-      RandomAPI::Ptr rng;   // random data source
+      private:
+        MbedTLSPKI::X509CRL::Ptr crl_chain;  // CRL chain for remote verification
+        MbedTLSPKI::PKContext::Ptr priv_key; // private key
+        std::string priv_key_pwd;            // private key password
+        MbedTLSPKI::DH::Ptr dh;              // diffie-hellman parameters (only needed in server mode)
+        ExternalPKIBase *external_pki;
+        Frame::Ptr frame;
+        int ssl_debug_level;
+        unsigned int flags; // defined in sslconsts.hpp
+        NSCert::Type ns_cert_type;
+        std::vector<unsigned int> ku; // if defined, peer cert X509 key usage must match one of these values
+        std::string eku;              // if defined, peer cert X509 extended key usage must match this OID/string
+        std::string tls_remote;
+        VerifyX509Name verify_x509_name;  // --verify-x509-name feature
+        TLSVersion::Type tls_version_min; // minimum TLS version that we will negotiate
+        TLSCertProfile::Type tls_cert_profile;
+        std::string tls_cipher_list;
+        std::string tls_groups;
+        X509Track::ConfigSet x509_track_config;
+        bool local_cert_enabled;
+        StrongRandomAPI::Ptr rng; // random data source
     };
 
     // Represents an actual SSL session.

@@ -307,7 +307,7 @@ enum
       // Random number generator.
       // Use-cases demand highest cryptographic strength
       // such as key generation.
-      RandomAPI::Ptr rng;
+      StrongRandomAPI::Ptr rng;
 
       // Pseudo-random number generator.
       // Use-cases demand cryptographic strength
@@ -3897,7 +3897,7 @@ enum
         if (cookie_psid.defined())
             psid_self = cookie_psid;
         else
-            psid_self.randomize(*c.prng);
+            psid_self.randomize(*c.rng);
         psid_peer.reset();
 
         // initialize key contexts
