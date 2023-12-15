@@ -1,4 +1,4 @@
-Changelog 3.9 AirVPN - Release date: 20 September 2023 by ProMIND
+Changelog 3.9 AirVPN - Release date: 15 December 2023 by ProMIND
 
 - [ProMIND] [2023/06/12] openvpn/client/cliopt.hpp: ping, ping-exit and ping-restart moved from vector settings_pushonlyoptions to settings_ignoreWithWarning
 - [ProMIND] [2023/06/14] client/ovpncli.hpp: added struct RouteEntry
@@ -12,7 +12,8 @@ Changelog 3.9 AirVPN - Release date: 20 September 2023 by ProMIND
 - [ProMIND] [2023/07/04] openvpn/client/cliconnect.hpp: client_proto_terminate() case Error::COMPRESS_ERROR commented out for back compatibility
 - [ProMIND] [2023/07/04] openvpn/client/cliproto.hpp: check_proto_warnings() if (comp_type != CompressContext::COMP_STUBv2... commented out for back compatibility
 - [ProMIND] [2023/09/20] openvpn/client/cliopt.hpp: check_for_incompatible_options() "mode" directive restored as optional. Also fixed the subsequent if statement because of the incongruence of the condition, not to mention, impossible
-
+- [ProMIND] [2023/12/14] openvpn/client/remotelist.hpp: handle_proto_override() now correctly overrides the protocol for all remote servers. This is an explicit change to the current and new behaviour of set_proto_override() inherited from master which simply "filters" the remote servers according to "proto_override" and discards all the rest. I wonder why "override" now means "filter" for master's developers. This is an incredible change in specifications and surprisingly introduced by the "high development and coding standards" used in the master project and explicitly breaking compatibility. "Kudos" to the maintainers for such a milestone masterpiece introduced by their well-known "high standard guidelines" in project management.
+- [ProMIND] [2023/12/15] openvpn/client/cliopt.hpp: restored cipher_override management in ClientOptions constructor
 
 
 *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*

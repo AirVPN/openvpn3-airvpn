@@ -593,7 +593,7 @@ namespace openvpn {
             item->transport_protocol = proto_override;
             item->res_addr_list.reset();
         }
-      
+
         reset_cache();
     }
 
@@ -636,8 +636,20 @@ namespace openvpn {
 	  else
 	    throw option_error("cannot connect via TCP-based proxy because no TCP server entries exist in profile");
 	}
-      else if (proto_override.defined() && contains_protocol(proto_override))
-	set_proto_override(proto_override);
+      else if(proto_override.defined()) // && contains_protocol(proto_override)) ProMIND
+      {
+	    // set_proto_override(proto_override); ProMIND
+
+        // ProMIND
+        // Override protocol to all remote items
+
+        for(size_t i = 0; i < list.size(); i++)
+        {
+            RemoteList::Item::Ptr item = list.at(i);
+
+            item->transport_protocol = proto_override;
+        }
+      }
     }
 
     // increment to next IP address or remote list entry

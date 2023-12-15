@@ -445,7 +445,7 @@ namespace openvpn {
 	std::unique_ptr<MyClockTick> clock_tick;
 
 	// extra settings submitted by API client
-        CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
+    CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
 	unsigned int tcp_queue_limit = 64;
 	bool ncp_disable = false;
 

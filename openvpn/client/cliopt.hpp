@@ -159,8 +159,6 @@ class ClientOptions : public RC<thread_unsafe_refcount>
 
     struct Config
     {
-        CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
-
         /* Options set by the client application.
          * This class only uses a subset. For simplicity
          * we keep all client settings here instead of creating a new
@@ -210,6 +208,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
 #if defined(OPENVPN_EXTERNAL_TRANSPORT_FACTORY)
       ExternalTransport::Factory* extern_transport_factory = nullptr;
 #endif
+        CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
     };
 
     ClientOptions(const OptionList &opt, // only needs to remain in scope for duration of constructor call
@@ -239,6 +238,8 @@ class ClientOptions : public RC<thread_unsafe_refcount>
 
       // parse general client options
       const ParseClientConfig pcc(opt);
+
+      cipher_override = config.cipher_override;
 
       // creds
       userlocked_username = pcc.userlockedUsername();
