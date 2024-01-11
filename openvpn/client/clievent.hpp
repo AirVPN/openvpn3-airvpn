@@ -42,20 +42,21 @@ namespace openvpn {
   namespace ClientEvent {
 enum Type
 {
-      // normal events including disconnected, connected, and other transitional events
-      DISCONNECTED=0,
-      CONNECTED,
-      RECONNECTING,
-      AUTH_PENDING,
-      RESOLVE,
-      WAIT,
-      WAIT_PROXY,
-      CONNECTING,
-      GET_CONFIG,
-      ASSIGN_IP,
-      ADD_ROUTES,
-      ECHO_OPT,
-      INFO,
+    // normal events including disconnected, connected, and other transitional events
+    DISCONNECTED = 0,
+    CONNECTED,
+    RECONNECTING,
+    AUTH_PENDING,
+    RESOLVE,
+    WAIT,
+    WAIT_PROXY,
+    CONNECTING,
+    GET_CONFIG,
+    ASSIGN_IP,
+    ADD_ROUTES,
+    ECHO_OPT,
+    INFO,
+    CUSTOM_CONTROL,
 #ifdef HAVE_JSON
       INFO_JSON,
 #endif
@@ -117,6 +118,7 @@ inline const char *event_name(const Type type)
         "ADD_ROUTES",
         "ECHO",
         "INFO",
+        "CUSTOM_CONTROL",
 #ifdef HAVE_JSON
         "INFO_JSON",
 #endif
@@ -613,9 +615,22 @@ struct ProxyNeedCreds : public ReasonBase
     }
     };
 
-    struct AuthPending : public ReasonBase
+/**
+ * Message to signal a custom app control message from the peer
+ */
+struct AppCustomControlMessage : public Base
+{
+    AppCustomControlMessage(std::string protocol, std::string message)
+        : Base(CUSTOM_CONTROL), protocol(std::move(protocol)), custommessage(std::move(message))
     {
-      int timeout;
+    }
+    std::string protocol;
+    std::string custommessage;
+};
+
+struct AuthPending : public ReasonBase
+{
+    int timeout;
     AuthPending(int timeout, std::string value)
         : ReasonBase(AUTH_PENDING, std::move(value)), timeout(timeout)
     {

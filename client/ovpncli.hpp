@@ -216,17 +216,22 @@ struct ConfigCommon
     // Passed to server as IV_GUI_VER.
     std::string guiVersion;
 
-      // Set to a comma seperated list of supported SSO mechanisms that may
-      // be signalled via INFO_PRE to the client.
-      // "openurl"   deprecated version of webauth
-      // "webauth" to continue authentication by opening an url in a browser
-      // "crtext" gives a challenge response in text format that needs to
-      // responded via control channel. (
-      // Passed to the server as IV_SSO
-      std::string ssoMethods;
+    // Set to a comma separated list of supported SSO mechanisms that may
+    // be signalled via INFO_PRE to the client.
+    // "openurl"   deprecated version of webauth
+    // "webauth" to continue authentication by opening an url in a browser
+    // "crtext" gives a challenge response in text format that needs to
+    // responded via control channel. (
+    // Passed to the server as IV_SSO
+    std::string ssoMethods;
 
-      // Override the string that is passed as IV_HWADDR to the server
-      std::string hwAddrOverride;
+    // Set to a comma separated list of supported custom app control channel
+    // protocols. The semantics of these protocols are determined by the
+    // app/server and not by the OpenVPN protocol.
+    std::string appCustomProtocols;
+
+    // Override the string that is passed as IV_HWADDR to the server
+    std::string hwAddrOverride;
 
       // Set the string that is passed to the server as IV_PLAT_VER
       std::string platformVersion;
@@ -426,6 +431,19 @@ struct Event
     bool fatal = false;    // true if fatal error (will disconnect)
     std::string name;      // event name
     std::string info;      // additional event info
+};
+
+/**
+ * Used to signal messages from the peer.
+ *
+ * There is a special event that uses internal:supported_protocols as
+ * protocol and a : separated list as the list of protocols the server
+ * pushed to us as supported protocols.
+ */
+struct AppCustomControlMessageEvent
+{
+    std::string protocol;
+    std::string payload;
 };
 
 // used to communicate extra details about successful connection
@@ -720,13 +738,21 @@ class OpenVPNClientHelper
       // post control channel message
       void post_cc_msg(const std::string& msg);
 
-      // Callback for delivering events during connect() call.
-      // Will be called from the thread executing connect().
-      virtual void event(const Event&) = 0;
+    // send custom app control channel message
+    void send_app_control_channel_msg(const std::string &protocol, const std::string &msg);
 
-      // Callback for logging.
-      // Will be called from the thread executing connect().
-      virtual void log(const LogInfo&) override = 0;
+    // Callback for delivering events during connect() call.
+    // Will be called from the thread executing connect().
+    // Will also deliver custom message from the server like AUTH_PENDING AUTH
+    // events and custom control message events
+    virtual void event(const Event &) = 0;
+
+    // Call for delivering event from app custom control channel
+    virtual void acc_event(const AppCustomControlMessageEvent &) = 0;
+
+    // Callback for logging.
+    // Will be called from the thread executing connect().
+    virtual void log(const LogInfo &) override = 0;
 
       // External PKI callbacks
       // Will be called from the thread executing connect().

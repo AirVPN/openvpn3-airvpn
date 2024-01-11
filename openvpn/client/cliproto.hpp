@@ -247,23 +247,36 @@ class Session : ProtoContext,
 	set_housekeeping_timer();
       }
 
-      void stop(const bool call_terminate_callback)
-      {
-	if (!halt)
-	  {
-	    halt = true;
-	    housekeeping_timer.cancel();
-	    push_request_timer.cancel();
-	    inactive_timer.cancel();
-	    info_hold_timer.cancel();
-	    if (notify_callback && call_terminate_callback)
-	      notify_callback->client_proto_terminate();
-	    if (tun)
-	      tun->stop(); // call after client_proto_terminate() so it can call back to tun_set_disconnect
-	    if (transport)
-	      transport->stop();
-	  }
-      }
+    void post_app_control_message(const std::string proto, const std::string message)
+    {
+        if (!conf().app_control_config.supports_protocol(proto))
+        {
+            ClientEvent::Base::Ptr ev = new ClientEvent::UnsupportedFeature{"missing acc protocol support", "server has not announced support of this custom app control protocol", false};
+            cli_events->add_event(std::move(ev));
+            return;
+        }
+
+        for (auto fragment : conf().app_control_config.format_message(proto, message))
+            post_cc_msg(std::move(fragment));
+    }
+
+    void stop(const bool call_terminate_callback)
+    {
+        if (!halt)
+        {
+            halt = true;
+            housekeeping_timer.cancel();
+            push_request_timer.cancel();
+            inactive_timer.cancel();
+            info_hold_timer.cancel();
+            if (notify_callback && call_terminate_callback)
+                notify_callback->client_proto_terminate();
+            if (tun)
+                tun->stop(); // call after client_proto_terminate() so it can call back to tun_set_disconnect
+            if (transport)
+                transport->stop();
+        }
+    }
 
       void stop_on_signal(const openvpn_io::error_code& error, int signal_number)
       {
@@ -761,7 +774,7 @@ class Session : ProtoContext,
                 notify_callback->client_proto_auth_pending_timeout(timeout);
             }
 
-            ClientEvent::Base::Ptr ev = new ClientEvent::AuthPending(timeout, key_words);
+            ClientEvent::Base::Ptr ev = new ClientEvent::AuthPending(timeout, std::move(key_words));
             cli_events->add_event(std::move(ev));
         }
     }
@@ -843,6 +856,29 @@ class Session : ProtoContext,
         {
             recv_relay();
         }
+        else if (string::starts_with(msg, "ACC,"))
+        {
+            recv_custom_control_message(msg);
+        }
+    }
+    void recv_custom_control_message(const std::string msg)
+    {
+
+        bool fullmessage = conf().app_control_recv.receive_message(msg);
+        if (!fullmessage)
+            return;
+
+        auto [proto, app_proto_msg] = conf().app_control_recv.get_message();
+
+        if (conf().app_control_config.supports_protocol(proto))
+        {
+            auto ev = new ClientEvent::AppCustomControlMessage(std::move(proto), std::move(app_proto_msg));
+            cli_events->add_event(std::move(ev));
+        }
+        else
+        {
+            OPENVPN_LOG("App custom control message with unsupported protocol received");
+        }
     }
 
     void recv_push_reply(const std::string &msg)
@@ -921,6 +957,14 @@ class Session : ProtoContext,
 
 		// send the Connected event
 		cli_events->add_event(connected_);
+
+                // send an event for custom app control if present
+                if (!conf().app_control_config.supported_protocols.empty())
+                {
+                    // Signal support for supported protocols
+                    auto ev = new ClientEvent::AppCustomControlMessage("internal:supported_protocols", string::join(conf().app_control_config.supported_protocols, ":"));
+                    cli_events->add_event(std::move(ev));
+                }
 
                 // check for proto options
                 check_proto_warnings();
@@ -1386,22 +1430,22 @@ class Session : ProtoContext,
       {
         try
         {
-	  if (!e && !halt)
-	    {
-	      Base::update_now();
-	      if (info_hold)
-		{
-		  for (auto &ev : *info_hold)
-		    cli_events->add_event(std::move(ev));
-		  info_hold.reset();
-		}
-	    }
-	}
-	catch (const std::exception& e)
-	  {
-	    process_exception(e, "info_hold_callback");
-	  }
-      }
+            if (!e && !halt)
+            {
+                Base::update_now();
+                if (info_hold)
+                {
+                    for (auto &ev : *info_hold)
+                        cli_events->add_event(std::move(ev));
+                    info_hold.reset();
+                }
+            }
+        }
+        catch (const std::exception &exc)
+        {
+            process_exception(exc, "info_hold_callback");
+        }
+    }
 
 #ifdef OPENVPN_PACKET_LOG
       void log_packet(const Buffer& buf, const bool out)

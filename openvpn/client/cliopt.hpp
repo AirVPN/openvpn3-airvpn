@@ -626,7 +626,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
 #if defined(ENABLE_KOVPN)
         // only care about dco/dco-win
         return std::make_tuple(true, "");
-#endif
+#else
 
         std::vector<std::string> reasons;
 
@@ -661,6 +661,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         {
             return std::make_tuple(false, string::join(reasons, "\n"));
         }
+#endif
     }
 
     void check_for_incompatible_options(const OptionList &opt)
@@ -1062,6 +1063,9 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         // Supported SSO methods
         if (!config.clientconf.ssoMethods.empty())
             pi->emplace_back("IV_SSO", config.clientconf.ssoMethods);
+
+        if (!config.clientconf.appCustomProtocols.empty())
+            pi->emplace_back("IV_ACC", "2048,6:A," + config.clientconf.appCustomProtocols);
 
         // MAC address
         if (pcc.pushPeerInfo())

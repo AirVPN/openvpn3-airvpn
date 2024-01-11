@@ -100,6 +100,7 @@
 #include <openvpn/options/merge.hpp>
 #include <openvpn/error/excode.hpp>
 #include <openvpn/crypto/selftest.hpp>
+#include <openvpn/client/clievent.hpp>
 
 // copyright
 #include <openvpn/legal/copyright.hpp>
@@ -258,9 +259,9 @@ namespace openvpn {
       ClientEvent::Base::Ptr last_connected;
     };
 
-    class MySocketProtect : public SocketProtect
-    {
-    public:
+class MySocketProtect : public SocketProtect
+{
+  public:
     MySocketProtect()
         : parent(nullptr)
     {
@@ -1438,6 +1439,16 @@ OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &data,
 	  if (session)
 	    session->thread_safe_post_cc_msg(msg);
 	}
+    }
+
+    OPENVPN_CLIENT_EXPORT void OpenVPNClient::send_app_control_channel_msg(const std::string &protocol, const std::string &msg)
+    {
+        if (state->is_foreign_thread_access())
+        {
+            ClientConnect *session = state->session.get();
+            if (session)
+                session->thread_safe_send_app_control_channel_msg(protocol, msg);
+        }
     }
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::clock_tick()
