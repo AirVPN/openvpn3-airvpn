@@ -164,11 +164,12 @@ inline const char *event_name(const Type type)
 
     struct Connected;
 
-    // The base class for all events.
-    class Base : public RC<thread_safe_refcount>
-    {
-    public:
-      typedef RCPtr<Base> Ptr;
+// The base class for all events.
+class Base : public RC<thread_safe_refcount>
+{
+  public:
+    typedef RCPtr<Base> Ptr;
+    virtual ~Base() = default;
     Base(Type id)
         : id_(id)
     {
