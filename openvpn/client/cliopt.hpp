@@ -682,8 +682,8 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         // if statement because of the incongruence of the condition, not to mention, impossible
         if (opt.exists("mode"))
         {
-            auto mode = opt.get("mode");
-            if (mode.size() != 2 || mode.get(1, 128) != "p2p")
+            const auto &mode = opt.get("mode");
+            if (mode.size() != 1 || mode.get(1, 128) != "p2p")
             {
                 throw option_error("Only 'mode p2p' supported");
             }
@@ -924,7 +924,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
                 const Option &o = opt[igUnOptIdx];
                 for (size_t i = 1; i < o.size(); i++)
                 {
-                    auto optionToIgnore = o.get(i, 0);
+                    const auto &optionToIgnore = o.get(i, 0);
 
                     ignore_unknown_option_list.insert(optionToIgnore);
                 }

@@ -292,13 +292,13 @@ class ParseClientConfig
 	    }
 	}
 
-	// push-peer-info
-	{
-	  if (options.exists("push-peer-info"))
-	    pushPeerInfo_ = true;
-	  if (pushPeerInfo_)
-	    peerInfoUV_ = peer_info_uv;
-	}
+    // push-peer-info
+    {
+        if (options.exists("push-peer-info"))
+            pushPeerInfo_ = true;
+        if (pushPeerInfo_)
+            peerInfoUV_ = std::move(peer_info_uv);
+    }
 
 	// dev name
 	{
