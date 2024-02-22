@@ -1153,16 +1153,16 @@ class MySocketProtect : public SocketProtect
       // prepare to start reactor
       connect_pre_run();
       state->enable_foreign_thread_access();
-    }
+  }
 
-    OPENVPN_CLIENT_EXPORT Status OpenVPNClient::status_from_exception(const std::exception& e)
-    {
-      Status ret;
-      ret.error = true;
-      ret.message = Unicode::utf8_printable<std::string>(e.what(), 256);
+  OPENVPN_CLIENT_EXPORT Status OpenVPNClient::status_from_exception(const std::exception &e)
+  {
+    Status ret;
+    ret.error = true;
+    ret.message = Unicode::utf8_printable<std::string>(e.what(), 256 | Unicode::UTF8_PASS_FMT);
 
-      // if exception is an ExceptionCode, translate the code
-      // to return status string
+    // if exception is an ExceptionCode, translate the code
+    // to return status string
       {
 	const ExceptionCode *ec = dynamic_cast<const ExceptionCode *>(&e);
 	if (ec && ec->code_defined())
