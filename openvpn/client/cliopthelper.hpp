@@ -292,70 +292,61 @@ class ParseClientConfig
 	    }
 	}
 
-    // push-peer-info
-    {
-        if (options.exists("push-peer-info"))
-            pushPeerInfo_ = true;
-        if (pushPeerInfo_)
-            peerInfoUV_ = std::move(peer_info_uv);
+
+            // push-peer-info
+            {
+                if (options.exists("push-peer-info"))
+                    pushPeerInfo_ = true;
+                if (pushPeerInfo_)
+                    peerInfoUV_ = std::move(peer_info_uv);
+            }
+
+            // dev name
+            {
+                const Option *o = options.get_ptr("dev");
+                if (o)
+                {
+                    dev = o->get(1, 256);
+                }
+            }
+
+            // protocol configuration
+            {
+                protoConfig.reset(new ProtoContext::ProtoConfig());
+                protoConfig->tls_auth_factory.reset(new CryptoOvpnHMACFactory<SSLLib::CryptoAPI>());
+                protoConfig->tls_crypt_factory.reset(new CryptoTLSCryptFactory<SSLLib::CryptoAPI>());
+                protoConfig->load(options, ProtoContextCompressionOptions(), -1, false);
+            }
+
+            unsigned int lflags = SSLConfigAPI::LF_PARSE_MODE;
+
+            // ssl lib configuration
+            try
+            {
+                sslConfig.reset(new SSLLib::SSLAPI::Config());
+                sslConfig->set_rng(new SSLLib::RandomAPI());
+                sslConfig->load(options, lflags);
+            }
+            catch (...)
+            {
+                sslConfig.reset();
+            }
+        }
+        catch (const option_error &e)
+        {
+            error_ = true;
+            message_ = Unicode::utf8_printable<std::string>(std::string("ERR_PROFILE_OPTION: ") + e.what(), 256);
+        }
+        catch (const std::exception &e)
+        {
+            error_ = true;
+            message_ = Unicode::utf8_printable<std::string>(std::string("ERR_PROFILE_GENERIC: ") + e.what(), 256);
+        }
     }
 
-	// dev name
-	{
-	  const Option *o = options.get_ptr("dev");
-	  if (o)
-	  {
-	    dev = o->get(1, 256);
-	  }
-	}
-
-	// cipher
-	{
-	  const Option* o = options.get_ptr("cipher");
-	  if (o)
-	    cipher_ = o->get(1, 256);
-	}
-
-	// protocol configuration
-	{
-	    protoConfig.reset(new ProtoContext::ProtoConfig());
-	    protoConfig->tls_auth_factory.reset(new CryptoOvpnHMACFactory<SSLLib::CryptoAPI>());
-	    protoConfig->tls_crypt_factory.reset(new CryptoTLSCryptFactory<SSLLib::CryptoAPI>());
-	    protoConfig->load(options, ProtoContextCompressionOptions(), -1, false);
-	}
-
-	unsigned int lflags = SSLConfigAPI::LF_PARSE_MODE;
-
-	// ssl lib configuration
-	try
-	{
-	    sslConfig.reset(new SSLLib::SSLAPI::Config());
-	    sslConfig->load(options, lflags);
-	}
-	catch (...)
-	{
-	    sslConfig.reset();
-	}
-
-	// parse extra cases (ProMIND)
-
-	parse_extra(options);
-	}
-	catch (const option_error& e)
-	{
-	    error_ = true;
-	    message_ = Unicode::utf8_printable<std::string>(std::string("ERR_PROFILE_OPTION: ") + e.what(), 256);
-	}
-	catch (const std::exception& e)
-	{
-	    error_ = true;
-	    message_ = Unicode::utf8_printable<std::string>(std::string("ERR_PROFILE_GENERIC: ") + e.what(), 256);
-	}
-    }
-
-    static ParseClientConfig parse(const std::string& content)
+    static ParseClientConfig parse(const std::string &content)
     {
-      return parse(content, nullptr);
+        return parse(content, nullptr);
     }
 
     static ParseClientConfig parse(const std::string& content, OptionList::KeyValueList* content_list)

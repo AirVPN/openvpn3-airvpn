@@ -67,21 +67,28 @@
 
 namespace openvpn {
 
-  namespace mbedtls_ctx_private {
-    namespace {
-      /*
-       * This is a modified list from mbed TLS ssl_ciphersuites.c.
-       * We removed some SHA1 methods near the top of the list to
-       * avoid Chrome warnings about "obsolete cryptography".
-       * We also removed ECDSA, CCM, PSK, and CAMELLIA algs.
-       */
-      const int ciphersuites[] = // CONST GLOBAL
-	{
-	  /* Selected AES-256 ephemeral suites */
-	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-	  MBEDTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
-	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
-	  MBEDTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256,
+namespace mbedtls_ctx_private {
+namespace {
+
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+/*
+ * This is a modified list from mbed TLS ssl_ciphersuites.c.
+ * We removed some SHA1 methods near the top of the list to
+ * avoid Chrome warnings about "obsolete cryptography".
+ * We also removed ECDSA, CCM, PSK, and CAMELLIA algs.
+ *
+ * With mbed TLS 3 or newer we trust the default list of
+ * algorithms in mbed TLS
+ */
+
+
+const int ciphersuites[] = // CONST GLOBAL
+    {
+        /* Selected AES-256 ephemeral suites */
+        MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        MBEDTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
+        MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+        MBEDTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256,
 
 	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
@@ -131,13 +138,8 @@ namespace openvpn {
 
 	  MBEDTLS_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA,
 
-	  /* Selected CHACHA20-POLY1305 ephemeral suites */
-	  MBEDTLS_TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-	  MBEDTLS_TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-
-      0
-	};
+        0};
+#endif
 
       /*
        * X509 cert profiles.
@@ -566,6 +568,7 @@ namespace openvpn {
 
     // parse tls-version-min option
     {
+
 #if defined(MBEDTLS_SSL_MAJOR_VERSION_3) && defined(MBEDTLS_SSL_MINOR_VERSION_3)
         const TLSVersion::Type maxver = TLSVersion::Type::V1_2;
 #elif defined(MBEDTLS_SSL_MAJOR_VERSION_3) && defined(MBEDTLS_SSL_MINOR_VERSION_2)
@@ -603,11 +606,26 @@ namespace openvpn {
 	return mode.is_server();
       }
 
-    private:
-      const mbedtls_x509_crt_profile *select_crt_profile() const
-      {
-	switch (TLSCertProfile::default_if_undef(tls_cert_profile))
-	  {
+      private:
+        MbedTLSRandom *get_mbed_random_class() const
+        {
+            if (!rng)
+            {
+                throw MbedTLSException("RNG not initialised yet");
+            }
+            auto *mbedrng = dynamic_cast<MbedTLSRandom *>(rng.get());
+            if (!mbedrng)
+            {
+                throw MbedTLSException("RNG needs to be MbedTLSRandom");
+            }
+            return mbedrng;
+        }
+
+
+        const mbedtls_x509_crt_profile *select_crt_profile() const
+        {
+            switch (TLSCertProfile::default_if_undef(tls_cert_profile))
+            {
 #ifdef OPENVPN_ALLOW_INSECURE_CERTPROFILE
 	  case TLSCertProfile::INSECURE:
 	    return &mbedtls_ctx_private::crt_profile_insecure;
@@ -820,15 +838,31 @@ namespace openvpn {
 	  mbedtls_ssl_init(ssl);
 
                 // set minimum TLS version
+#if MBEDTLS_VERSION_NUMBER > 0x03000000
+                mbedtls_ssl_protocol_version version;
+                switch (c.tls_version_min)
+                {
+                default:
+                case TLSVersion::Type::V1_2:
+                    version = MBEDTLS_SSL_VERSION_TLS1_2;
+                    break;
+
+                case TLSVersion::Type::V1_3:
+                    version = MBEDTLS_SSL_VERSION_TLS1_3;
+                    break;
+                }
+                mbedtls_ssl_conf_min_tls_version(sslconf, version);
+#else
                 int major;
                 int minor;
                 switch (c.tls_version_min)
                 {
+#if defined(MBEDTLS_SSL_MAJOR_VERSION_3) && defined(MBEDTLS_SSL_MINOR_VERSION_1)
                 case TLSVersion::Type::V1_0:
-                default:
                     major = MBEDTLS_SSL_MAJOR_VERSION_3;
                     minor = MBEDTLS_SSL_MINOR_VERSION_1;
                     break;
+#endif
 #if defined(MBEDTLS_SSL_MAJOR_VERSION_3) && defined(MBEDTLS_SSL_MINOR_VERSION_2)
                 case TLSVersion::Type::V1_1:
                     major = MBEDTLS_SSL_MAJOR_VERSION_3;
@@ -836,16 +870,21 @@ namespace openvpn {
                     break;
 #endif
 #if defined(MBEDTLS_SSL_MAJOR_VERSION_3) && defined(MBEDTLS_SSL_MINOR_VERSION_3)
+                default:
                 case TLSVersion::Type::V1_2:
                     major = MBEDTLS_SSL_MAJOR_VERSION_3;
                     minor = MBEDTLS_SSL_MINOR_VERSION_3;
                     break;
 #endif
-	       }
-	    mbedtls_ssl_conf_min_version(sslconf, major, minor);
-#if 0 // force TLS 1.0 as maximum version (debugging only, disable in production)
-	    mbedtls_ssl_conf_max_version(sslconf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_1);
+                }
+                mbedtls_ssl_conf_min_version(sslconf, major, minor);
+#if 0
+    /* force TLS 1.2 as maximum version (debugging only, disable in production) */
+    /* This is basically is the same as tls-version-max that OpenVPN 2.x has but hardcoded */
+	    mbedtls_ssl_conf_max_version(sslconf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3);
 #endif
+#endif
+
 
 	  {
 	    // peer must present a valid certificate unless SSLConst::NO_VERIFY_PEER.
@@ -876,14 +915,17 @@ namespace openvpn {
 	  // in mbed TLS config.h.
 	  mbedtls_ssl_conf_renegotiation(sslconf, MBEDTLS_SSL_RENEGOTIATION_DISABLED);
 
-	  if (!c.tls_cipher_list.empty())
-	    {
-	      set_mbedtls_cipherlist(c.tls_cipher_list);
-	    }
-	  else
-	    {
-	      mbedtls_ssl_conf_ciphersuites(sslconf, mbedtls_ctx_private::ciphersuites);
-	    }
+                if (!c.tls_cipher_list.empty())
+                {
+                    set_mbedtls_cipherlist(c.tls_cipher_list);
+                }
+                else
+                {
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+                    /* With newer versions we trust the default */
+                    mbedtls_ssl_conf_ciphersuites(sslconf, mbedtls_ctx_private::ciphersuites);
+#endif
+                }
 
 	  if (!c.tls_groups.empty())
 	    {
@@ -1225,12 +1267,14 @@ namespace openvpn {
 
     bool verify_ns_cert_type(const mbedtls_x509_crt *cert) const
     {
-      if (config->ns_cert_type == NSCert::SERVER)
-	return bool(cert->ns_cert_type & MBEDTLS_X509_NS_CERT_TYPE_SSL_SERVER);
-      else if (config->ns_cert_type == NSCert::CLIENT)
-	return bool(cert->ns_cert_type & MBEDTLS_X509_NS_CERT_TYPE_SSL_CLIENT);
-      else
-	return false;
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+        if (config->ns_cert_type == NSCert::SERVER)
+            return bool(cert->ns_cert_type & MBEDTLS_X509_NS_CERT_TYPE_SSL_SERVER);
+        else if (config->ns_cert_type == NSCert::CLIENT)
+            return bool(cert->ns_cert_type & MBEDTLS_X509_NS_CERT_TYPE_SSL_CLIENT);
+        else
+#endif
+            return false;
     }
 
     // remote-cert-ku verification
@@ -1242,16 +1286,15 @@ namespace openvpn {
 
     bool verify_x509_cert_ku(const mbedtls_x509_crt *cert)
     {
-      if (cert->ext_types & MBEDTLS_X509_EXT_KEY_USAGE)
-	{
-	  const unsigned int ku = cert->key_usage;
-	  for (std::vector<unsigned int>::const_iterator i = config->ku.begin(); i != config->ku.end(); ++i)
-	    {
-	      if (ku == *i)
-		return true;
-	    }
-	}
-      return false;
+        if (mbedtls_x509_crt_has_ext_type(cert, MBEDTLS_OID_X509_EXT_EXTENDED_KEY_USAGE))
+        {
+            for (std::vector<unsigned int>::const_iterator i = config->ku.begin(); i != config->ku.end(); ++i)
+            {
+                if (mbedtls_x509_crt_check_key_usage(cert, *i))
+                    return true;
+            }
+        }
+        return false;
     }
 
     // remote-cert-eku verification
@@ -1263,12 +1306,12 @@ namespace openvpn {
 
     bool verify_x509_cert_eku(mbedtls_x509_crt *cert)
     {
-      if (cert->ext_types & MBEDTLS_X509_EXT_EXTENDED_KEY_USAGE)
-	{
-	  mbedtls_x509_sequence *oid_seq = &cert->ext_key_usage;
-	  while (oid_seq != nullptr)
-	    {
-	      mbedtls_x509_buf *oid = &oid_seq->buf;
+        if (mbedtls_x509_crt_has_ext_type(cert, MBEDTLS_OID_X509_EXT_EXTENDED_KEY_USAGE))
+        {
+            mbedtls_x509_sequence *oid_seq = &cert->ext_key_usage;
+            while (oid_seq != nullptr)
+            {
+                mbedtls_x509_buf *oid = &oid_seq->buf;
 
 	      // first compare against description
 	      {
@@ -1316,16 +1359,21 @@ namespace openvpn {
       if (self->config->flags & SSLConst::LOG_VERIFY_STATUS)
 	OPENVPN_LOG_SSL(status_string(cert, depth, flags));
 
-      // notify if connection is happening with an insecurely signed cert
-      if (cert->sig_md == MBEDTLS_MD_MD5)
-      {
-	ssl->tls_warnings |= SSLAPI::TLS_WARN_SIG_MD5;
-      }
+            // notify if connection is happening with an insecurely signed cert.
 
-      if (cert->sig_md == MBEDTLS_MD_SHA1)
-      {
-	ssl->tls_warnings |= SSLAPI::TLS_WARN_SIG_SHA1;
-      }
+            // mbed TLS 3.0 does not allow the weaker signatures by default and also does not give a
+            // proper accessor to these fields anymore
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+        if (cert->sig_md == MBEDTLS_MD_MD5)
+        {
+            ssl->tls_warnings |= SSLAPI::TLS_WARN_SIG_MD5;
+        }
+
+        if (cert->sig_md == MBEDTLS_MD_SHA1)
+        {
+            ssl->tls_warnings |= SSLAPI::TLS_WARN_SIG_SHA1;
+        }
+#endif
 
       // leaf-cert verification
       if (depth == 0)
@@ -1473,68 +1521,75 @@ namespace openvpn {
     }
 
     static int epki_decrypt(void *arg,
-			    int mode,
-			    size_t *olen,
-			    const unsigned char *input,
-			    unsigned char *output,
-			    size_t output_max_len)
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+                            int mode,
+#endif
+                            size_t *olen,
+                            const unsigned char *input,
+                            unsigned char *output,
+                            size_t output_max_len)
     {
-      OPENVPN_LOG_SSL("MbedTLSContext::epki_decrypt is unimplemented, mode=" << mode
-		      << " output_max_len=" << output_max_len);
-      return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
+        OPENVPN_LOG_SSL("MbedTLSContext::epki_decrypt is unimplemented"
+                        << " output_max_len=" << output_max_len);
+        return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
     }
 
     static int epki_sign(void *arg,
-			 int (*f_rng)(void *, unsigned char *, size_t),
-			 void *p_rng,
-			 int mode,
-			 mbedtls_md_type_t md_alg,
-			 unsigned int hashlen,
-			 const unsigned char *hash,
-			 unsigned char *sig)
+                         int (*f_rng)(void *, unsigned char *, size_t),
+                         void *p_rng,
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+                         int mode,
+#endif
+                         mbedtls_md_type_t md_alg,
+                         unsigned int hashlen,
+                         const unsigned char *hash,
+                         unsigned char *sig)
     {
       MbedTLSContext *self = (MbedTLSContext *) arg;
         try
         {
-	if (mode == MBEDTLS_RSA_PRIVATE)
-	  {
-	    size_t digest_prefix_len = 0;
-	    const unsigned char *digest_prefix = nullptr;
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+            if (mode == MBEDTLS_RSA_PRIVATE)
+#else
+            if (true)
+#endif
+            {
+                size_t digest_prefix_len = 0;
+                const unsigned char *digest_prefix = nullptr;
 
 	    /* get signature type */
                 switch (md_alg)
                 {
-	    case MBEDTLS_MD_NONE:
-	      break;
-	    case MBEDTLS_MD_MD2:
-	      digest_prefix = PKCS1::DigestPrefix::MD2;
-	      digest_prefix_len = sizeof(PKCS1::DigestPrefix::MD2);
-	      break;
-	    case MBEDTLS_MD_MD5:
-	      digest_prefix = PKCS1::DigestPrefix::MD5;
-	      digest_prefix_len = sizeof(PKCS1::DigestPrefix::MD5);
-	      break;
-	    case MBEDTLS_MD_SHA1:
-	      digest_prefix = PKCS1::DigestPrefix::SHA1;
-	      digest_prefix_len = sizeof(PKCS1::DigestPrefix::SHA1);
-	      break;
-	    case MBEDTLS_MD_SHA256:
-	      digest_prefix = PKCS1::DigestPrefix::SHA256;
-	      digest_prefix_len = sizeof(PKCS1::DigestPrefix::SHA256);
-	      break;
-	    case MBEDTLS_MD_SHA384:
-	      digest_prefix = PKCS1::DigestPrefix::SHA384;
-	      digest_prefix_len = sizeof(PKCS1::DigestPrefix::SHA384);
-	      break;
-	    case MBEDTLS_MD_SHA512:
-	      digest_prefix = PKCS1::DigestPrefix::SHA512;
-	      digest_prefix_len = sizeof(PKCS1::DigestPrefix::SHA512);
-	      break;
-	    default:
-	      OPENVPN_LOG_SSL("MbedTLSContext::epki_sign unrecognized hash_id, mode=" << mode
-			      << " md_alg=" << md_alg << " hashlen=" << hashlen);
-	      return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
-	    }
+                case MBEDTLS_MD_NONE:
+                    break;
+                case MBEDTLS_MD_MD5:
+                    digest_prefix = PKCS1::DigestPrefix::MD5;
+                    digest_prefix_len = sizeof(PKCS1::DigestPrefix::MD5);
+                    break;
+                case MBEDTLS_MD_SHA1:
+                    digest_prefix = PKCS1::DigestPrefix::SHA1;
+                    digest_prefix_len = sizeof(PKCS1::DigestPrefix::SHA1);
+                    break;
+                case MBEDTLS_MD_SHA256:
+                    digest_prefix = PKCS1::DigestPrefix::SHA256;
+                    digest_prefix_len = sizeof(PKCS1::DigestPrefix::SHA256);
+                    break;
+                case MBEDTLS_MD_SHA384:
+                    digest_prefix = PKCS1::DigestPrefix::SHA384;
+                    digest_prefix_len = sizeof(PKCS1::DigestPrefix::SHA384);
+                    break;
+                case MBEDTLS_MD_SHA512:
+                    digest_prefix = PKCS1::DigestPrefix::SHA512;
+                    digest_prefix_len = sizeof(PKCS1::DigestPrefix::SHA512);
+                    break;
+                default:
+                    OPENVPN_LOG_SSL("MbedTLSContext::epki_sign unrecognized hash_id"
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+                                    << "mode=" << mode
+#endif
+                                    << " md_alg=" << md_alg << " hashlen=" << hashlen);
+                    return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
+                }
 
 	    /* concatenate digest prefix with hash */
 	    BufferAllocated from_buf(digest_prefix_len + hashlen, 0);
@@ -1560,21 +1615,24 @@ namespace openvpn {
 	    if (sigbuf.size() != len)
 	      throw ssl_external_pki("mbed TLS: incorrect signature length");
 
-	    /* success */
-	    return 0;
-	  }
-	else
-	  {
-	    OPENVPN_LOG_SSL("MbedTLSContext::epki_sign unrecognized parameters, mode=" << mode
-			    << " md_alg=" << md_alg << " hashlen=" << hashlen);
-	    return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
-	  }
-      }
-      catch (const std::exception& e)
-	{
-	  OPENVPN_LOG("MbedTLSContext::epki_sign exception: " << e.what());
-	  return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
-	}
+                /* success */
+                return 0;
+            }
+            else
+            {
+                OPENVPN_LOG_SSL("MbedTLSContext::epki_sign unrecognized parameters"
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+                                << "mode=" << mode
+#endif
+                                << " md_alg=" << md_alg << " hashlen=" << hashlen);
+                return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
+            }
+        }
+        catch (const std::exception &e)
+        {
+            OPENVPN_LOG("MbedTLSContext::epki_sign exception: " << e.what());
+            return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
+        }
     }
 
     static size_t epki_key_len(void *arg)
@@ -1602,12 +1660,16 @@ namespace openvpn {
       // mbed TLS 2.7.0 and newer deprecates mbedtls_sha1()
       // in favour of mbedtls_sha1_ret().
 
-      // We support for older mbed TLS versions
-      // to be able to build on Debian 9 and Ubuntu 16.
-      mbedtls_sha1(cert->raw.p, cert->raw.len, authcert->issuer_fp);
+        // We support for older mbed TLS versions
+        // to be able to build on Debian 9 and Ubuntu 16.
+        mbedtls_sha1(cert->raw.p, cert->raw.len, authcert->issuer_fp);
+#elif MBEDTLS_VERSION_NUMBER < 0x03000000
+        if (mbedtls_sha1_ret(cert->raw.p, cert->raw.len, authcert.issuer_fp))
+            return false;
 #else
-      if (mbedtls_sha1_ret(cert->raw.p, cert->raw.len, authcert.issuer_fp))
-	return false;
+        // mbedtls_sha1_ret is renamed to mbedtls_sha1 in 3.0
+        if (mbedtls_sha1(cert->raw.p, cert->raw.len, authcert.issuer_fp))
+            return false;
 #endif
       return true;
     }
