@@ -15,7 +15,7 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: lukka/get-cmake@latest
+    - uses: lukka/get-cmake@v3.28.3
     - uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: ${{ matrix.arch }}
@@ -23,7 +23,7 @@ jobs:
     - name: Restore from cache and install vcpkg
       uses: lukka/run-vcpkg@v11
       with:
-        vcpkgGitCommitId: '8b04a7bd93bef991818fc372bb83ce00ec1c1c16'
+        vcpkgGitCommitId: 8b04a7bd93bef991818fc372bb83ce00ec1c1c16
         vcpkgJsonGlob: '**/windows/vcpkg.json'
 
     - name: Run CMake with vcpkg.json manifest
@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: lukka/get-cmake@latest
+    - uses: lukka/get-cmake@v3.28.3
 
     - name: Install dependencies
       run: sudo apt update && sudo apt install -y mingw-w64 unzip cmake build-essential
@@ -70,7 +70,7 @@ jobs:
     - name: Restore from cache and install vcpkg
       uses: lukka/run-vcpkg@v11
       with:
-        vcpkgGitCommitId: '8b04a7bd93bef991818fc372bb83ce00ec1c1c16'
+        vcpkgGitCommitId: 8b04a7bd93bef991818fc372bb83ce00ec1c1c16
         vcpkgJsonGlob: '**/mingw/vcpkg.json'
 
     - name: Run CMake with vcpkg.json manifest
