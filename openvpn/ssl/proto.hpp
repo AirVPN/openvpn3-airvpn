@@ -82,23 +82,11 @@
 #include <openvpn/compress/compress.hpp>
 #include <openvpn/ssl/proto_context_options.hpp>
 #include <openvpn/ssl/peerinfo.hpp>
-#include <openvpn/ssl/ssllog.hpp>
 #include <openvpn/crypto/crypto_aead.hpp>
 #include <openvpn/ssl/customcontrolchannel.hpp>
 
-
-#if OPENVPN_DEBUG_PROTO >= 1
-#define OPENVPN_LOG_PROTO(x) OPENVPN_LOG(x)
-#define OPENVPN_LOG_STRING_PROTO(x) OPENVPN_LOG_STRING(x)
-#else
-#define OPENVPN_LOG_PROTO(x)
-#define OPENVPN_LOG_STRING_PROTO(x)
-#endif
-
-#if OPENVPN_DEBUG_PROTO >= 2
-#define OPENVPN_LOG_PROTO_VERBOSE(x) OPENVPN_LOG(x)
-#else
-#define OPENVPN_LOG_PROTO_VERBOSE(x)
+#ifndef OPENVPN_DEBUG_PROTO
+#define OPENVPN_DEBUG_PROTO 1
 #endif
 
 /*
@@ -168,8 +156,55 @@ enum
 } // namespace
 } // namespace proto_context_private
 
-  class ProtoContext
-  {
+class ProtoContextCallbackInterface
+{
+  public:
+    /**
+     * Sends out bytes to the network.
+     */
+    virtual void control_net_send(const Buffer &net_buf) = 0;
+
+    /*
+     * Receive as packet from the network
+     * \note app may take ownership of app_bp via std::move
+     */
+    virtual void control_recv(BufferPtr &&app_bp) = 0;
+
+    /** Called on client to request username/password credentials.
+     * Should be overridden by derived class if credentials are required.
+     * username and password should be written into buf with write_auth_string().
+     */
+    virtual void client_auth(Buffer &buf)
+    {
+        write_empty_string(buf); // username
+        write_empty_string(buf); // password
+    }
+
+    /** Called on server with credentials and peer info provided by client.
+     *Should be overriden by derived class if credentials are required. */
+    virtual void server_auth(const std::string &username,
+                             const SafeString &password,
+                             const std::string &peer_info,
+                             const AuthCert::Ptr &auth_cert)
+    {
+    }
+
+    /**
+     * Writes an empty user or password string for the key-method 2 packet in the OpenVPN protocol
+     * @param buf  buffer to write to
+     */
+    static void write_empty_string(Buffer &buf)
+    {
+        uint8_t empty[]{0x00, 0x00}; // empty length field without content
+        buf.write(&empty, 2);
+    }
+
+    //! Called when KeyContext transitions to ACTIVE state
+    virtual void active(bool primary) = 0;
+};
+
+class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO, logging::LOG_LEVEL_VERB>
+{
   protected:
     static constexpr size_t APP_MSG_MAX = 65536;
 
@@ -280,9 +315,9 @@ enum
     }
 
   public:
-    OPENVPN_EXCEPTION(proto_error);
-    OPENVPN_EXCEPTION(process_server_push_error);
-    OPENVPN_EXCEPTION_INHERIT(option_error, proto_option_error);
+    OPENVPN_UNTAGGED_EXCEPTION_INHERIT(option_error, proto_error);
+    OPENVPN_UNTAGGED_EXCEPTION_INHERIT(option_error, process_server_push_error);
+    OPENVPN_UNTAGGED_EXCEPTION_INHERIT(option_error, proto_option_error);
 
     // configuration data passed to ProtoContext constructor
     class ProtoConfig : public RCCopyable<thread_unsafe_refcount>
@@ -398,9 +433,6 @@ enum
       MSSParms mss_parms;
       unsigned int mss_fix = 0;
 
-      // Debugging
-      int debug_level = 1;
-
       // For compatibility with openvpn2 we send initial options on rekeying,
       // instead of possible modifications caused by NCP
       std::string initial_options;
@@ -422,64 +454,63 @@ enum
 	pid_mode = PacketIDReceive::UDP_MODE;
 	key_direction = default_key_direction;
 
-	// layer
-	{
-	  const Option* dev = opt.get_ptr("dev-type");
-	  if (!dev)
-	    dev = opt.get_ptr("dev");
-	  if (!dev)
-	    throw proto_option_error("missing dev-type or dev option");
-	  const std::string& dev_type = dev->get(1, 64);
-	  if (string::starts_with(dev_type, "tun"))
-	    layer = Layer(Layer::OSI_LAYER_3);
-	  else if (string::starts_with(dev_type, "tap"))
-	    throw proto_option_error("TAP mode is not supported");
-	  else
-	    throw proto_option_error("bad dev-type");
-	}
+    // layer
+    {
+        const Option *dev = opt.get_ptr("dev-type");
+        if (!dev)
+            dev = opt.get_ptr("dev");
+        if (!dev)
+            throw proto_option_error(ERR_INVALID_CONFIG, "missing dev-type or dev option");
+        const std::string &dev_type = dev->get(1, 64);
+        if (string::starts_with(dev_type, "tun"))
+            layer = Layer(Layer::OSI_LAYER_3);
+        else if (string::starts_with(dev_type, "tap"))
+            throw proto_option_error(ERR_INVALID_CONFIG, "TAP mode is not supported");
+        else
+            throw proto_option_error(ERR_INVALID_OPTION_VAL, "bad dev-type");
+    }
 
 	// cipher/digest/tls-auth/tls-crypt
 	{
-	  CryptoAlgs::Type cipher = CryptoAlgs::NONE;
-	  CryptoAlgs::Type digest = CryptoAlgs::NONE;
+        CryptoAlgs::Type cipher = CryptoAlgs::NONE;
+        CryptoAlgs::Type digest = CryptoAlgs::NONE;
 
-          // negotiable data ciphers (openvpn 2.5)
-          {
-              const Option *o = opt.get_ptr("data-ciphers");
+        // negotiable data ciphers (openvpn 2.5) ProMIND
+        {
+            const Option *o = opt.get_ptr("data-ciphers");
 
-              if(o)
-              {
-                  negotiable_data_ciphers = o->get(1, 128);
+            if(o)
+            {
+                negotiable_data_ciphers = o->get(1, 128);
 
-                  if(negotiable_data_ciphers.length() > 0)
-                  {
-                      if(negotiable_data_ciphers.find(":") != std::string::npos)
-                      {
-                          size_t pos = 0;
-                          std::string alg, cconf;
+                if(negotiable_data_ciphers.length() > 0)
+                {
+                    if(negotiable_data_ciphers.find(":") != std::string::npos)
+                    {
+                        size_t pos = 0;
+                        std::string alg, cconf;
 
-                          cconf = negotiable_data_ciphers;
+                        cconf = negotiable_data_ciphers;
 
-                          while((pos = cconf.find(":")) != std::string::npos)
-                          {
-                              alg = cconf.substr(0, pos);
+                        while((pos = cconf.find(":")) != std::string::npos)
+                        {
+                            alg = cconf.substr(0, pos);
 
-                              cipher = CryptoAlgs::lookup(alg);
+                            cipher = CryptoAlgs::lookup(alg);
 
-                              cconf.erase(0, pos + 1);
-                          }
+                            cconf.erase(0, pos + 1);
+                        }
                           
-                          if(cconf.length() > 0)
-                              cipher = CryptoAlgs::lookup(cconf);
-                      }
-                      else
-                          cipher = CryptoAlgs::lookup(negotiable_data_ciphers);
-                  }
-              }
-              else
-                  negotiable_data_ciphers = "";
-          }
-
+                        if(cconf.length() > 0)
+                            cipher = CryptoAlgs::lookup(cconf);
+                    }
+                    else
+                        cipher = CryptoAlgs::lookup(negotiable_data_ciphers);
+                }
+            }
+            else
+                negotiable_data_ciphers = "";
+        }
 
 	  // data channel cipher
           {
@@ -538,35 +569,35 @@ enum
 	      }
 	  }
 
-	  // tls-crypt
-	  {
-	    const Option *o = opt.get_ptr(relay_prefix("tls-crypt"));
-	    if (o)
-	      {
-		if (tls_auth_context)
-		  throw proto_option_error("tls-auth and tls-crypt are mutually exclusive");
-		if (tls_crypt_context)
-		  throw proto_option_error("tls-crypt and tls-crypt-v2 are mutually exclusive");
+        // tls-crypt
+        {
+            const Option *o = opt.get_ptr(relay_prefix("tls-crypt"));
+            if (o)
+            {
+                if (tls_auth_context)
+                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-auth and tls-crypt are mutually exclusive");
+                if (tls_crypt_context)
+                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-crypt and tls-crypt-v2 are mutually exclusive");
 
-                        tls_crypt_ = TLSCrypt::V1;
-		tls_key.parse(o->get(1, 0));
+                tls_crypt_ = TLSCrypt::V1;
+                tls_key.parse(o->get(1, 0));
 
-                        set_tls_crypt_algs();
-	      }
-	  }
+                set_tls_crypt_algs();
+            }
+        }
 
-	  // tls-crypt-v2
-	  {
-	    const Option *o = opt.get_ptr(relay_prefix("tls-crypt-v2"));
-	    if (o)
-	      {
-		if (tls_auth_context)
-		  throw proto_option_error("tls-auth and tls-crypt-v2 are mutually exclusive");
-		if (tls_crypt_context)
-		  throw proto_option_error("tls-crypt and tls-crypt-v2 are mutually exclusive");
+        // tls-crypt-v2
+        {
+            const Option *o = opt.get_ptr(relay_prefix("tls-crypt-v2"));
+            if (o)
+            {
+                if (tls_auth_context)
+                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-auth and tls-crypt-v2 are mutually exclusive");
+                if (tls_crypt_context)
+                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-crypt and tls-crypt-v2 are mutually exclusive");
 
 		// initialize tls_crypt_context
-                        set_tls_crypt_algs();
+                set_tls_crypt_algs();
 
 		std::string keyfile = o->get(1, 0);
 
@@ -590,62 +621,62 @@ enum
 	  }
 	}
 
-	// key-direction
-	{
-	  if (key_direction >= -1 && key_direction <= 1)
-	    {
-	      const Option *o = opt.get_ptr(relay_prefix("key-direction"));
-	      if (o)
-		{
-		  const std::string& dir = o->get(1, 16);
-		  if (dir == "0")
-		    key_direction = 0;
-		  else if (dir == "1")
-		    key_direction = 1;
-		  else if (dir == "bidirectional" || dir == "bi")
-		    key_direction = -1;
-		  else
-		    throw proto_option_error("bad key-direction parameter");
-		}
-	    }
-	  else
-	    throw proto_option_error("bad key-direction default");
-	}
+            // key-direction
+            {
+                if (key_direction >= -1 && key_direction <= 1)
+                {
+                    const Option *o = opt.get_ptr(relay_prefix("key-direction"));
+                    if (o)
+                    {
+                        const std::string &dir = o->get(1, 16);
+                        if (dir == "0")
+                            key_direction = 0;
+                        else if (dir == "1")
+                            key_direction = 1;
+                        else if (dir == "bidirectional" || dir == "bi")
+                            key_direction = -1;
+                        else
+                            throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "bad key-direction parameter");
+                    }
+                }
+                else
+                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "bad key-direction default");
+            }
 
-	// compression
-	{
-	  const Option *o = opt.get_ptr("compress");
-	  if (o)
-	    {
-	      if (o->size() >= 2)
-		{
-		  const std::string meth_name = o->get(1, 128);
-		  CompressContext::Type meth = CompressContext::parse_method(meth_name);
-		  if (meth == CompressContext::NONE)
-		    OPENVPN_THROW(proto_option_error, "Unknown compressor: '" << meth_name << '\'');
-		  comp_ctx = CompressContext(pco.is_comp() ? meth : CompressContext::stub(meth), pco.is_comp_asym());
-		}
-	      else
-		comp_ctx = CompressContext(pco.is_comp() ? CompressContext::ANY : CompressContext::COMP_STUB, pco.is_comp_asym());
-	    }
-	  else
-	    {
-	      o = opt.get_ptr("comp-lzo");
-	      if (o)
-		{
-		  if (o->size() == 2 && o->ref(1) == "no")
-		    {
-		      // On the client, by using ANY instead of ANY_LZO, we are telling the server
-		      // that it's okay to use any of our supported compression methods.
-		      comp_ctx = CompressContext(pco.is_comp() ? CompressContext::ANY : CompressContext::LZO_STUB, pco.is_comp_asym());
-		    }
-		  else
-		    {
-		      comp_ctx = CompressContext(pco.is_comp() ? CompressContext::LZO : CompressContext::LZO_STUB, pco.is_comp_asym());
-		    }
-		}
-	    }
-	}
+            // compression
+            {
+                const Option *o = opt.get_ptr("compress");
+                if (o)
+                {
+                    if (o->size() >= 2)
+                    {
+                        const std::string meth_name = o->get(1, 128);
+                        CompressContext::Type meth = CompressContext::parse_method(meth_name);
+                        if (meth == CompressContext::NONE)
+                            OPENVPN_THROW_ARG1(proto_option_error, ERR_INVALID_OPTION_VAL, "Unknown compressor: '" << meth_name << '\'');
+                        comp_ctx = CompressContext(pco.is_comp() ? meth : CompressContext::stub(meth), pco.is_comp_asym());
+                    }
+                    else
+                        comp_ctx = CompressContext(pco.is_comp() ? CompressContext::ANY : CompressContext::COMP_STUB, pco.is_comp_asym());
+                }
+                else
+                {
+                    o = opt.get_ptr("comp-lzo");
+                    if (o)
+                    {
+                        if (o->size() == 2 && o->ref(1) == "no")
+                        {
+                            // On the client, by using ANY instead of ANY_LZO, we are telling the server
+                            // that it's okay to use any of our supported compression methods.
+                            comp_ctx = CompressContext(pco.is_comp() ? CompressContext::ANY : CompressContext::LZO_STUB, pco.is_comp_asym());
+                        }
+                        else
+                        {
+                            comp_ctx = CompressContext(pco.is_comp() ? CompressContext::LZO : CompressContext::LZO_STUB, pco.is_comp_asym());
+                        }
+                    }
+                }
+            }
 
 	// tun-mtu
 	tun_mtu = parse_tun_mtu(opt, tun_mtu);
@@ -700,7 +731,7 @@ enum
             }
 
             // show negotiated options
-            OPENVPN_LOG_STRING_PROTO(show_options());
+            LOG_INFO(show_options());
         }
 
         void parse_custom_app_control(const OptionList &opt)
@@ -944,15 +975,15 @@ enum
             return os.str();
         }
 
-      void set_pid_mode(const bool tcp_linear)
-      {
-	if (protocol.is_udp() || !tcp_linear)
-	  pid_mode = PacketIDReceive::UDP_MODE;
-	else if (protocol.is_tcp())
-	  pid_mode = PacketIDReceive::TCP_MODE;
-	else
-	  throw proto_option_error("transport protocol undefined");
-      }
+        void set_pid_mode(const bool tcp_linear)
+        {
+            if (protocol.is_udp() || !tcp_linear)
+                pid_mode = PacketIDReceive::UDP_MODE;
+            else if (protocol.is_tcp())
+                pid_mode = PacketIDReceive::TCP_MODE;
+            else
+                throw proto_option_error(ERR_INVALID_OPTION_VAL, "transport protocol undefined");
+        }
 
       void set_protocol(const Protocol& p)
       {
@@ -1003,7 +1034,7 @@ enum
             auto cipher = CryptoAlgs::lookup("AES-256-CTR");
 
             if ((digest == CryptoAlgs::NONE) || (cipher == CryptoAlgs::NONE))
-                throw proto_option_error("missing support for tls-crypt algorithms");
+                throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "missing support for tls-crypt algorithms");
 
 	/* TODO: we currently use the default SSL library context here as the
 	 * library context is not available this early. This should not matter
@@ -1162,34 +1193,34 @@ enum
 
 	/* disabled (master)
 
-	out << "IV_CIPHERS=";
-            CryptoAlgs::for_each(
-                [&out](CryptoAlgs::Type type, const CryptoAlgs::Alg &alg) -> bool
-                                 {
-	  if (!CryptoAlgs::defined(type) || !alg.dc_cipher())
-	    return false;
-	  out << alg.name() << ':';
-                return true;
-                });
-	out.seekp(-1, std::ios_base::cur);
-	out << "\n";
+    out << "IV_CIPHERS=";
+    CryptoAlgs::for_each(
+        [&out](CryptoAlgs::Type type, const CryptoAlgs::Alg &alg) -> bool
+        {
+            if (!alg.dc_cipher())
+                return false;
+            out << alg.name() << ':';
+            return true;
+        });
+        out.seekp(-1, std::ios_base::cur);
+        out << "\n";
 
 	*/
 
-	compstr = comp_ctx.peer_info_string();
+    compstr = comp_ctx.peer_info_string();
 
-        if (compstr)
-            out << compstr;
-        if (extra_peer_info)
-            out << extra_peer_info->to_string();
-        if (is_bs64_cipher(dc.cipher()))
-            out << "IV_BS64DL=1\n"; // indicate support for data limits when using 64-bit block-size ciphers, version 1 (CVE-2016-6329)
-        if (relay_mode)
-            out << "IV_RELAY=1\n";
-        const std::string ret = out.str();
-        OPENVPN_LOG_PROTO("Sending Peer Info:" << std::endl
-                                               << ret);
-        return ret;
+            if (compstr)
+                out << compstr;
+            if (extra_peer_info)
+                out << extra_peer_info->to_string();
+            if (is_bs64_cipher(dc.cipher()))
+                out << "IV_BS64DL=1\n"; // indicate support for data limits when using 64-bit block-size ciphers, version 1 (CVE-2016-6329)
+            if (relay_mode)
+                out << "IV_RELAY=1\n";
+            const std::string ret = out.str();
+            LOG_INFO("Sending Peer Info:" << std::endl
+                                          << ret);
+            return ret;
     }
 
       // Used to generate link_mtu option sent to peer.
@@ -1517,10 +1548,9 @@ enum
       return out.str();
     }
 
-  protected:
-    // used for reading/writing authentication strings (username, password, etc.)
-
-    static void write_uint16_length(const size_t size, Buffer& buf)
+    // used for reading/writing authentication strings (username, password, etc.) from buffer using the
+    //  2 byte prefix for length
+    static void write_uint16_length(const size_t size, Buffer &buf)
     {
         if (size > 0xFFFF)
             throw proto_error("auth_string_overflow");
@@ -1575,6 +1605,11 @@ enum
       buf.null_terminate();
     }
 
+    static void write_empty_string(Buffer &buf)
+    {
+        write_uint16_length(0, buf);
+    }
+
     template <typename S>
     static S read_control_string(const Buffer& buf)
     {
@@ -1598,17 +1633,7 @@ enum
       control_send(std::move(bp));
     }
 
-    static unsigned char *skip_string(Buffer& buf)
-    {
-      const size_t len = read_uint16_length(buf);
-      return buf.read_alloc(len);
-    }
-
-    static void write_empty_string(Buffer& buf)
-    {
-        write_uint16_length(0, buf);
-    }
-
+  protected:
     // Packet structure for managing network packets, passed as a template
     // parameter to ProtoStackBase
     class Packet
@@ -1979,7 +2004,7 @@ enum
                     // trigger renegotiation if we hit decrypt data limit
                     if (data_limit)
                         if (!data_limit_add(DataLimit::Decrypt, buf.size()))
-                            throw proto_option_error("Unable to add data limit");
+                            throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "Unable to add data limit");
 
 	      // decompress packet
 	      if (compress)
@@ -2156,7 +2181,7 @@ enum
                     {
                         // skip validation of HARD_RESET_V3 because the tls-crypt
                         // engine has not been initialized yet
-                        OPENVPN_LOG_PROTO_VERBOSE("SKIPPING VALIDATION OF HARD_RESET_V3");
+                        LOG_VERBOSE("SKIPPING VALIDATION OF HARD_RESET_V3");
                         return true;
                     }
                     /* no break */
@@ -2168,7 +2193,7 @@ enum
             }
             catch ([[maybe_unused]] BufferException &e)
             {
-                OPENVPN_LOG_PROTO_VERBOSE("validate() exception: " << e.what());
+                LOG_VERBOSE("validate() exception: " << e.what());
             }
             return false;
         }
@@ -2183,17 +2208,17 @@ enum
 	  {
 	    // USE RFC 5705 key material export
                 export_key_material(dck->key, "EXPORTER-OpenVPN-datakeys");
-	  }
-	else
-	  {
-	    // use the TLS PRF construction to exchange session keys for building
-	    // the data channel crypto context
-	    tlsprf->generate_key_expansion(dck->key, proto.psid_self, proto.psid_peer);
-	  }
-	tlsprf->erase();
-            OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix()
-                                      << " KEY " << CryptoAlgs::name(proto.config->dc.key_derivation())
-					<< " " << proto.mode().str() << ' ' << dck->key.render());
+            }
+            else
+            {
+                // use the TLS PRF construction to exchange session keys for building
+                // the data channel crypto context
+                tlsprf->generate_key_expansion(dck->key, proto.psid_self, proto.psid_peer);
+            }
+            tlsprf->erase();
+            LOG_VERBOSE(proto.debug_prefix()
+                        << " KEY " << CryptoAlgs::name(proto.config->dc.key_derivation())
+                        << " " << proto.mode().str() << ' ' << dck->key.render());
 
             if (data_channel_key)
             {
@@ -2284,14 +2309,11 @@ enum
             }
 
             c.mss_fix = static_cast<decltype(c.mss_fix)>(target - payload_overhead);
-            if (c.debug_level > 1)
-            {
-                OPENVPN_LOG("mssfix=" << c.mss_fix
-                                      << " (upper bound=" << c.mss_parms.mssfix
-                                      << ", overhead=" << overhead
-                                      << ", payload_overhead=" << payload_overhead
-                                      << ", target=" << target << ")");
-            }
+            LOG_VERBOSE("mssfix=" << c.mss_fix
+                                  << " (upper bound=" << c.mss_parms.mssfix
+                                  << ", overhead=" << overhead
+                                  << ", payload_overhead=" << payload_overhead
+                                  << ", target=" << target << ")");
         }
 
       // Initialize the components of the OpenVPN data channel protocol
@@ -2308,16 +2330,16 @@ enum
             const unsigned int key_dir = proto.is_server() ? OpenVPNStaticKey::INVERSE : OpenVPNStaticKey::NORMAL;
             const OpenVPNStaticKey &key = data_channel_key->key;
 
-	// special data limits for 64-bit block-size ciphers (CVE-2016-6329)
-	if (is_bs64_cipher(c.dc.cipher()))
-	  {
-	    DataLimit::Parameters dp;
-	    dp.encrypt_red_limit = OPENVPN_BS64_DATA_LIMIT;
-	    dp.decrypt_red_limit = OPENVPN_BS64_DATA_LIMIT;
-                OPENVPN_LOG_PROTO("Per-Key Data Limit: "
-                                  << dp.encrypt_red_limit << '/' << dp.decrypt_red_limit);
-	    data_limit.reset(new DataLimit(dp));
-	  }
+            // special data limits for 64-bit block-size ciphers (CVE-2016-6329)
+            if (is_bs64_cipher(c.dc.cipher()))
+            {
+                DataLimit::Parameters dp;
+                dp.encrypt_red_limit = OPENVPN_BS64_DATA_LIMIT;
+                dp.decrypt_red_limit = OPENVPN_BS64_DATA_LIMIT;
+                LOG_INFO("Per-Key Data Limit: "
+                         << dp.encrypt_red_limit << '/' << dp.decrypt_red_limit);
+                data_limit.reset(new DataLimit(dp));
+            }
 
 	// build crypto context for data channel encryption/decryption
 	crypto = c.dc.context().new_obj(key_id_);
@@ -2559,32 +2581,32 @@ enum
 	remote_peer_id = proto.config->remote_peer_id;
       }
 
-      void set_state(const int newstate)
-      {
-            OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix()
-                                      << " KeyContext[" << key_id_ << "] "
-                                      << state_string(state) << " -> " << state_string(newstate));
-	state = newstate;
-      }
+        void set_state(const int newstate)
+        {
+            LOG_VERBOSE(proto.debug_prefix()
+                        << " KeyContext[" << key_id_ << "] "
+                        << state_string(state) << " -> " << state_string(newstate));
+            state = newstate;
+        }
 
-      void set_event(const EventType current)
-      {
-            OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix()
-                                      << " KeyContext[" << key_id_ << "] "
-                                      << event_type_string(current));
-	current_event = current;
-      }
+        void set_event(const EventType current)
+        {
+            LOG_VERBOSE(proto.debug_prefix()
+                        << " KeyContext[" << key_id_ << "] "
+                        << event_type_string(current));
+            current_event = current;
+        }
 
-      void set_event(const EventType current, const EventType next, const Time& next_time)
-      {
-            OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix()
-                                      << " KeyContext[" << key_id_ << "] "
-                                      << event_type_string(current) << " -> " << event_type_string(next)
-                                      << '(' << seconds_until(next_time) << ')');
-	current_event = current;
-	next_event = next;
-	next_event_time = next_time;
-      }
+        void set_event(const EventType current, const EventType next, const Time &next_time)
+        {
+            LOG_VERBOSE(proto.debug_prefix()
+                        << " KeyContext[" << key_id_ << "] "
+                        << event_type_string(current) << " -> " << event_type_string(next)
+                        << '(' << seconds_until(next_time) << ')');
+            current_event = current;
+            next_event = next;
+            next_event_time = next_time;
+        }
 
       void invalidate_callback() // called by ProtoStackBase when session is invalidated
       {
@@ -2593,13 +2615,13 @@ enum
 	next_event_time = Time::infinite();
       }
 
-      // Trigger a renegotiation based on data flow condition such
-      // as per-key data limit or packet ID approaching wraparound.
-      void schedule_key_limit_renegotiation()
-      {
-	if (!key_limit_renegotiation_fired && state >= ACTIVE && !invalidated())
-	  {
-	    OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix() << " SCHEDULE KEY LIMIT RENEGOTIATION");
+        // Trigger a renegotiation based on data flow condition such
+        // as per-key data limit or packet ID approaching wraparound.
+        void schedule_key_limit_renegotiation()
+        {
+            if (!key_limit_renegotiation_fired && state >= ACTIVE && !invalidated())
+            {
+                LOG_VERBOSE(proto.debug_prefix() << " SCHEDULE KEY LIMIT RENEGOTIATION");
 
 	    key_limit_renegotiation_fired = true;
 	    proto.stats->error(Error::N_KEY_LIMIT_RENEG);
@@ -2631,13 +2653,13 @@ enum
             return true;
         }
 
-      // Handle a DataLimit event.
-      void data_limit_event(const DataLimit::Mode mode, const DataLimit::State state)
-      {
-            OPENVPN_LOG_PROTO_VERBOSE(proto.debug_prefix()
-                                      << " DATA LIMIT " << DataLimit::mode_str(mode)
-                                      << ' ' << DataLimit::state_str(state)
-                                      << " key_id=" << key_id_);
+        // Handle a DataLimit event.
+        void data_limit_event(const DataLimit::Mode mode, const DataLimit::State state)
+        {
+            LOG_VERBOSE(proto.debug_prefix()
+                        << " DATA LIMIT " << DataLimit::mode_str(mode)
+                        << ' ' << DataLimit::state_str(state)
+                        << " key_id=" << key_id_);
 
 	// State values:
 	//   DataLimit::Green -- first packet received and decrypted.
@@ -2875,48 +2897,48 @@ enum
 	  }
       }
 
-      void send_auth()
-      {
-	BufferPtr buf = new BufferAllocated();
-	proto.config->frame->prepare(Frame::WRITE_SSL_CLEARTEXT, *buf);
-	buf->write(proto_context_private::auth_prefix, sizeof(proto_context_private::auth_prefix));
-	tlsprf->self_randomize(*proto.config->rng);
-	tlsprf->self_write(*buf);
-	const std::string options = proto.config->options_string();
-	write_auth_string(options, *buf);
-	if (!proto.is_server())
-	  {
-	    OPENVPN_LOG_PROTO("Tunnel Options:" << options);
-	    buf->or_flags(BufferAllocated::DESTRUCT_ZERO);
-	    if (proto.config->xmit_creds)
-	      proto.client_auth(*buf);
-	    else
-	      {
-		write_empty_string(*buf); // username
-		write_empty_string(*buf); // password
-	      }
-	    const std::string peer_info = proto.config->peer_info_string();
-	    write_auth_string(peer_info, *buf);
-	  }
-	app_send_validate(std::move(buf));
-	dirty = true;
-      }
+        void send_auth()
+        {
+            BufferPtr buf = new BufferAllocated();
+            proto.config->frame->prepare(Frame::WRITE_SSL_CLEARTEXT, *buf);
+            buf->write(proto_context_private::auth_prefix, sizeof(proto_context_private::auth_prefix));
+            tlsprf->self_randomize(*proto.config->rng);
+            tlsprf->self_write(*buf);
+            const std::string options = proto.config->options_string();
+            write_auth_string(options, *buf);
+            if (!proto.is_server())
+            {
+                LOG_INFO("Tunnel Options:" << options);
+                buf->or_flags(BufferAllocated::DESTRUCT_ZERO);
+                if (proto.config->xmit_creds)
+                    proto.client_auth(*buf);
+                else
+                {
+                    write_empty_string(*buf); // username
+                    write_empty_string(*buf); // password
+                }
+                const std::string peer_info = proto.config->peer_info_string();
+                write_auth_string(peer_info, *buf);
+            }
+            app_send_validate(std::move(buf));
+            dirty = true;
+        }
 
-      void recv_auth(BufferPtr buf)
-      {
-	const unsigned char *buf_pre = buf->read_alloc(sizeof(proto_context_private::auth_prefix));
-	if (std::memcmp(buf_pre, proto_context_private::auth_prefix, sizeof(proto_context_private::auth_prefix)))
-	  throw proto_error("bad_auth_prefix");
-	tlsprf->peer_read(*buf);
-	const std::string options = read_auth_string<std::string>(*buf);
-	if (proto.is_server())
-	  {
-	    const std::string username = read_auth_string<std::string>(*buf);
-	    const SafeString password = read_auth_string<SafeString>(*buf);
-	    const std::string peer_info = read_auth_string<std::string>(*buf);
-	    proto.server_auth(username, password, peer_info, Base::auth_cert());
-	  }
-      }
+        void recv_auth(BufferPtr buf)
+        {
+            const unsigned char *buf_pre = buf->read_alloc(sizeof(proto_context_private::auth_prefix));
+            if (std::memcmp(buf_pre, proto_context_private::auth_prefix, sizeof(proto_context_private::auth_prefix)))
+                throw proto_error("bad_auth_prefix");
+            tlsprf->peer_read(*buf);
+            const std::string options = read_auth_string<std::string>(*buf);
+            if (proto.is_server())
+            {
+                const std::string username = read_auth_string<std::string>(*buf);
+                const SafeString password = read_auth_string<SafeString>(*buf);
+                const std::string peer_info = read_auth_string<std::string>(*buf);
+                proto.proto_callback->server_auth(username, password, peer_info, Base::auth_cert());
+            }
+        }
 
       // return true if complete recv_auth message is contained in buffer
       bool recv_auth_complete(BufferComplete& bc) const
@@ -2941,10 +2963,7 @@ enum
 
         void active()
         {
-            if (proto.config->debug_level >= 1)
-            {
-                OPENVPN_LOG_SSL("SSL Handshake: " << Base::ssl_handshake_details());
-            }
+            LOG_INFO("SSL Handshake: " << Base::ssl_handshake_details());
 
 	/* Our internal state machine only decides after push request what protocol
 	 * options we want to use. Therefore we also have to postpone data key
@@ -3770,9 +3789,11 @@ enum
 
     OPENVPN_SIMPLE_EXCEPTION(select_key_context_error);
 
-    ProtoContext(const ProtoConfig::Ptr &config_arg, // configuration
+    ProtoContext(ProtoContextCallbackInterface *cb_arg,
+                 const ProtoConfig::Ptr &config_arg, // configuration
                  const SessionStats::Ptr &stats_arg) // error stats
-        : config(config_arg),
+        : proto_callback(cb_arg),
+          config(config_arg),
           stats(stats_arg),
           mode_(config_arg->ssl_factory->mode()),
           n_key_ids(0),
@@ -3975,7 +3996,7 @@ enum
 
         // initialize key contexts
         primary.reset(new KeyContext(*this, is_client(), cookie_psid.defined()));
-        OPENVPN_LOG_PROTO_VERBOSE(debug_prefix() << " New KeyContext PRIMARY id=" << primary->key_id());
+        LOG_VERBOSE(debug_prefix() << " New KeyContext PRIMARY id=" << primary->key_id());
 
       // initialize keepalive timers
       keepalive_expire = Time::infinite();   // initially disabled
@@ -4160,10 +4181,10 @@ enum
     // encrypt a data channel packet using primary KeyContext
     void data_encrypt(BufferAllocated& in_out)
     {
-      //OPENVPN_LOG_PROTO_VERBOSE(debug_prefix() << " DATA ENCRYPT size=" << in_out.size());
-      if (!primary)
-	throw proto_error("data_encrypt: no primary key");
-      primary->encrypt(in_out);
+        LOG_DEBUG(debug_prefix() << " DATA ENCRYPT size=" << in_out.size());
+        if (!primary)
+            throw proto_error("data_encrypt: no primary key");
+        primary->encrypt(in_out);
     }
 
     // decrypt a data channel packet (automatically select primary
@@ -4172,7 +4193,7 @@ enum
     {
       bool ret = false;
 
-      //OPENVPN_LOG_PROTO_VERBOSE(debug_prefix() << " DATA DECRYPT key_id=" << select_key_context(type, false).key_id() << " size=" << in_out.size());
+        LOG_DEBUG(debug_prefix() << " DATA DECRYPT key_id=" << select_key_context(type, false).key_id() << " size=" << in_out.size());
 
       select_key_context(type, false).decrypt(in_out);
 
@@ -4407,8 +4428,13 @@ enum
         return *stats;
     }
 
-  protected:
     // debugging
+    bool is_state_client_wait_reset_ack() const
+    {
+        return primary_state() == C_WAIT_RESET_ACK;
+    }
+
+  protected:
     int primary_state() const
     {
       if (primary)
@@ -4435,32 +4461,11 @@ enum
       secondary.reset();
     }
 
-    virtual void control_net_send(const Buffer& net_buf) = 0;
-
-    // app may take ownership of app_bp via std::move
-    virtual void control_recv(BufferPtr&& app_bp) = 0;
-
     // Called on client to request username/password credentials.
-    // Should be overriden by derived class if credentials are required.
-    // username and password should be written into buf with write_auth_string().
-    virtual void client_auth(Buffer& buf)
+    // delegated to the callback/parent
+    void client_auth(Buffer &buf)
     {
-      write_empty_string(buf); // username
-      write_empty_string(buf); // password
-    }
-
-    // Called on server with credentials and peer info provided by client.
-    // Should be overriden by derived class if credentials are required.
-    virtual void server_auth(const std::string& username,
-			     const SafeString& password,
-			     const std::string& peer_info,
-			     const AuthCert::Ptr& auth_cert)
-    {
-    }
-
-    // Called when KeyContext transitions to ACTIVE state
-    virtual void active(bool primary)
-    {
+        proto_callback->client_auth(buf);
     }
 
     void update_last_received()
@@ -4470,12 +4475,12 @@ enum
 
     void net_send(const unsigned int key_id, const Packet& net_pkt)
     {
-      control_net_send(net_pkt.buffer());
+        proto_callback->control_net_send(net_pkt.buffer());
     }
 
     void app_recv(const unsigned int key_id, BufferPtr&& to_app_buf)
     {
-      control_recv(std::move(to_app_buf));
+        proto_callback->control_recv(std::move(to_app_buf));
     }
 
     // we're getting a request from peer to renegotiate.
@@ -4529,10 +4534,10 @@ enum
     // than the immediate rollover practiced by OpenVPN 2.x.
     KeyContext& select_control_send_context()
     {
-      OPENVPN_LOG_PROTO_VERBOSE(debug_prefix() << " CONTROL SEND");
-      if (!primary)
-	throw proto_error("select_control_send_context: no primary key");
-      return *primary;
+        LOG_VERBOSE(debug_prefix() << " CONTROL SEND");
+        if (!primary)
+            throw proto_error("select_control_send_context: no primary key");
+        return *primary;
     }
 
     // Possibly send a keepalive message, and check for expiration
@@ -4584,11 +4589,11 @@ enum
     //   true  : local renegotiation request
     void new_secondary_key(const bool initiator)
     {
-      // Create the secondary
-      secondary.reset(new KeyContext(*this, initiator));
-        OPENVPN_LOG_PROTO_VERBOSE(debug_prefix()
-                                  << " New KeyContext SECONDARY id=" << secondary->key_id()
-                                  << (initiator ? " local-triggered" : " remote-triggered"));
+        // Create the secondary
+        secondary.reset(new KeyContext(*this, initiator));
+        LOG_VERBOSE(debug_prefix()
+                    << " New KeyContext SECONDARY id=" << secondary->key_id()
+                    << (initiator ? " local-triggered" : " remote-triggered"));
     }
 
     // Promote a newly renegotiated KeyContext to primary status.
@@ -4596,37 +4601,37 @@ enum
     // in Config.
     void promote_secondary_to_primary()
     {
-      primary.swap(secondary);
-      if (primary)
-	primary->rekey(CryptoDCInstance::PRIMARY_SECONDARY_SWAP);
-      if (secondary)
-	secondary->prepare_expire();
-      OPENVPN_LOG_PROTO_VERBOSE(debug_prefix() << " PRIMARY_SECONDARY_SWAP");
+        primary.swap(secondary);
+        if (primary)
+            primary->rekey(CryptoDCInstance::PRIMARY_SECONDARY_SWAP);
+        if (secondary)
+            secondary->prepare_expire();
+        LOG_VERBOSE(debug_prefix() << " PRIMARY_SECONDARY_SWAP");
     }
 
     void process_primary_event()
     {
-      const KeyContext::EventType ev = primary->get_event();
-      if (ev != KeyContext::KEV_NONE)
-	{
-	  primary->reset_event();
-	  switch (ev)
-	    {
-	    case KeyContext::KEV_ACTIVE:
-	      OPENVPN_LOG_PROTO_VERBOSE(debug_prefix() << " SESSION_ACTIVE");
-	      primary->rekey(CryptoDCInstance::ACTIVATE_PRIMARY);
-	      active(true);
-	      break;
-	    case KeyContext::KEV_RENEGOTIATE:
-	    case KeyContext::KEV_RENEGOTIATE_FORCE:
-	      renegotiate();
-	      break;
-	    case KeyContext::KEV_EXPIRE:
-	      if (secondary && !secondary->invalidated())
-		promote_secondary_to_primary();
-	      else
-		{
-		  stats->error(Error::PRIMARY_EXPIRE);
+        const KeyContext::EventType ev = primary->get_event();
+        if (ev != KeyContext::KEV_NONE)
+        {
+            primary->reset_event();
+            switch (ev)
+            {
+            case KeyContext::KEV_ACTIVE:
+                LOG_VERBOSE(debug_prefix() << " SESSION_ACTIVE");
+                primary->rekey(CryptoDCInstance::ACTIVATE_PRIMARY);
+                proto_callback->active(true);
+                break;
+            case KeyContext::KEV_RENEGOTIATE:
+            case KeyContext::KEV_RENEGOTIATE_FORCE:
+                renegotiate();
+                break;
+            case KeyContext::KEV_EXPIRE:
+                if (secondary && !secondary->invalidated())
+                    promote_secondary_to_primary();
+                else
+                {
+                    stats->error(Error::PRIMARY_EXPIRE);
                     // primary context expired and no secondary context available
                     disconnect(Error::PRIMARY_EXPIRE);
 		}
@@ -4645,28 +4650,28 @@ enum
 
     void process_secondary_event()
     {
-      const KeyContext::EventType ev = secondary->get_event();
-      if (ev != KeyContext::KEV_NONE)
-	{
-	  secondary->reset_event();
-	  switch (ev)
-	    {
-	    case KeyContext::KEV_ACTIVE:
-	      secondary->rekey(CryptoDCInstance::NEW_SECONDARY);
-	      if (primary)
-		primary->prepare_expire();
-	      active(false);
-	      break;
-	    case KeyContext::KEV_BECOME_PRIMARY:
-	      if (!secondary->invalidated())
-		promote_secondary_to_primary();
-	      break;
-	    case KeyContext::KEV_EXPIRE:
-	      secondary->rekey(CryptoDCInstance::DEACTIVATE_SECONDARY);
-	      secondary.reset();
-	      break;
-	    case KeyContext::KEV_RENEGOTIATE_QUEUE:
-	      if (primary)
+        const KeyContext::EventType ev = secondary->get_event();
+        if (ev != KeyContext::KEV_NONE)
+        {
+            secondary->reset_event();
+            switch (ev)
+            {
+            case KeyContext::KEV_ACTIVE:
+                secondary->rekey(CryptoDCInstance::NEW_SECONDARY);
+                if (primary)
+                    primary->prepare_expire();
+                proto_callback->active(false);
+                break;
+            case KeyContext::KEV_BECOME_PRIMARY:
+                if (!secondary->invalidated())
+                    promote_secondary_to_primary();
+                break;
+            case KeyContext::KEV_EXPIRE:
+                secondary->rekey(CryptoDCInstance::DEACTIVATE_SECONDARY);
+                secondary.reset();
+                break;
+            case KeyContext::KEV_RENEGOTIATE_QUEUE:
+                if (primary)
                     primary->key_limit_reneg(KeyContext::KEV_RENEGOTIATE_FORCE,
                                              secondary->become_primary_time());
                 break;
@@ -4733,6 +4738,13 @@ enum
     }
 
     // BEGIN ProtoContext data members
+
+    /** the class that uses this class needs to be called back on a few things. Typically a class
+     * that uses this class as field for composition. This parent/callback class needs to ensure that
+     * it lives longer than this class, e.g. by having this class as field as this class blindly
+     * assumes that this pointer is always valid for its lifetime
+     */
+    ProtoContextCallbackInterface *proto_callback;
 
     ProtoConfig::Ptr config;
     SessionStats::Ptr stats;

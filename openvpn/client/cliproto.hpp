@@ -92,20 +92,13 @@ struct NotifyCallback
     }
     };
 
-class Session : ProtoContext,
+class Session : ProtoContextCallbackInterface,
                 TransportClientParent,
                 TunClientParent,
                 public RC<thread_unsafe_refcount>
 {
-    typedef ProtoContext Base;
-    typedef Base::PacketType PacketType;
-
-    using Base::now;
-    using Base::stat;
-
   public:
     typedef RCPtr<Session> Ptr;
-    typedef Base::ProtoConfig ProtoConfig;
 
     OPENVPN_EXCEPTION(client_exception);
     OPENVPN_EXCEPTION(client_halt_restart);
@@ -133,7 +126,7 @@ class Session : ProtoContext,
         {
         }
 
-        ProtoConfig::Ptr proto_context_config;
+        ProtoContext::ProtoConfig::Ptr proto_context_config;
         ProtoContextCompressionOptions::Ptr proto_context_options;
 	CryptoAlgs::Type cipher = CryptoAlgs::Type::NONE;
 	CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
@@ -146,47 +139,46 @@ class Session : ProtoContext,
         OptionList::Limits pushed_options_limit;
         OptionList::FilterBase::Ptr pushed_options_filter;
         unsigned int tcp_queue_limit = 64;
-	bool ncp_disable = false;
+        bool ncp_disable = false;
         bool echo = false;
         bool info = false;
         bool autologin_sessions = false;
     };
 
-      Session(openvpn_io::io_context& io_context_arg,
-	      const Config& config,
-	      NotifyCallback* notify_callback_arg)
-	: Base(config.proto_context_config, config.cli_stats),
-	  io_context(io_context_arg),
-	  transport_factory(config.transport_factory),
-	  tun_factory(config.tun_factory),
-	  tcp_queue_limit(config.tcp_queue_limit),
-	  notify_callback(notify_callback_arg),
-	  housekeeping_timer(io_context_arg),
-	  push_request_timer(io_context_arg),
-	  received_options(config.push_base),
-	  creds(config.creds),
-	  proto_context_options(config.proto_context_options),
-      cipher(config.cipher),
-      cipher_override(config.cipher_override),
-	  cli_stats(config.cli_stats),
-	  cli_events(config.cli_events),
-      ncp_disable(config.ncp_disable),
-	  echo(config.echo),
-	  info(config.info),
-	  autologin_sessions(config.autologin_sessions),
-	  pushed_options_limit(config.pushed_options_limit),
-	  pushed_options_filter(config.pushed_options_filter),
-	  inactive_timer(io_context_arg),
-	  info_hold_timer(io_context_arg)
-      {
+    Session(openvpn_io::io_context &io_context_arg,
+            const Config &config,
+            NotifyCallback *notify_callback_arg)
+        : proto_context(this, config.proto_context_config, config.cli_stats),
+          io_context(io_context_arg),
+          transport_factory(config.transport_factory),
+          tun_factory(config.tun_factory),
+          tcp_queue_limit(config.tcp_queue_limit),
+          notify_callback(notify_callback_arg),
+          housekeeping_timer(io_context_arg),
+          push_request_timer(io_context_arg),
+          received_options(config.push_base),
+          creds(config.creds),
+          proto_context_options(config.proto_context_options),
+          cipher(config.cipher),
+          cipher_override(config.cipher_override),
+          cli_stats(config.cli_stats),
+          cli_events(config.cli_events),
+          echo(config.echo),
+          info(config.info),
+          autologin_sessions(config.autologin_sessions),
+          pushed_options_limit(config.pushed_options_limit),
+          pushed_options_filter(config.pushed_options_filter),
+          inactive_timer(io_context_arg),
+          info_hold_timer(io_context_arg)
+    {
 #ifdef OPENVPN_PACKET_LOG
 	packet_log.open(OPENVPN_PACKET_LOG, std::ios::binary);
 	if (!packet_log)
 	  OPENVPN_THROW(open_file_error, "cannot open packet log for output: " << OPENVPN_PACKET_LOG);
 #endif
-	Base::update_now();
-	Base::reset();
-	//Base::enable_strict_openvpn_2x();
+        proto_context.update_now();
+        proto_context.reset();
+        // proto_context.enable_strict_openvpn_2x();
 
 	info_hold.reset(new std::vector<ClientEvent::Base::Ptr>());
       }
@@ -196,11 +188,11 @@ class Session : ProtoContext,
         return first_packet_received_;
     }
 
-      void start()
-      {
-	if (!halt)
-	  {
-	    Base::update_now();
+    void start()
+    {
+        if (!halt)
+        {
+            proto_context.update_now();
 
 	    // coarse wakeup range
 	    housekeeping_schedule.init(Time::Duration::binary_ms(512), Time::Duration::binary_ms(1024));
@@ -227,11 +219,11 @@ class Session : ProtoContext,
 	transport_factory = std::move(factory);
       }
 
-      void send_explicit_exit_notify()
-      {
-	if (!halt)
-	  Base::send_explicit_exit_notify();
-      }
+    void send_explicit_exit_notify()
+    {
+        if (!halt)
+            proto_context.send_explicit_exit_notify();
+    }
 
       void tun_set_disconnect()
       {
@@ -239,24 +231,24 @@ class Session : ProtoContext,
 	  tun->set_disconnect();
       }
 
-      void post_cc_msg(const std::string& msg)
-      {
-	Base::update_now();
-	Base::write_control_string(msg);
-	Base::flush(true);
-	set_housekeeping_timer();
-      }
+    void post_cc_msg(const std::string &msg)
+    {
+        proto_context.update_now();
+        proto_context.write_control_string(msg);
+        proto_context.flush(true);
+        set_housekeeping_timer();
+    }
 
     void post_app_control_message(const std::string proto, const std::string message)
     {
-        if (!conf().app_control_config.supports_protocol(proto))
+        if (!proto_context.conf().app_control_config.supports_protocol(proto))
         {
             ClientEvent::Base::Ptr ev = new ClientEvent::UnsupportedFeature{"missing acc protocol support", "server has not announced support of this custom app control protocol", false};
             cli_events->add_event(std::move(ev));
             return;
         }
 
-        for (auto fragment : conf().app_control_config.format_message(proto, message))
+        for (auto fragment : proto_context.conf().app_control_config.format_message(proto, message))
             post_cc_msg(std::move(fragment));
     }
 
@@ -267,7 +259,11 @@ class Session : ProtoContext,
             halt = true;
             housekeeping_timer.cancel();
             push_request_timer.cancel();
+
+            out_tun_callback_.reset();
+            in_tun_callback_.reset();
             inactive_timer.cancel();
+
             info_hold_timer.cancel();
             if (notify_callback && call_terminate_callback)
                 notify_callback->client_proto_terminate();
@@ -330,13 +326,13 @@ class Session : ProtoContext,
       {
         try
         {
-	  OPENVPN_LOG_CLIPROTO("Transport RECV " << server_endpoint_render() << ' ' << Base::dump_packet(buf));
+            OPENVPN_LOG_CLIPROTO("Transport RECV " << server_endpoint_render() << ' ' << proto_context.dump_packet(buf));
 
-	  // update current time
-	  Base::update_now();
+            // update current time
+            proto_context.update_now();
 
-	  // update last packet received
-	  stat().update_last_packet_received(now());
+            // update last packet received
+            proto_context.stat().update_last_packet_received(proto_context.now());
 
 	  // log connecting event (only on first packet received)
 	  if (!first_packet_received_)
@@ -346,16 +342,16 @@ class Session : ProtoContext,
 	      first_packet_received_ = true;
 	    }
 
-	  // get packet type
-	  Base::PacketType pt = Base::packet_type(buf);
+            // get packet type
+            ProtoContext::PacketType pt = proto_context.packet_type(buf);
 
-	  // process packet
-	  if (pt.is_data())
-	    {
-	      // data packet
-	      Base::data_decrypt(pt, buf);
-	      if (buf.size())
-		{
+            // process packet
+            if (pt.is_data())
+            {
+                // data packet
+                proto_context.data_decrypt(pt, buf);
+                if (buf.size())
+                {
 #ifdef OPENVPN_PACKET_LOG
 		  log_packet(buf, false);
 #endif
@@ -367,19 +363,19 @@ class Session : ProtoContext,
 		    }
 		}
 
-	      // do a lightweight flush
-	      Base::flush(false);
-	    }
-	  else if (pt.is_control())
-	    {
-	      // control packet
-	      Base::control_net_recv(pt, std::move(buf));
+                // do a lightweight flush
+                proto_context.flush(false);
+            }
+            else if (pt.is_control())
+            {
+                // control packet
+                proto_context.control_net_recv(pt, std::move(buf));
 
-	      // do a full flush
-	      Base::flush(true);
-	    }
-	  else
-	    cli_stats->error(Error::KEY_STATE_ERROR);
+                // do a full flush
+                proto_context.flush(true);
+            }
+            else
+                cli_stats->error(Error::KEY_STATE_ERROR);
 
 	  // schedule housekeeping wakeup
 	  set_housekeeping_timer();
@@ -413,8 +409,8 @@ class Session : ProtoContext,
         {
 	  OPENVPN_LOG_CLIPROTO("TUN recv, size=" << buf.size());
 
-	  // update current time
-	  Base::update_now();
+            // update current time
+            proto_context.update_now();
 
 	  // log packet
 #ifdef OPENVPN_PACKET_LOG
@@ -434,7 +430,7 @@ class Session : ProtoContext,
             // encrypt packet
             if (buf.size())
             {
-                const ProtoContext::ProtoConfig &c = Base::conf();
+                const ProtoContext::ProtoConfig &c = proto_context.conf();
                 // when calculating mss, we take IPv4 and TCP headers into account
                 // here we need to add it back since we check the whole IP packet size, not just TCP payload
                 constexpr size_t MinTcpHeader = 20;
@@ -447,21 +443,21 @@ class Session : ProtoContext,
                 }
                 else
                 {
-                    Base::data_encrypt(buf);
+                    proto_context.data_encrypt(buf);
                     if (buf.size())
                     {
                         // send packet via transport to destination
-                        OPENVPN_LOG_CLIPROTO("Transport SEND " << server_endpoint_render() << ' ' << Base::dump_packet(buf));
+                        OPENVPN_LOG_CLIPROTO("Transport SEND " << server_endpoint_render() << ' ' << proto_context.dump_packet(buf));
                         if (transport->transport_send(buf))
-                            Base::update_last_sent();
+                            proto_context.update_last_sent();
                         else if (halt)
                             return;
                     }
                 }
             }
 
-	  // do a lightweight flush
-	  Base::flush(false);
+            // do a lightweight flush
+            proto_context.flush(false);
 
 	  // schedule housekeeping wakeup
 	  set_housekeeping_timer();
@@ -472,19 +468,19 @@ class Session : ProtoContext,
 	  }
       }
 
-      // Return true if keepalive parameter(s) are enabled.
-      bool is_keepalive_enabled() const override
-      {
-	return Base::is_keepalive_enabled();
-      }
+    // Return true if keepalive parameter(s) are enabled.
+    bool is_keepalive_enabled() const override
+    {
+        return proto_context.is_keepalive_enabled();
+    }
 
-      // Disable keepalive for rest of session, but fetch
-      // the keepalive parameters (in seconds).
-      void disable_keepalive(unsigned int& keepalive_ping,
-			     unsigned int& keepalive_timeout) override
-      {
-	Base::disable_keepalive(keepalive_ping, keepalive_timeout);
-      }
+    // Disable keepalive for rest of session, but fetch
+    // the keepalive parameters (in seconds).
+    void disable_keepalive(unsigned int &keepalive_ping,
+                           unsigned int &keepalive_timeout) override
+    {
+        proto_context.disable_keepalive(keepalive_ping, keepalive_timeout);
+    }
 
       void transport_pre_resolve() override
       {
@@ -517,20 +513,20 @@ class Session : ProtoContext,
       {
         try
         {
-	  OPENVPN_LOG("Connecting to " << server_endpoint_render());
-	  Base::set_protocol(transport->transport_protocol());
-	  Base::set_cipher(cipher);
-	  Base::set_cipher_override(cipher_override);
-	  Base::set_ncp_disable(ncp_disable);
-	  Base::start();
-	  Base::flush(true);
-	  set_housekeeping_timer();
-	}
-	catch (const std::exception& e)
-	  {
-	    process_exception(e, "transport_connecting");
-	  }
-      }
+            OPENVPN_LOG("Connecting to " << server_endpoint_render());
+            proto_context.set_protocol(transport->transport_protocol());
+            proto_context.set_cipher(cipher);
+            proto_context.set_cipher_override(cipher_override);
+            proto_context.set_ncp_disable(ncp_disable);
+            proto_context.start();
+            proto_context.flush(true);
+            set_housekeeping_timer();
+        }
+        catch (const std::exception &e)
+        {
+            process_exception(e, "transport_connecting");
+        }
+    }
 
       void transport_error(const Error::Type fatal_err, const std::string& err_text) override
       {
@@ -591,14 +587,14 @@ class Session : ProtoContext,
 #else
 		  OPENVPN_LOG("Session token: [redacted]");
 #endif
-		  autologin_sessions = true;
-		  conf().set_xmit_creds(true);
-		  creds->set_replace_password_with_session_id(true);
-		  creds->set_session_id(username, sess_id);
-		}
-	    }
-	}
-      }
+                    autologin_sessions = true;
+                    proto_context.conf().set_xmit_creds(true);
+                    creds->set_replace_password_with_session_id(true);
+                    creds->set_session_id(username, sess_id);
+                }
+            }
+        }
+    }
 
       /**
        * Parses a AUTH_FAILED,TEMP string, extracts the flags and returns
@@ -690,13 +686,13 @@ class Session : ProtoContext,
 	return msg.substr(reason_idx + 1);
       }
 
-      // proto base class calls here for control channel network sends
-      void control_net_send(const Buffer& net_buf) override
-      {
-	OPENVPN_LOG_CLIPROTO("Transport SEND " << server_endpoint_render() << ' ' << Base::dump_packet(net_buf));
-	if (transport->transport_send_const(net_buf))
-	  Base::update_last_sent();
-      }
+    // proto base class calls here for control channel network sends
+    void control_net_send(const Buffer &net_buf) override
+    {
+        OPENVPN_LOG_CLIPROTO("Transport SEND " << server_endpoint_render() << ' ' << proto_context.dump_packet(net_buf));
+        if (transport->transport_send_const(net_buf))
+            proto_context.update_last_sent();
+    }
 
     void recv_auth_failed(const std::string &msg)
     {
@@ -758,7 +754,7 @@ class Session : ProtoContext,
                     {
                         timeout = clamp_to_typerange<unsigned int>(std::stoul(timeout_str));
                         // Cap the timeout to end well before renegotiation starts
-                        timeout = std::min(timeout, static_cast<decltype(timeout)>(conf().renegotiate.to_seconds() / 2));
+                        timeout = std::min(timeout, static_cast<decltype(timeout)>(proto_context.conf().renegotiate.to_seconds() / 2));
                     }
                     catch (const std::logic_error &)
                     {
@@ -781,7 +777,7 @@ class Session : ProtoContext,
 
     void recv_relay()
     {
-        if (conf().relay_mode)
+        if (proto_context.conf().relay_mode)
         {
             fatal_ = Error::RELAY;
             fatal_reason_ = "";
@@ -823,7 +819,7 @@ class Session : ProtoContext,
     // proto base class calls here for app-level control-channel messages received
     void control_recv(BufferPtr &&app_bp) override
     {
-        const std::string msg = Unicode::utf8_printable(Base::template read_control_string<std::string>(*app_bp),
+        const std::string msg = Unicode::utf8_printable(ProtoContext::template read_control_string<std::string>(*app_bp),
                                                         Unicode::UTF8_FILTER | Unicode::UTF8_PASS_FMT);
 
 	//OPENVPN_LOG("SERVER: " << sanitize_control_message(msg));
@@ -864,13 +860,13 @@ class Session : ProtoContext,
     void recv_custom_control_message(const std::string msg)
     {
 
-        bool fullmessage = conf().app_control_recv.receive_message(msg);
+        bool fullmessage = proto_context.conf().app_control_recv.receive_message(msg);
         if (!fullmessage)
             return;
 
-        auto [proto, app_proto_msg] = conf().app_control_recv.get_message();
+        auto [proto, app_proto_msg] = proto_context.conf().app_control_recv.get_message();
 
-        if (conf().app_control_config.supports_protocol(proto))
+        if (proto_context.conf().app_control_config.supports_protocol(proto))
         {
             auto ev = new ClientEvent::AppCustomControlMessage(std::move(proto), std::move(app_proto_msg));
             cli_events->add_event(std::move(ev));
@@ -901,12 +897,12 @@ class Session : ProtoContext,
                 OPENVPN_LOG("OPTIONS:" << std::endl
                                        << render_options_sanitized(received_options, Option::RENDER_PASS_FMT | Option::RENDER_NUMBER | Option::RENDER_BRACKET));
 
-		// relay servers are not allowed to establish a tunnel with us
-		if (Base::conf().relay_mode)
-		  {
-		    tun_error(Error::RELAY_ERROR, "tunnel not permitted to relay server");
-		    return;
-		  }
+                // relay servers are not allowed to establish a tunnel with us
+                if (proto_context.conf().relay_mode)
+                {
+                    tun_error(Error::RELAY_ERROR, "tunnel not permitted to relay server");
+                    return;
+                }
 
 		// Merge local and pushed options
 		received_options.finalize(pushed_options_merger);
@@ -921,29 +917,29 @@ class Session : ProtoContext,
 		// process pushed transport options
 		transport_factory->process_push(received_options);
 
-		// modify proto config (cipher, auth, key-derivation and compression methods)
-		Base::process_push(received_options, *proto_context_options);
+        // modify proto config (cipher, auth, key-derivation and compression methods)
+        proto_context.process_push(received_options, *proto_context_options);
 
-		// initialize tun/routing
-		tun = tun_factory->new_tun_client_obj(io_context, *this, transport.get());
-		tun->tun_start(received_options, *transport, Base::dc_settings());
+        // initialize tun/routing
+        tun = tun_factory->new_tun_client_obj(io_context, *this, transport.get());
+        tun->tun_start(received_options, *transport, proto_context.dc_settings());
 
 		// we should be connected at this point
 		if (!connected_)
 		  throw tun_exception("not connected");
 
-		// Propagate tun-mtu back, it might have been overwritten by a pushed tun-mtu option
-		conf().tun_mtu = tun->vpn_mtu();
+        // Propagate tun-mtu back, it might have been overwritten by a pushed tun-mtu option
+        proto_context.conf().tun_mtu = tun->vpn_mtu();
 
-		// initialize data channel after pushed options have been processed
-		Base::init_data_channel();
+        // initialize data channel after pushed options have been processed
+        proto_context.init_data_channel();
 
-		// we got pushed options and initializated crypto - now we can push mss to dco
-		tun->adjust_mss(conf().mss_fix);
+        // we got pushed options and initializated crypto - now we can push mss to dco
+        tun->adjust_mss(proto_context.conf().mss_fix);
 
-		// Allow ProtoContext to suggest an alignment adjustment
-		// hint for transport layer.
-		transport->reset_align_adjust(Base::align_adjust_hint());
+        // Allow ProtoContext to suggest an alignment adjustment
+        // hint for transport layer.
+        transport->reset_align_adjust(proto_context.align_adjust_hint());
 
 		// process "inactive" directive
 		process_inactive(received_options);
@@ -959,10 +955,10 @@ class Session : ProtoContext,
 		cli_events->add_event(connected_);
 
                 // send an event for custom app control if present
-                if (!conf().app_control_config.supported_protocols.empty())
+                if (!proto_context.conf().app_control_config.supported_protocols.empty())
                 {
                     // Signal support for supported protocols
-                    auto ev = new ClientEvent::AppCustomControlMessage("internal:supported_protocols", string::join(conf().app_control_config.supported_protocols, ":"));
+                    auto ev = new ClientEvent::AppCustomControlMessage("internal:supported_protocols", string::join(proto_context.conf().app_control_config.supported_protocols, ":"));
                     cli_events->add_event(std::move(ev));
                 }
 
@@ -998,154 +994,155 @@ class Session : ProtoContext,
 	cli_events->add_event(std::move(ev));
       }
 
-      void tun_connected() override
-      {
-	OPENVPN_LOG("Connected via " + tun->tun_name());
+    void tun_connected() override
+    {
+        OPENVPN_LOG("Connected via " + tun->tun_name());
 
-	ClientEvent::Connected::Ptr ev = new ClientEvent::Connected();
-	if (creds)
-	  ev->user = creds->get_username();
-	transport->server_endpoint_info(ev->server_host, ev->server_port, ev->server_proto, ev->server_ip);
-	ev->vpn_ip4 = tun->vpn_ip4();
-	ev->vpn_ip6 = tun->vpn_ip6();
-	ev->vpn_gw4 = tun->vpn_gw4();
-	ev->vpn_gw6 = tun->vpn_gw6();
+        ClientEvent::Connected::Ptr ev = new ClientEvent::Connected();
+        if (creds)
+            ev->user = creds->get_username();
+        transport->server_endpoint_info(ev->server_host, ev->server_port, ev->server_proto, ev->server_ip);
+        ev->vpn_ip4 = tun->vpn_ip4();
+        ev->vpn_ip6 = tun->vpn_ip6();
+        ev->vpn_gw4 = tun->vpn_gw4();
+        ev->vpn_gw6 = tun->vpn_gw6();
         if (tun->vpn_mtu())
         {
-	  ev->vpn_mtu = std::to_string(tun->vpn_mtu());
+            ev->vpn_mtu = std::to_string(tun->vpn_mtu());
         }
         else
         {
-	  ev->vpn_mtu = "(default)";
-	}
+            ev->vpn_mtu = "(default)";
+        }
 
         try
         {
-	  std::string client_ip = received_options.get_optional("client-ip", 1, 256);
-	  if (!client_ip.empty())
-	    ev->client_ip = IP::Addr::validate(client_ip, "client-ip");
-	}
-	catch (const std::exception& e)
-	  {
-	    OPENVPN_LOG("exception parsing client-ip: " << e.what());
-	  }
-	ev->tun_name = tun->tun_name();
-    
-	try
-    {
-        ev->topology = received_options.get_optional("topology", 1, 256);
+            std::string client_ip = received_options.get_optional("client-ip", 1, 256);
+            if (!client_ip.empty())
+                ev->client_ip = IP::Addr::validate(client_ip, "client-ip");
+        }
+        catch (const std::exception &e)
+        {
+            OPENVPN_LOG("exception parsing client-ip: " << e.what());
+        }
 
-        if (ev->topology.empty())
-            ev->topology = "UNKNOWN";
-	}
-	catch(const std::exception& e)
-    {
-        OPENVPN_LOG("exception parsing topology: " << e.what());
+        ev->tun_name = tun->tun_name();
+
+        try
+        {
+            ev->topology = received_options.get_optional("topology", 1, 256);
+
+            if (ev->topology.empty())
+                ev->topology = "UNKNOWN";
+        }
+        catch(const std::exception& e)
+        {
+            OPENVPN_LOG("exception parsing topology: " << e.what());
+        }
+
+        try
+        {
+            ev->cipher = received_options.get_optional("cipher", 1, 256);
+
+            if (ev->cipher.empty())
+                ev->cipher = "UNKNOWN";
+        }
+        catch(const std::exception& e)
+        {
+            OPENVPN_LOG("exception parsing cipher: " << e.what());
+        }
+
+        try
+        {
+            ev->ping = std::stoi(received_options.get_optional("ping", 1, 256));
+
+            if (ev->ping <= 0)
+                ev->ping = -1;
+        }
+        catch(const std::exception& e)
+        {
+            OPENVPN_LOG("exception parsing ping: " << e.what());
+        }
+
+        try
+        {
+            ev->ping_restart = std::stoi(received_options.get_optional("ping-restart", 1, 256));
+
+            if (ev->ping_restart <= 0)
+                ev->ping_restart = -1;
+        }
+        catch(const std::exception& e)
+        {
+            OPENVPN_LOG("exception parsing ping-restart: " << e.what());
+        }
+
+        connected_ = std::move(ev);
     }
 
-	try
+    void tun_error(const Error::Type fatal_err, const std::string &err_text) override
     {
-        ev->cipher = received_options.get_optional("cipher", 1, 256);
-
-        if (ev->cipher.empty())
-            ev->cipher = "UNKNOWN";
-	}
-	catch(const std::exception& e)
-    {
-        OPENVPN_LOG("exception parsing cipher: " << e.what());
+        if (fatal_err == Error::TUN_HALT)
+            send_explicit_exit_notify();
+        if (fatal_err != Error::UNDEF)
+        {
+            fatal_ = fatal_err;
+            fatal_reason_ = err_text;
+        }
+        if (notify_callback)
+        {
+            OPENVPN_LOG("TUN Error: " << err_text);
+            stop(true);
+        }
+        else
+            throw tun_exception(err_text);
     }
 
-	try
+    // proto base class calls here to get auth credentials
+    void client_auth(Buffer &buf) override
     {
-        ev->ping = std::stoi(received_options.get_optional("ping", 1, 256));
-
-        if (ev->ping <= 0)
-            ev->ping = -1;
-	}
-	catch(const std::exception& e)
-    {
-        OPENVPN_LOG("exception parsing ping: " << e.what());
-    }
-
-	try
-    {
-        ev->ping_restart = std::stoi(received_options.get_optional("ping-restart", 1, 256));
-
-        if (ev->ping_restart <= 0)
-            ev->ping_restart = -1;
-	}
-	catch(const std::exception& e)
-    {
-        OPENVPN_LOG("exception parsing ping-restart: " << e.what());
-    }
-
-	connected_ = std::move(ev);
-      }
-
-      void tun_error(const Error::Type fatal_err, const std::string& err_text) override
-      {
-	if (fatal_err == Error::TUN_HALT)
-	  send_explicit_exit_notify();
-	if (fatal_err != Error::UNDEF)
-	  {
-	    fatal_ = fatal_err;
-	    fatal_reason_ = err_text;
-	  }
-	if (notify_callback)
-	  {
-	    OPENVPN_LOG("TUN Error: " << err_text);
-	    stop(true);
-	  }
-	else
-	  throw tun_exception(err_text);
-      }
-
-      // proto base class calls here to get auth credentials
-      void client_auth(Buffer& buf) override
-      {
-	// we never send creds to a relay server
-	if (creds && !Base::conf().relay_mode)
-	  {
-	    OPENVPN_LOG("Creds: " << creds->auth_info());
-	    Base::write_auth_string(creds->get_username(), buf);
+        // we never send creds to a relay server
+        if (creds && !proto_context.conf().relay_mode)
+        {
+            OPENVPN_LOG("Creds: " << creds->auth_info());
+            proto_context.write_auth_string(creds->get_username(), buf);
 #ifdef OPENVPN_DISABLE_AUTH_TOKEN // debugging only
-	    if (creds->session_id_defined())
-	      {
-		OPENVPN_LOG("NOTE: not sending auth-token");
-		Base::write_empty_string(buf);
-	      }
-	    else
+            if (creds->session_id_defined())
+            {
+                OPENVPN_LOG("NOTE: not sending auth-token");
+                ProtoContext::write_empty_string(buf);
+            }
+            else
 #endif
-	      {
-		Base::write_auth_string(creds->get_password(), buf);
-	      }
-	  }
-	else
-	  {
-	    OPENVPN_LOG("Creds: None");
-	    Base::write_empty_string(buf); // username
-	    Base::write_empty_string(buf); // password
-	  }
-      }
+            {
+                proto_context.write_auth_string(creds->get_password(), buf);
+            }
+        }
+        else
+        {
+            OPENVPN_LOG("Creds: None");
+            write_empty_string(buf); // username
+            write_empty_string(buf); // password
+        }
+    }
 
       void send_push_request_callback(const Time::Duration& dur,
 				      const openvpn_io::error_code& e)
       {
         try
         {
-	  if (!e && !halt && !received_options.partial())
-	    {
-	      Base::update_now();
-	      if (!sent_push_request)
-		{
-		  ClientEvent::Base::Ptr ev = new ClientEvent::GetConfig();
-		  cli_events->add_event(std::move(ev));
-		  sent_push_request = true;
-		}
-	      OPENVPN_LOG("Sending PUSH_REQUEST to server...");
-	      Base::write_control_string(std::string("PUSH_REQUEST"));
-	      Base::flush(true);
-	      set_housekeeping_timer();
+            if (!e && !halt && !received_options.partial())
+            {
+                proto_context.update_now();
+                if (!sent_push_request)
+                {
+                    ClientEvent::Base::Ptr ev = new ClientEvent::GetConfig();
+                    cli_events->add_event(std::move(ev));
+                    sent_push_request = true;
+                }
+                OPENVPN_LOG("Sending PUSH_REQUEST to server...");
+                proto_context.write_control_string(std::string("PUSH_REQUEST"));
+                proto_context.flush(true);
+                set_housekeeping_timer();
 
 	      {
 		if (auth_pending)
@@ -1185,10 +1182,10 @@ class Session : ProtoContext,
 	  }
       }
 
-      // react to any tls warning triggered during the tls-handshake
-      virtual void check_tls_warnings()
-      {
-	uint32_t tls_warnings = get_tls_warnings();
+    // react to any tls warning triggered during the tls-handshake
+    virtual void check_tls_warnings()
+    {
+        uint32_t tls_warnings = proto_context.get_tls_warnings();
 
 	if (tls_warnings & SSLAPI::TLS_WARN_SIG_MD5)
 	  {
@@ -1203,15 +1200,15 @@ class Session : ProtoContext,
 	  }
       }
 
-      void check_proto_warnings()
-      {
-	if (uses_bs64_cipher())
-	  {
-	    ClientEvent::Base::Ptr ev = new ClientEvent::Warn("Proto: Using a 64-bit block cipher that is vulnerable to the SWEET32 attack. Please inform your admin to upgrade to a stronger algorithm. Support for 64-bit block cipher will be dropped in the future.");
-	    cli_events->add_event(std::move(ev));
-	  }
+    void check_proto_warnings()
+    {
+        if (proto_context.uses_bs64_cipher())
+        {
+            ClientEvent::Base::Ptr ev = new ClientEvent::Warn("Proto: Using a 64-bit block cipher that is vulnerable to the SWEET32 attack. Please inform your admin to upgrade to a stronger algorithm. Support for 64-bit block cipher will be dropped in the future.");
+            cli_events->add_event(std::move(ev));
+        }
 
-        CompressContext::Type comp_type = Base::conf().comp_ctx.type();
+        CompressContext::Type comp_type = proto_context.conf().comp_ctx.type();
 
         // abort connection if compression is pushed and its support is unannounced
         /* ProMIND: commented out for back compatibility
@@ -1255,46 +1252,46 @@ class Session : ProtoContext,
       {
         try
         {
-	  if (!e && !halt)
-	    {
-	      // update current time
-	      Base::update_now();
+            if (!e && !halt)
+            {
+                // update current time
+                proto_context.update_now();
 
-	      housekeeping_schedule.reset();
-	      Base::housekeeping();
-	      if (Base::invalidated())
-		{
-		  if (notify_callback)
-		    {
-		      OPENVPN_LOG("Session invalidated: " << Error::name(Base::invalidation_reason()));
-		      stop(true);
-		    }
-		  else
-		    throw session_invalidated();
-		}
-	      set_housekeeping_timer();
-	    }
-	}
-	catch (const std::exception& e)
-	  {
-	    process_exception(e, "housekeeping_callback");
-	  }
-      }
+                housekeeping_schedule.reset();
+                proto_context.housekeeping();
+                if (proto_context.invalidated())
+                {
+                    if (notify_callback)
+                    {
+                        OPENVPN_LOG("Session invalidated: " << Error::name(proto_context.invalidation_reason()));
+                        stop(true);
+                    }
+                    else
+                        throw session_invalidated();
+                }
+                set_housekeeping_timer();
+            }
+        }
+        catch (const std::exception &e)
+        {
+            process_exception(e, "housekeeping_callback");
+        }
+    }
 
       void set_housekeeping_timer()
       {
 	if (halt)
 	  return;
 
-	Time next = Base::next_housekeeping();
-	if (!housekeeping_schedule.similar(next))
-	  {
-	    if (!next.is_infinite())
-	      {
-		next.max(now());
-		housekeeping_schedule.reset(next);
-		housekeeping_timer.expires_at(next);
-		housekeeping_timer.async_wait([self=Ptr(this)](const openvpn_io::error_code& error)
+        Time next = proto_context.next_housekeeping();
+        if (!housekeeping_schedule.similar(next))
+        {
+            if (!next.is_infinite())
+            {
+                next.max(proto_context.now());
+                housekeeping_schedule.reset(next);
+                housekeeping_timer.expires_at(next);
+                housekeeping_timer.async_wait([self = Ptr(this)](const openvpn_io::error_code &error)
                                               {
                                                 OPENVPN_ASYNC_HANDLER;
                                                 self->housekeeping_callback(error); });
@@ -1311,19 +1308,30 @@ class Session : ProtoContext,
       {
         try
         {
-	  const Option *o = load_duration_parm(inactive_duration, "inactive", opt, 1, false, false);
-	  if (o)
-	    {
-	      if (o->size() >= 3)
-		inactive_bytes = parse_number_throw<unsigned int>(o->get(2, 16), "inactive bytes");
-	      schedule_inactive_timer();
-	    }
-	}
-	catch (const std::exception& e)
-	  {
-	    OPENVPN_LOG("exception parsing inactive: " << e.what());
-	  }
-      }
+            const Option *o = load_duration_parm(inactive_duration, "inactive", opt, 1, false, false);
+            if (o)
+            {
+                if (o->size() >= 3)
+                    inactivity_minimum_bytes = parse_number_throw<unsigned int>(o->get(2, 16), "inactive bytes");
+
+                out_tun_callback_ = cli_stats->set_inc_callback(
+                    SessionStats::Stats::TUN_BYTES_OUT,
+                    [self = Ptr(this)](const count_t value)
+                    { self->reset_inactive_timer(value); });
+
+                in_tun_callback_ = cli_stats->set_inc_callback(
+                    SessionStats::Stats::TUN_BYTES_IN,
+                    [self = Ptr(this)](const count_t value)
+                    { self->reset_inactive_timer(value); });
+
+                schedule_inactive_timer();
+            }
+        }
+        catch (const std::exception &e)
+        {
+            OPENVPN_LOG("exception parsing inactive: " << e.what());
+        }
+    }
 
       void schedule_inactive_timer()
       {
@@ -1334,41 +1342,44 @@ class Session : ProtoContext,
                                     self->inactive_callback(error); });
       }
 
-      void inactive_callback(const openvpn_io::error_code& e) // fixme for DCO
-      {
+    void reset_inactive_timer(const count_t bytes_count)
+    {
+        // Ensure that it's called within the io_context in case it needs to be invoked from a separate thread.
+        openvpn_io::post(io_context, [self = Ptr(this), bytes_count]()
+                         {
+            OPENVPN_ASYNC_HANDLER;
+
+            self->inactivity_bytes += bytes_count;
+            if (self->inactivity_bytes >= self->inactivity_minimum_bytes)
+            {
+                // OPENVPN_LOG("reset_inactive_timer: " << self->inactivity_bytes);
+                self->inactivity_bytes = 0;
+                self->schedule_inactive_timer();
+            } });
+    }
+
+    void inactive_callback(const openvpn_io::error_code &e) // fixme for DCO
+    {
         try
         {
-	  if (!e && !halt)
-	    {
-	      // update current time
-	      Base::update_now();
-	      const count_t sample = cli_stats->get_stat(SessionStats::TUN_BYTES_IN) + cli_stats->get_stat(SessionStats::TUN_BYTES_OUT);
-	      const count_t delta = sample - inactive_last_sample;
-	      //OPENVPN_LOG("*** INACTIVE SAMPLE " << delta << ' ' << inactive_bytes);
-	      if (delta <= count_t(inactive_bytes))
-		{
-		  fatal_ = Error::INACTIVE_TIMEOUT;
-		  send_explicit_exit_notify();
-		  if (notify_callback)
-		    {
-		      OPENVPN_LOG("inactive timer expired");
-		      stop(true);
-		    }
-		  else
-		    throw inactive_timer_expired();
-		}
-	      else
-		{
-		  inactive_last_sample = sample;
-		  schedule_inactive_timer();
-		}
-	    }
-	}
-	catch (const std::exception& e)
-	  {
-	    process_exception(e, "inactive_callback");
-	  }
-      }
+            if (!e && !halt)
+            {
+                fatal_ = Error::INACTIVE_TIMEOUT;
+                send_explicit_exit_notify();
+                if (notify_callback)
+                {
+                    OPENVPN_LOG("inactive timer expired");
+                    stop(true);
+                }
+                else
+                    throw inactive_timer_expired();
+            }
+        }
+        catch (const std::exception &e)
+        {
+            process_exception(e, "inactive_callback");
+        }
+    }
 
       void process_echo(const OptionList& opt)
       {
@@ -1416,12 +1427,12 @@ class Session : ProtoContext,
             throw client_halt_restart(ch.render());
     }
 
-      void schedule_info_hold_callback()
-      {
-	Base::update_now();
-	info_hold_timer.expires_after(Time::Duration::seconds(1));
-	info_hold_timer.async_wait([self=Ptr(this)](const openvpn_io::error_code& error)
-                                  {
+    void schedule_info_hold_callback()
+    {
+        proto_context.update_now();
+        info_hold_timer.expires_after(Time::Duration::seconds(1));
+        info_hold_timer.async_wait([self = Ptr(this)](const openvpn_io::error_code &error)
+                                   {
                                     OPENVPN_ASYNC_HANDLER;
                                     self->info_hold_callback(error); });
       }
@@ -1432,7 +1443,7 @@ class Session : ProtoContext,
         {
             if (!e && !halt)
             {
-                Base::update_now();
+                proto_context.update_now();
                 if (info_hold)
                 {
                     for (auto &ev : *info_hold)
@@ -1461,7 +1472,9 @@ class Session : ProtoContext,
       }
 #endif
 
-      openvpn_io::io_context& io_context;
+    ProtoContext proto_context;
+
+    openvpn_io::io_context &io_context;
 
       TransportClientFactory::Ptr transport_factory;
       TransportClient::Ptr transport;
@@ -1511,8 +1524,11 @@ class Session : ProtoContext,
 
       AsioTimer inactive_timer;
       Time::Duration inactive_duration;
-      unsigned int inactive_bytes = 0;
-      count_t inactive_last_sample = 0;
+
+      unsigned int inactivity_minimum_bytes = 0;
+      std::uint64_t inactivity_bytes = 0;
+      std::shared_ptr<SessionStats::inc_callback_t> out_tun_callback_;
+      std::shared_ptr<SessionStats::inc_callback_t> in_tun_callback_;
 
       std::unique_ptr<std::vector<ClientEvent::Base::Ptr>> info_hold;
       AsioTimer info_hold_timer;

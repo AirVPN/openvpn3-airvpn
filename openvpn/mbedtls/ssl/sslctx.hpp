@@ -48,7 +48,6 @@
 #include <openvpn/pki/pkcs1.hpp>
 #include <openvpn/ssl/sslconsts.hpp>
 #include <openvpn/ssl/sslapi.hpp>
-#include <openvpn/ssl/ssllog.hpp>
 #include <openvpn/ssl/verify_x509_name.hpp>
 #include <openvpn/ssl/iana_ciphers.hpp>
 
@@ -1051,27 +1050,27 @@ const int ciphersuites[] = // CONST GLOBAL
 	  {
 	    const tls_cipher_name_pair* pair = tls_get_cipher_name_pair(ciphersuite);
 
-	    if (pair && pair->iana_name != ciphersuite)
-	      {
-		OPENVPN_LOG_SSL("mbed TLS -- Deprecated cipher suite name '"
-				  << pair->openssl_name << "' please use IANA name ' "
-				  << pair->iana_name << "'");
-	      }
+        if (pair && pair->iana_name != ciphersuite)
+        {
+            LOG_INFO("mbed TLS -- Deprecated cipher suite name '"
+                     << pair->openssl_name << "' please use IANA name ' "
+                     << pair->iana_name << "'");
+        }
 
-	    auto cipher_id = mbedtls_ssl_get_ciphersuite_id(ciphersuite.c_str());
-	    if (cipher_id != 0)
-	      {
-		allowed_ciphers[i] = cipher_id;
-		i++;
-	      }
-	    else
-	      {
-	        /* OpenVPN 2.x ignores silently ignores unknown cipher suites with
-	         * mbed TLS. We warn about them in OpenVPN 3.x */
-		OPENVPN_LOG_SSL("mbed TLS -- warning ignoring unknown cipher suite '"
-		                  << ciphersuite << "' in tls-cipher");
-	      }
-	  }
+        auto cipher_id = mbedtls_ssl_get_ciphersuite_id(ciphersuite.c_str());
+        if (cipher_id != 0)
+        {
+            allowed_ciphers[i] = cipher_id;
+            i++;
+        }
+        else
+        {
+            /* OpenVPN 2.x ignores silently ignores unknown cipher suites with
+             * mbed TLS. We warn about them in OpenVPN 3.x */
+            LOG_INFO("mbed TLS -- warning ignoring unknown cipher suite '"
+                     << ciphersuite << "' in tls-cipher");
+        }
+    }
 
 	  // Last element needs to be null
 	allowed_ciphers[i] = 0;
@@ -1093,17 +1092,17 @@ const int ciphersuites[] = // CONST GLOBAL
 	  {
                 const mbedtls_ecp_curve_info *ci = mbedtls_ecp_curve_info_from_name(group.c_str());
 
-	    if (ci)
-	      {
-		groups[i] = ci->grp_id;
-		i++;
-	      }
-	    else
-	      {
-		OPENVPN_LOG_SSL("mbed TLS -- warning ignoring unknown group '"
-				  << group << "' in tls-groups");
-	      }
-	  }
+                if (ci)
+                {
+                    groups[i] = ci->grp_id;
+                    i++;
+                }
+                else
+                {
+                    LOG_INFO("mbed TLS -- warning ignoring unknown group '"
+                             << group << "' in tls-groups");
+                }
+            }
 
 	groups[i] = MBEDTLS_ECP_DP_NONE;
 	mbedtls_ssl_conf_curves(sslconf, groups.get());
@@ -1355,9 +1354,9 @@ const int ciphersuites[] = // CONST GLOBAL
       MbedTLSContext *self = ssl->parent;
       bool fail = false;
 
-      // log status
-      if (self->config->flags & SSLConst::LOG_VERIFY_STATUS)
-	OPENVPN_LOG_SSL(status_string(cert, depth, flags));
+        // log status
+        if (self->config->flags & SSLConst::LOG_VERIFY_STATUS)
+            LOG_INFO(status_string(cert, depth, flags));
 
             // notify if connection is happening with an insecurely signed cert.
 
@@ -1375,42 +1374,42 @@ const int ciphersuites[] = // CONST GLOBAL
         }
 #endif
 
-      // leaf-cert verification
-      if (depth == 0)
-	{
-	  // verify ns-cert-type
-	  if (self->ns_cert_type_defined() && !self->verify_ns_cert_type(cert))
-	    {
-	      OPENVPN_LOG_SSL("VERIFY FAIL -- bad ns-cert-type in leaf certificate");
-	      fail = true;
-	    }
+        // leaf-cert verification
+        if (depth == 0)
+        {
+            // verify ns-cert-type
+            if (self->ns_cert_type_defined() && !self->verify_ns_cert_type(cert))
+            {
+                LOG_INFO("VERIFY FAIL -- bad ns-cert-type in leaf certificate");
+                fail = true;
+            }
 
-	  // verify X509 key usage
-	  if (self->x509_cert_ku_defined() && !self->verify_x509_cert_ku(cert))
-	    {
-	      OPENVPN_LOG_SSL("VERIFY FAIL -- bad X509 key usage in leaf certificate");
-	      fail = true;
-	    }
+            // verify X509 key usage
+            if (self->x509_cert_ku_defined() && !self->verify_x509_cert_ku(cert))
+            {
+                LOG_INFO("VERIFY FAIL -- bad X509 key usage in leaf certificate");
+                fail = true;
+            }
 
-	  // verify X509 extended key usage
-	  if (self->x509_cert_eku_defined() && !self->verify_x509_cert_eku(cert))
-	    {
-	      OPENVPN_LOG_SSL("VERIFY FAIL -- bad X509 extended key usage in leaf certificate");
-	      fail = true;
-	    }
+            // verify X509 extended key usage
+            if (self->x509_cert_eku_defined() && !self->verify_x509_cert_eku(cert))
+            {
+                LOG_INFO("VERIFY FAIL -- bad X509 extended key usage in leaf certificate");
+                fail = true;
+            }
 
-	  // verify tls-remote
-	  if (!self->config->tls_remote.empty())
-	    {
-	      const std::string subject = TLSRemote::sanitize_x509_name(MbedTLSPKI::x509_get_subject(cert));
-	      const std::string common_name = TLSRemote::sanitize_common_name(MbedTLSPKI::x509_get_common_name(cert));
-	      TLSRemote::log(self->config->tls_remote, subject, common_name);
-	      if (!TLSRemote::test(self->config->tls_remote, subject, common_name))
-		{
-		  OPENVPN_LOG_SSL("VERIFY FAIL -- tls-remote match failed");
-		  fail = true;
-		}
-	    }
+            // verify tls-remote
+            if (!self->config->tls_remote.empty())
+            {
+                const std::string subject = TLSRemote::sanitize_x509_name(MbedTLSPKI::x509_get_subject(cert));
+                const std::string common_name = TLSRemote::sanitize_common_name(MbedTLSPKI::x509_get_common_name(cert));
+                TLSRemote::log(self->config->tls_remote, subject, common_name);
+                if (!TLSRemote::test(self->config->tls_remote, subject, common_name))
+                {
+                    LOG_INFO("VERIFY FAIL -- tls-remote match failed");
+                    fail = true;
+                }
+            }
 
 	  // verify-x509-name
 	  const VerifyX509Name& verify_x509 = self->config->verify_x509_name;
@@ -1428,16 +1427,16 @@ const int ciphersuites[] = // CONST GLOBAL
 	        res = verify_x509.verify(MbedTLSPKI::x509_get_common_name(cert));
 	        break;
 
-	      default:
-	        break;
-	    }
-	    if (!res)
-	    {
-	      OPENVPN_LOG_SSL("VERIFY FAIL -- verify-x509-name failed");
-	      fail = true;
-	    }
-	  }
-	}
+                default:
+                    break;
+                }
+                if (!res)
+                {
+                    LOG_INFO("VERIFY FAIL -- verify-x509-name failed");
+                    fail = true;
+                }
+            }
+        }
 
       if (fail)
 	*flags |= MBEDTLS_X509_BADCERT_OTHER;
@@ -1450,40 +1449,40 @@ const int ciphersuites[] = // CONST GLOBAL
       MbedTLSContext *self = ssl->parent;
       bool fail = false;
 
-      if (depth == 1) // issuer cert
-	{
-	  // save the issuer cert fingerprint
-	  if (ssl->authcert)
-	    {
-	      if (!load_issuer_fingerprint_into_authcert(*ssl->authcert, cert))
-		{
-		  OPENVPN_LOG_SSL("VERIFY FAIL -- SHA1 calculation failed.");
-		  fail = true;
-		}
-	    }
-	}
-      else if (depth == 0) // leaf-cert
-	{
-	  // verify ns-cert-type
-	  if (self->ns_cert_type_defined() && !self->verify_ns_cert_type(cert))
-	    {
-	      OPENVPN_LOG_SSL("VERIFY FAIL -- bad ns-cert-type in leaf certificate");
-	      fail = true;
-	    }
+        if (depth == 1) // issuer cert
+        {
+            // save the issuer cert fingerprint
+            if (ssl->authcert)
+            {
+                if (!load_issuer_fingerprint_into_authcert(*ssl->authcert, cert))
+                {
+                    LOG_INFO("VERIFY FAIL -- SHA1 calculation failed.");
+                    fail = true;
+                }
+            }
+        }
+        else if (depth == 0) // leaf-cert
+        {
+            // verify ns-cert-type
+            if (self->ns_cert_type_defined() && !self->verify_ns_cert_type(cert))
+            {
+                LOG_INFO("VERIFY FAIL -- bad ns-cert-type in leaf certificate");
+                fail = true;
+            }
 
-	  // verify X509 key usage
-	  if (self->x509_cert_ku_defined() && !self->verify_x509_cert_ku(cert))
-	    {
-	      OPENVPN_LOG_SSL("VERIFY FAIL -- bad X509 key usage in leaf certificate");
-	      fail = true;
-	    }
+            // verify X509 key usage
+            if (self->x509_cert_ku_defined() && !self->verify_x509_cert_ku(cert))
+            {
+                LOG_INFO("VERIFY FAIL -- bad X509 key usage in leaf certificate");
+                fail = true;
+            }
 
-	  // verify X509 extended key usage
-	  if (self->x509_cert_eku_defined() && !self->verify_x509_cert_eku(cert))
-	    {
-	      OPENVPN_LOG_SSL("VERIFY FAIL -- bad X509 extended key usage in leaf certificate");
-	      fail = true;
-	    }
+            // verify X509 extended key usage
+            if (self->x509_cert_eku_defined() && !self->verify_x509_cert_eku(cert))
+            {
+                LOG_INFO("VERIFY FAIL -- bad X509 extended key usage in leaf certificate");
+                fail = true;
+            }
 
 	  if (ssl->authcert)
 	    {
@@ -1529,8 +1528,9 @@ const int ciphersuites[] = // CONST GLOBAL
                             unsigned char *output,
                             size_t output_max_len)
     {
-        OPENVPN_LOG_SSL("MbedTLSContext::epki_decrypt is unimplemented"
-                        << " output_max_len=" << output_max_len);
+        LOG_INFO("MbedTLSContext::epki_decrypt is unimplemented"
+                 << " output_max_len=" << output_max_len);
+
         return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
     }
 
@@ -1583,11 +1583,11 @@ const int ciphersuites[] = // CONST GLOBAL
                     digest_prefix_len = sizeof(PKCS1::DigestPrefix::SHA512);
                     break;
                 default:
-                    OPENVPN_LOG_SSL("MbedTLSContext::epki_sign unrecognized hash_id"
+                    LOG_INFO("MbedTLSContext::epki_sign unrecognized hash_id"
 #if MBEDTLS_VERSION_NUMBER < 0x03000000
-                                    << "mode=" << mode
+                             << "mode=" << mode
 #endif
-                                    << " md_alg=" << md_alg << " hashlen=" << hashlen);
+                             << " md_alg=" << md_alg << " hashlen=" << hashlen);
                     return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
                 }
 
@@ -1620,11 +1620,11 @@ const int ciphersuites[] = // CONST GLOBAL
             }
             else
             {
-                OPENVPN_LOG_SSL("MbedTLSContext::epki_sign unrecognized parameters"
+                LOG_INFO("MbedTLSContext::epki_sign unrecognized parameters"
 #if MBEDTLS_VERSION_NUMBER < 0x03000000
-                                << "mode=" << mode
+                         << "mode=" << mode
 #endif
-                                << " md_alg=" << md_alg << " hashlen=" << hashlen);
+                         << " md_alg=" << md_alg << " hashlen=" << hashlen);
                 return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
             }
         }
