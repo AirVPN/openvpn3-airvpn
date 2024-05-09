@@ -1157,7 +1157,7 @@ class MySocketProtect : public SocketProtect
   {
     Status ret;
     ret.error = true;
-    ret.message = Unicode::utf8_printable<std::string>(e.what(), 256 | Unicode::UTF8_PASS_FMT);
+    ret.message = Unicode::utf8_printable<std::string>(e.what(), 2048 | Unicode::UTF8_PASS_FMT);
 
     // if exception is an ExceptionCode, translate the code
     // to return status string
