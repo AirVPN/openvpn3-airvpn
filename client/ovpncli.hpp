@@ -121,14 +121,6 @@ namespace openvpn {
       std::string remotePort;
       std::string remoteProto;
 
-      // cipher in config
-      std::string cipher;
-
-      // optional, values are "tap-windows6" and "wintun"
-      std::string windowsDriver;
-
-      bool dcoCompatible;
-      std::string dcoIncompatibilityReason;
 
       // optional list of user-selectable VPN servers
       std::vector<ServerEntry> serverList;
@@ -138,6 +130,15 @@ namespace openvpn {
 
       // list of routes
       std::vector<RouteEntry> routeList;
+
+      // cipher in config
+      std::string cipher;
+
+      // optional, values are "tap-windows6" and "wintun"
+      std::string windowsDriver;
+
+      bool dcoCompatible;
+      std::string dcoIncompatibilityReason;
     };
 
     // used to pass credentials to VPN core

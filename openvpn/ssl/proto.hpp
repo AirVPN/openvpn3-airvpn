@@ -263,18 +263,19 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO, logging::
       ACTIVE=10,
     };
 
-    enum iv_proto_flag: unsigned int
-      {
-      // See ssl.h in openvpn2 for detailed documentation of IV_PROTO
-       IV_PROTO_DATA_V2=(1<<1),
-       IV_PROTO_REQUEST_PUSH=(1<<2),
-       IV_PROTO_TLS_KEY_EXPORT=(1<<3),
-       IV_PROTO_AUTH_PENDING_KW=(1<<4),
-       IV_PROTO_NCP_P2P=(1<<5), // not implemented
-       IV_PROTO_DNS_OPTION=(1<<6),
-       IV_PROTO_CC_EXIT_NOTIFY=(1<<7),
+    enum iv_proto_flag : unsigned int
+    {
+        // See ssl.h in openvpn2 for detailed documentation of IV_PROTO
+        IV_PROTO_DATA_V2 = (1 << 1),
+        IV_PROTO_REQUEST_PUSH = (1 << 2),
+        IV_PROTO_TLS_KEY_EXPORT = (1 << 3),
+        IV_PROTO_AUTH_PENDING_KW = (1 << 4),
+        IV_PROTO_NCP_P2P = (1 << 5),    // not implemented
+        IV_PROTO_DNS_OPTION = (1 << 6), // outdated, don't send
+        IV_PROTO_CC_EXIT_NOTIFY = (1 << 7),
         IV_PROTO_AUTH_FAIL_TEMP = (1 << 8),
         IV_PROTO_DYN_TLS_CRYPT = (1 << 9),
+        IV_PROTO_DNS_OPTION_V2 = (1 << 11),
     };
 
     enum tlv_types : uint16_t
@@ -445,6 +446,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO, logging::
       // For compatibility with openvpn2 we send initial options on rekeying,
       // instead of possible modifications caused by NCP
       std::string initial_options;
+
+        bool auth_nocache = false;
 
         void load(const OptionList &opt,
                   const ProtoContextCompressionOptions &pco,
@@ -1157,12 +1160,12 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO, logging::
 
 	// supports op32 and P_DATA_V2 and expects a push reply
 
-	unsigned int iv_proto = IV_PROTO_DATA_V2
-	  | IV_PROTO_REQUEST_PUSH
-	  | IV_PROTO_AUTH_PENDING_KW
-	  | IV_PROTO_DNS_OPTION
-	  | IV_PROTO_CC_EXIT_NOTIFY
-	  | IV_PROTO_AUTH_FAIL_TEMP;
+    unsigned int iv_proto = IV_PROTO_DATA_V2
+                            | IV_PROTO_REQUEST_PUSH
+                            | IV_PROTO_AUTH_PENDING_KW
+                            | IV_PROTO_DNS_OPTION_V2
+                            | IV_PROTO_CC_EXIT_NOTIFY
+                            | IV_PROTO_AUTH_FAIL_TEMP;
 
             if (CryptoAlgs::lookup("SHA256") != CryptoAlgs::NONE && CryptoAlgs::lookup("AES-256-CTR") != CryptoAlgs::NONE)
                 iv_proto |= IV_PROTO_DYN_TLS_CRYPT;
@@ -1320,18 +1323,23 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO, logging::
 	      set_duration_parm(keepalive_ping, "keepalive ping", o->get(1, 16), 1, false, false);
 	      set_duration_parm(keepalive_timeout, "keepalive timeout", o->get(2, 16), 1, type == LOAD_COMMON_SERVER, false);
 
-	      if (o->size() >= 4)
-		set_duration_parm(keepalive_timeout_early, "keepalive timeout early", o->get(3, 16), 1, false, false);
-	      else
-		keepalive_timeout_early = keepalive_timeout;
-	    }
-	  else
-	    {
-	      load_duration_parm(keepalive_ping, "ping", opt, 1, false, false);
-	      load_duration_parm(keepalive_timeout, "ping-restart", opt, 1, false, false);
-	    }
-	}
-      }
+                if (o->size() >= 4)
+                    set_duration_parm(keepalive_timeout_early, "keepalive timeout early", o->get(3, 16), 1, false, false);
+                else
+                    keepalive_timeout_early = keepalive_timeout;
+            }
+            else
+            {
+                load_duration_parm(keepalive_ping, "ping", opt, 1, false, false);
+                load_duration_parm(keepalive_timeout, "ping-restart", opt, 1, false, false);
+            }
+        }
+
+        if ((type == LOAD_COMMON_CLIENT) || (type == LOAD_COMMON_CLIENT_PUSHED))
+        {
+            auth_nocache = opt.exists("auth-nocache");
+        }
+    }
 
       std::string relay_prefix(const char *optname) const
       {

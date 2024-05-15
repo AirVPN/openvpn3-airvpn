@@ -173,25 +173,29 @@ class TunProp
 	      throw tun_prop_route_error("tun_builder_reroute_gw for redirect-gateway failed");
 	}
 
-      // add DNS servers and domain prefixes
-      const unsigned int dhcp_option_flags = add_dhcp_options(tb, opt, quiet);
+        // add DNS servers and domain prefixes
+        unsigned int dhcp_option_flags = add_dhcp_options(tb, opt, quiet);
+        dhcp_option_flags |= add_dns_options(tb, opt);
 
-      // Allow protocols unless explicitly blocked
-      tb->tun_builder_set_allow_family(AF_INET, !opt.exists("block-ipv4"));
-      tb->tun_builder_set_allow_family(AF_INET6, !opt.exists("block-ipv6"));
+        // Allow protocols unless explicitly blocked
+        tb->tun_builder_set_allow_family(AF_INET, !opt.exists("block-ipv4"));
+        tb->tun_builder_set_allow_family(AF_INET6, !opt.exists("block-ipv6"));
 
-      // DNS fallback
-      if (ipv.rgv4() && !(dhcp_option_flags & F_ADD_DNS))
-	{
-	  if (config.google_dns_fallback)
-	    {
-	      if (!quiet)
-		OPENVPN_LOG("Google DNS fallback enabled");
-	      add_google_dns(tb);
-	    }
-	  else if (stats && (config.layer() != Layer::OSI_LAYER_2) && tb->ignore_dns_push() == false)
-	    stats->error(Error::REROUTE_GW_NO_DNS);
-	}
+        // Allow access to local port 53 with --dns options unless explicitly blocked
+        tb->tun_builder_set_allow_local_dns(!opt.exists("block-outside-dns"));
+
+        // DNS fallback
+        if (ipv.rgv4() && !(dhcp_option_flags & F_ADD_DNS))
+        {
+            if (config.google_dns_fallback)
+            {
+                if (!quiet)
+                    OPENVPN_LOG("Google DNS fallback enabled");
+                add_google_dns(tb);
+            }
+            else if (stats && (config.layer() != Layer::OSI_LAYER_2))
+                stats->error(Error::REROUTE_GW_NO_DNS);
+        }
 
       // set remote server address
         if (server_addr.defined()
@@ -529,7 +533,26 @@ class TunProp
 	}
     }
 
-    static unsigned int add_dhcp_options(TunBuilderBase* tb, const OptionList& opt, const bool quiet)
+    /**
+     * @brief Configure tun builder to use --dns options if defined
+     *
+     * @param tb            pointer to the tun builder
+     * @param opt           the --dns options object
+     * @return unsigned int F_ADD_DNS flag when there were servers defined in the options
+     */
+    static unsigned int add_dns_options(TunBuilderBase *tb, const OptionList &opt)
+    {
+        DnsOptions dns_options(opt);
+        if (dns_options.servers.empty())
+            return 0;
+
+        if (!tb->tun_builder_add_dns_options(dns_options))
+            throw tun_prop_dhcp_option_error("tun_builder_add_dns_options failed");
+
+        return F_ADD_DNS;
+    }
+
+    static unsigned int add_dhcp_options(TunBuilderBase *tb, const OptionList &opt, const bool quiet)
     {
       // Example:
       //   [dhcp-option] [DNS] [172.16.0.23]
@@ -545,50 +568,21 @@ class TunProp
       //   [dhcp-option] [PROXY_AUTO_CONFIG_URL] [http://...]
       unsigned int flags = 0;
 
-        DnsOptions dns_options(opt);
-        for (const auto &domain : dns_options.search_domains)
+        OptionList::IndexMap::const_iterator dopt = opt.map().find("dhcp-option"); // DIRECTIVE
+        if (dopt != opt.map().end())
         {
-            if (!tb->tun_builder_set_adapter_domain_suffix(domain))
-                throw tun_prop_dhcp_option_error(ERR_INVALID_OPTION_PUSHED, "tun_builder_set_adapter_domain_suffix");
-            break; // use only the first domain for now
-        }
-        for (const auto &keyval : dns_options.servers)
-        {
-            const auto &server = keyval.second;
-            if (server.address4.specified())
+            std::string auto_config_url;
+            std::string http_host;
+            unsigned int http_port = 0;
+            std::string https_host;
+            unsigned int https_port = 0;
+            for (OptionList::IndexList::const_iterator i = dopt->second.begin(); i != dopt->second.end(); ++i)
             {
-                if (!tb->tun_builder_add_dns_server(server.address4.to_string(), false))
-                    throw tun_prop_dhcp_option_error(ERR_INVALID_OPTION_PUSHED, "tun_builder_add_dns_server failed");
-                flags |= F_ADD_DNS;
-            }
-            if (server.address6.specified())
-            {
-                if (!tb->tun_builder_add_dns_server(server.address6.to_string(), true))
-                    throw tun_prop_dhcp_option_error(ERR_INVALID_OPTION_PUSHED, "tun_builder_add_dns_server failed");
-                flags |= F_ADD_DNS;
-            }
-            for (const auto &domain : server.domains)
-            {
-                if (!tb->tun_builder_add_search_domain(domain))
-                    throw tun_prop_dhcp_option_error(ERR_INVALID_OPTION_PUSHED, "tun_builder_add_search_domain failed");
-            }
-        }
-
-      OptionList::IndexMap::const_iterator dopt = opt.map().find("dhcp-option"); // DIRECTIVE
-      if (dopt != opt.map().end())
-	{
-	  std::string auto_config_url;
-	  std::string http_host;
-	  unsigned int http_port = 0;
-	  std::string https_host;
-	  unsigned int https_port = 0;
-	  for (OptionList::IndexList::const_iterator i = dopt->second.begin(); i != dopt->second.end(); ++i)
-	    {
-	      const Option& o = opt[*i];
+                const Option &o = opt[*i];
                 try
                 {
                     const std::string &type = o.get(1, 64);
-                    if ((type == "DNS" || type == "DNS6") && dns_options.servers.empty())
+                    if (type == "DNS" || type == "DNS6")
                     {
                         o.exact_args(3);
                         const IP::Addr ip = IP::Addr::from_string(o.get(2, 256), "dns-server-ip");
@@ -597,7 +591,7 @@ class TunProp
                             throw tun_prop_dhcp_option_error(ERR_INVALID_OPTION_PUSHED, "tun_builder_add_dns_server failed");
                         flags |= F_ADD_DNS;
                     }
-                    else if ((type == "DOMAIN" || type == "DOMAIN-SEARCH") && dns_options.servers.empty())
+                    else if (type == "DOMAIN" || type == "DOMAIN-SEARCH")
                     {
                         o.min_args(3);
                         for (size_t j = 2; j < o.size(); ++j)
@@ -611,7 +605,7 @@ class TunProp
                             }
                         }
                     }
-                    else if (type == "ADAPTER_DOMAIN_SUFFIX" && dns_options.search_domains.empty())
+                    else if (type == "ADAPTER_DOMAIN_SUFFIX")
                     {
                         o.exact_args(3);
                         const std::string &adapter_domain_suffix = o.get(2, 256);

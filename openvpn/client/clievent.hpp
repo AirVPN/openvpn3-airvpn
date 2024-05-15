@@ -92,6 +92,7 @@ enum Type
     RELAY_ERROR,
     COMPRESS_ERROR,
     NTLM_MISSING_CRYPTO,
+    SESSION_EXPIRED,
 
       N_TYPES
     };
@@ -153,7 +154,8 @@ inline const char *event_name(const Type type)
         "EPKI_INVALID_ALIAS",
         "RELAY_ERROR",
         "COMPRESS_ERROR",
-        "NTLM_MISSING_CRYPTO"};
+        "NTLM_MISSING_CRYPTO",
+        "SESSION_EXPIRED"};
 
       static_assert(N_TYPES == array_size(names), "event names array inconsistency");
       if (type < N_TYPES)
@@ -456,8 +458,16 @@ struct ReasonBase : public Base
     }
     };
 
-    struct CertVerifyFail : public ReasonBase
+struct SessionExpired : public ReasonBase
+{
+    SessionExpired(std::string reason)
+        : ReasonBase(SESSION_EXPIRED, std::move(reason))
     {
+    }
+};
+
+struct CertVerifyFail : public ReasonBase
+{
     CertVerifyFail(std::string reason)
         : ReasonBase(CERT_VERIFY_FAIL, std::move(reason))
     {

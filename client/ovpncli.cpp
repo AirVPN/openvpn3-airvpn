@@ -885,28 +885,27 @@ class MySocketProtect : public SocketProtect
       return eval;      
     }
 
-    OPENVPN_CLIENT_EXPORT Status OpenVPNClient::provide_creds(const ProvideCreds& creds)
+    OPENVPN_CLIENT_EXPORT Status OpenVPNClient::provide_creds(const ProvideCreds &creds)
     {
-      Status ret;
-    try
-    {
-	ClientCreds::Ptr cc = new ClientCreds();
-	cc->set_username(creds.username);
-	cc->set_password(creds.password);
-	cc->set_http_proxy_username(creds.http_proxy_user);
-	cc->set_http_proxy_password(creds.http_proxy_pass);
-	cc->set_response(creds.response);
-	cc->set_dynamic_challenge_cookie(creds.dynamicChallengeCookie, creds.username);
-	cc->set_replace_password_with_session_id(creds.replacePasswordWithSessionID);
-	cc->enable_password_cache(creds.cachePassword);
-	state->creds = cc;
-      }
-      catch (const std::exception& e)
-	{
-	  ret.error = true;
-	  ret.message = Unicode::utf8_printable<std::string>(e.what(), 256);
-	}
-      return ret;
+        Status ret;
+        try
+        {
+            ClientCreds::Ptr cc = new ClientCreds();
+            cc->set_username(creds.username);
+            cc->save_username_for_session_id();
+            cc->set_password(creds.password);
+            cc->set_http_proxy_username(creds.http_proxy_user);
+            cc->set_http_proxy_password(creds.http_proxy_pass);
+            cc->set_response(creds.response);
+            cc->set_dynamic_challenge_cookie(creds.dynamicChallengeCookie, creds.username);
+            state->creds = cc;
+        }
+        catch (const std::exception &e)
+        {
+            ret.error = true;
+            ret.message = Unicode::utf8_printable<std::string>(e.what(), 256);
+        }
+        return ret;
     }
 
     OPENVPN_CLIENT_EXPORT bool OpenVPNClient::socket_protect(openvpn_io::detail::socket_type socket, std::string remote, bool ipv6)
@@ -1073,15 +1072,6 @@ class MySocketProtect : public SocketProtect
 #if defined(OPENVPN_EXTERNAL_TRANSPORT_FACTORY)
       cc.extern_transport_factory = this;
 #endif
-    // force Session ID use and disable password cache if static challenge is enabled
-    if (state->creds
-        && !state->creds->get_replace_password_with_session_id()
-        && !state->eval.autologin
-        && !state->eval.staticChallenge.empty())
-    {
-        state->creds->set_replace_password_with_session_id(true);
-        state->creds->enable_password_cache(false);
-    }
 
       // external PKI
 #if !defined(USE_APPLE_SSL)
