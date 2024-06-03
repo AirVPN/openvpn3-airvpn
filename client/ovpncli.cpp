@@ -4,7 +4,7 @@
 //               packet encryption, packet authentication, and
 //               packet compression.
 //
-//    Copyright (C) 2012-2022 OpenVPN Inc.
+//    Copyright (C) 2012 - 2024 OpenVPN Inc.
 //
 //    This program is free software: you can redistribute it and/or modify
 //    it under the terms of the GNU Affero General Public License Version 3
@@ -614,58 +614,59 @@ class MySocketProtect : public SocketProtect
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClientHelper::parse_config(const Config& config, EvalConfig& eval, OptionList& options)
     {
-    try
-    {
-	// validate proto_override
-	if (!config.protoOverride.empty())
-	  Protocol::parse(config.protoOverride, Protocol::NO_SUFFIX);
-
-        // validate cipher_override
-        if(!config.cipherOverrideAlgorithm.empty())
+        try
         {
-            CryptoAlgs::lookup(config.cipherOverrideAlgorithm);
+        // validate proto_override
+        if (!config.protoOverride.empty())
+          Protocol::parse(config.protoOverride, Protocol::NO_SUFFIX);
 
-            OPENVPN_LOG("CIPHER OVERRIDE: " << CryptoAlgs::name(CryptoAlgs::lookup(config.cipherOverrideAlgorithm)));
-        }
+            // validate cipher_override
+            if(!config.cipherOverrideAlgorithm.empty())
+            {
+                CryptoAlgs::lookup(config.cipherOverrideAlgorithm);
 
-	// validate IPv6 setting
-	if (!config.allowUnusedAddrFamilies.empty())
-	  TriStateSetting::parse(config.allowUnusedAddrFamilies);
+                OPENVPN_LOG("CIPHER OVERRIDE: " << CryptoAlgs::name(CryptoAlgs::lookup(config.cipherOverrideAlgorithm)));
+            }
 
-        // parse config
-        OptionList::KeyValueList kvl;
-        kvl.reserve(config.contentList.size());
-        for (size_t i = 0; i < config.contentList.size(); ++i)
-        {
-            const KeyValue &kv = config.contentList[i];
-            kvl.push_back(new OptionList::KeyValue(kv.key, kv.value));
-        }
-        const ParseClientConfig cc = ParseClientConfig::parse(config.content, &kvl, options);
+        // validate IPv6 setting
+        if (!config.allowUnusedAddrFamilies.empty())
+          TriStateSetting::parse(config.allowUnusedAddrFamilies);
 
-        std::tie(eval.dcoCompatible, eval.dcoIncompatibilityReason) = ClientOptions::check_dco_compatibility(config, options);
+            // parse config
+            OptionList::KeyValueList kvl;
+            kvl.reserve(config.contentList.size());
+            for (size_t i = 0; i < config.contentList.size(); ++i)
+            {
+                const KeyValue &kv = config.contentList[i];
+                kvl.push_back(new OptionList::KeyValue(kv.key, kv.value));
+            }
+            const ParseClientConfig cc = ParseClientConfig::parse(config.content, &kvl, options);
 
-#ifdef OPENVPN_DUMP_CONFIG
-	std::cout << "---------- ARGS ----------" << std::endl;
-	std::cout << options.render(Option::RENDER_PASS_FMT|Option::RENDER_NUMBER|Option::RENDER_BRACKET) << std::endl;
-	std::cout << "---------- MAP ----------" << std::endl;
-	std::cout << options.render_map() << std::endl;
-#endif
-	eval.error = cc.error();
-	eval.message = cc.message();
-	eval.userlockedUsername = cc.userlockedUsername();
-	eval.profileName = cc.profileName();
-	eval.friendlyName = cc.friendlyName();
-	eval.autologin = cc.autologin();
-	eval.externalPki = cc.externalPki();
-	eval.staticChallenge = cc.staticChallenge();
-	eval.staticChallengeEcho = cc.staticChallengeEcho();
-	eval.privateKeyPasswordRequired = cc.privateKeyPasswordRequired();
-	eval.allowPasswordSave = cc.allowPasswordSave();
-	eval.remoteHost = config.serverOverride.empty() ? cc.firstRemoteListItem().host : config.serverOverride;
-	eval.remotePort = config.portOverride.empty() ? cc.firstRemoteListItem().port : config.portOverride;
-	eval.remoteProto = config.protoOverride.empty() ? cc.firstRemoteListItem().proto : config.protoOverride;
-	eval.cipher = config.cipherOverrideAlgorithm.empty() ? cc.cipher() : config.cipherOverrideAlgorithm;
-	eval.windowsDriver = cc.windowsDriver();
+            std::tie(eval.dcoCompatible, eval.dcoIncompatibilityReason) = ClientOptions::check_dco_compatibility(config, options);
+
+    #ifdef OPENVPN_DUMP_CONFIG
+        std::cout << "---------- ARGS ----------" << std::endl;
+        std::cout << options.render(Option::RENDER_PASS_FMT|Option::RENDER_NUMBER|Option::RENDER_BRACKET) << std::endl;
+        std::cout << "---------- MAP ----------" << std::endl;
+        std::cout << options.render_map() << std::endl;
+    #endif
+        eval.error = cc.error();
+        eval.message = cc.message();
+        eval.userlockedUsername = cc.userlockedUsername();
+        eval.profileName = cc.profileName();
+        eval.friendlyName = cc.friendlyName();
+        eval.autologin = cc.autologin();
+        eval.externalPki = cc.externalPki();
+        eval.vpnCa = cc.vpnCa();
+        eval.staticChallenge = cc.staticChallenge();
+        eval.staticChallengeEcho = cc.staticChallengeEcho();
+        eval.privateKeyPasswordRequired = cc.privateKeyPasswordRequired();
+        eval.allowPasswordSave = cc.allowPasswordSave();
+        eval.remoteHost = config.serverOverride.empty() ? cc.firstRemoteListItem().host : config.serverOverride;
+        eval.remotePort = config.portOverride.empty() ? cc.firstRemoteListItem().port : config.portOverride;
+        eval.remoteProto = config.protoOverride.empty() ? cc.firstRemoteListItem().proto : config.protoOverride;
+        eval.cipher = config.cipherOverrideAlgorithm.empty() ? cc.cipher() : config.cipherOverrideAlgorithm;
+        eval.windowsDriver = cc.windowsDriver();
 
         eval.remoteList.clear();
 
@@ -732,12 +733,12 @@ class MySocketProtect : public SocketProtect
         eval.serverList.clear();
 
         for (ParseClientConfig::ServerList::const_iterator i = cc.serverList().begin(); i != cc.serverList().end(); ++i)
-	  {
-	    ServerEntry se;
-	    se.server = i->server;
-	    se.friendlyName = i->friendlyName;
-	    eval.serverList.push_back(se);
-	  }
+        {
+            ServerEntry se;
+            se.server = i->server;
+            se.friendlyName = i->friendlyName;
+            eval.serverList.push_back(se);
+        }
 
         eval.routeList.clear();
 
@@ -754,10 +755,10 @@ class MySocketProtect : public SocketProtect
         }
       }
       catch (const std::exception& e)
-	{
-	  eval.error = true;
-	  eval.message = Unicode::utf8_printable<std::string>(std::string("ERR_PROFILE_GENERIC: ") + e.what(), 256);
-	}
+      {
+        eval.error = true;
+        eval.message = Unicode::utf8_printable<std::string>(std::string("ERR_PROFILE_GENERIC: ") + e.what(), 256);
+	  }
     }
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::parse_extras(const Config &config, EvalConfig &eval)
@@ -1232,15 +1233,16 @@ class MySocketProtect : public SocketProtect
 	}
     }
 
-OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &data,
+OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &alias,
+                                               const std::string &data,
                                                std::string &sig,
                                                const std::string &algorithm,
                                                const std::string &hashalg,
                                                const std::string &saltlen)
 {
     ExternalPKISignRequest req;
+    req.alias = alias;
     req.data = data;
-    req.alias = state->clientconf.external_pki_alias;
     req.algorithm = algorithm;
     req.hashalg = hashalg;
     req.saltlen = saltlen;
@@ -1439,23 +1441,117 @@ OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &data,
         }
     }
 
+    static SSLLib::SSLAPI::Config::Ptr setup_certcheck_ssl_config(const std::string &client_cert,
+                                                                  const std::string &extra_certs,
+                                                                  const std::optional<const std::string> &ca)
+    {
+        SSLLib::SSLAPI::Config::Ptr config = new SSLLib::SSLAPI::Config;
+        config->set_frame(new Frame(Frame::Context(128, 4096, 4096 - 128, 0, 16, 0)));
+        config->set_mode(Mode(Mode::CLIENT));
+        config->load_cert(client_cert, extra_certs);
+        unsigned int flags = SSLConst::LOG_VERIFY_STATUS;
+
+        if (ca)
+            config->load_ca(*ca, false);
+        else
+            flags |= SSLConfigAPI::LF_ALLOW_CLIENT_CERT_NOT_REQUIRED;
+
+        config->set_flags(flags);
+
+        return config;
+    }
+
+    /**
+      @brief Start up the cert check handshake using the given certs and key
+      @param client_cert String containing the properly encoded client certificate
+      @param clientkey String containing the properly encoded private key for \p client_cert
+      @param ca String containing the properly encoded authority
+
+          Creates, initializes,and installs an SSLLib::SSLAPI::Config object into the TLS
+          handshake object we use for the certcheck function. Then begins the handshake
+          with Client Hello via the ACC by calling start_acc_certcheck.
+    */
+    OPENVPN_CLIENT_EXPORT void OpenVPNClient::start_cert_check(const std::string &client_cert,
+                                                               const std::string &clientkey,
+                                                               const std::optional<const std::string> &ca)
+    {
+        if (state->is_foreign_thread_access())
+        {
+            ClientConnect *session = state->session.get();
+            if (session)
+            {
+                SSLLib::SSLAPI::Config::Ptr config = setup_certcheck_ssl_config(client_cert, "", ca);
+                config->load_private_key(clientkey);
+
+                session->start_acc_certcheck(config);
+            }
+        }
+    }
+
+    OPENVPN_CLIENT_EXPORT void OpenVPNClient::start_cert_check_epki(const std::string &alias, const std::optional<const std::string> &ca)
+    {
+        if (state->is_foreign_thread_access())
+        {
+            ClientConnect *session = state->session.get();
+            if (session)
+            {
+                ClientAPI::ExternalPKICertRequest req;
+                req.alias = alias;
+                external_pki_cert_request(req);
+
+                if (req.error)
+                {
+                    external_pki_error(req, Error::EPKI_CERT_ERROR);
+                    return;
+                }
+
+                SSLLib::SSLAPI::Config::Ptr config = setup_certcheck_ssl_config(req.cert, req.supportingChain, ca);
+
+                config->set_external_pki_callback(this, alias);
+
+
+                session->start_acc_certcheck(config);
+            }
+        }
+    }
+
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::clock_tick()
     {
     }
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::on_disconnect()
     {
-      state->on_disconnect();
+        state->on_disconnect();
     }
 
     OPENVPN_CLIENT_EXPORT std::string OpenVPNClientHelper::crypto_self_test()
     {
-      return SelfTest::crypto_self_test();
+        return SelfTest::crypto_self_test();
     }
 
     OPENVPN_CLIENT_EXPORT std::string OpenVPNClientHelper::copyright()
     {
-      return openvpn_copyright;
+        return openvpn_copyright;
+    }
+
+    OPENVPN_CLIENT_EXPORT std::string OpenVPNClientHelper::platform()
+    {
+        std::string ret = platform_string();
+    #ifdef PRIVATE_TUNNEL_PROXY
+          ret += " PT_PROXY";
+    #endif
+    #ifdef ENABLE_KOVPN
+          ret += " KOVPN";
+    #elif defined(ENABLE_OVPNDCO) || defined(ENABLE_OVPNDCOWIN)
+          ret += " OVPN-DCO";
+    #endif
+    #ifdef OPENVPN_GREMLIN
+          ret += " GREMLIN";
+    #endif
+    #ifdef OPENVPN_DEBUG
+          ret += " built on " __DATE__ " " __TIME__;
+    #endif
+          return ret;
     }
 
     OPENVPN_CLIENT_EXPORT std::string OpenVPNClientHelper::ssl_library_version()
@@ -1479,34 +1575,14 @@ OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &data,
 #endif
     }
 
-    OPENVPN_CLIENT_EXPORT std::string OpenVPNClientHelper::platform()
+    OPENVPN_CLIENT_EXPORT OptionList::FilterBase::Ptr OpenVPNClient::pull_filter_options()
     {
-      std::string ret = platform_string();
-#ifdef PRIVATE_TUNNEL_PROXY
-      ret += " PT_PROXY";
-#endif
-#ifdef ENABLE_KOVPN
-      ret += " KOVPN";
-#elif defined(ENABLE_OVPNDCO) || defined(ENABLE_OVPNDCOWIN)
-      ret += " OVPN-DCO";
-#endif
-#ifdef OPENVPN_GREMLIN
-      ret += " GREMLIN";
-#endif
-#ifdef OPENVPN_DEBUG
-      ret += " built on " __DATE__ " " __TIME__;
-#endif
-      return ret;
+        return pull_filter_options_;
     }
-
-OPENVPN_CLIENT_EXPORT OptionList::FilterBase::Ptr OpenVPNClient::pull_filter_options()
-{
-    return pull_filter_options_;
-}
-            
-OPENVPN_CLIENT_EXPORT OpenVPNClient::~OpenVPNClient()
-{
-    delete state;
-}
+                
+    OPENVPN_CLIENT_EXPORT OpenVPNClient::~OpenVPNClient()
+    {
+        delete state;
+    }
 } // namespace ClientAPI
 } // namespace openvpn

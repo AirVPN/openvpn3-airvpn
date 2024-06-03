@@ -234,11 +234,12 @@ const int ciphersuites[] = // CONST GLOBAL
 	return mode;
       }
 
-      // if this callback is defined, no private key needs to be loaded
-      virtual void set_external_pki_callback(ExternalPKIBase* external_pki_arg)
-      {
-	external_pki = external_pki_arg;
-      }
+        // if this callback is defined, no private key needs to be loaded
+        virtual void set_external_pki_callback(ExternalPKIBase *external_pki_arg, const std::string &alias)
+        {
+            external_pki = external_pki_arg;
+            external_pki_alias = alias;
+        }
 
       virtual void set_session_ticket_handler(TLSSessionTicketBase* session_ticket_handler_arg)
       {
@@ -307,16 +308,17 @@ const int ciphersuites[] = // CONST GLOBAL
 
       virtual void load_private_key(const std::string& key_txt)
       {
-	MbedTLSPKI::PKContext::Ptr p = new MbedTLSPKI::PKContext();
-	p->parse(key_txt, "config", priv_key_pwd);
-	priv_key = p;
+            MbedTLSPKI::PKContext::Ptr p = new MbedTLSPKI::PKContext();
+            auto *mbedrng = get_mbed_random_class();
+            p->parse(key_txt, "config", priv_key_pwd, *mbedrng);
+            priv_key = p;
       }
 
       virtual void load_dh(const std::string& dh_txt)
       {
-	MbedTLSPKI::DH::Ptr mydh = new MbedTLSPKI::DH();
-	mydh->parse(dh_txt, "server-config");
-	dh = mydh;
+            MbedTLSPKI::DH::Ptr mydh = new MbedTLSPKI::DH();
+            mydh->parse(dh_txt, "server-config");
+            dh = mydh;
       }
 
       virtual std::string extract_ca() const
@@ -454,8 +456,7 @@ const int ciphersuites[] = // CONST GLOBAL
 
       virtual void set_rng(const RandomAPI::Ptr& rng_arg)
       {
-	rng_arg->assert_crypto();
-	rng = rng_arg;
+        rng = rng_arg;
       }
 
       virtual std::string validate_cert(const std::string& cert_txt) const
@@ -472,8 +473,9 @@ const int ciphersuites[] = // CONST GLOBAL
 
       virtual std::string validate_private_key(const std::string& key_txt) const
       {
-	MbedTLSPKI::PKContext::Ptr pkey = new MbedTLSPKI::PKContext(key_txt, "validation", "");
-	return key_txt; // fixme -- implement parse/re-render semantics
+            auto *mbedrng = get_mbed_random_class();
+            MbedTLSPKI::PKContext::Ptr pkey = new MbedTLSPKI::PKContext(key_txt, "validation", "", *mbedrng);
+            return key_txt; // fixme -- implement parse/re-render semantics
       }
 
       virtual std::string validate_dh(const std::string& dh_txt) const
@@ -652,6 +654,7 @@ const int ciphersuites[] = // CONST GLOBAL
         std::string priv_key_pwd;            // private key password
         MbedTLSPKI::DH::Ptr dh;              // diffie-hellman parameters (only needed in server mode)
         ExternalPKIBase *external_pki;
+        std::string external_pki_alias;
         Frame::Ptr frame;
         int ssl_debug_level;
         unsigned int flags; // defined in sslconsts.hpp
@@ -1036,46 +1039,46 @@ const int ciphersuites[] = // CONST GLOBAL
       MbedTLSContext *parent;
 
     private:
-      void set_mbedtls_cipherlist(const std::string& cipher_list)
-      {
-	auto num_ciphers = std::count(cipher_list.begin(), cipher_list.end(), ':') + 1;
+    void set_mbedtls_cipherlist(const std::string &cipher_list)
+    {
+        auto num_ciphers = std::count(cipher_list.begin(), cipher_list.end(), ':') + 1;
 
-	allowed_ciphers.reset(new int[num_ciphers+1]);
+        allowed_ciphers.reset(new int[num_ciphers + 1]);
 
-	std::stringstream cipher_list_ss(cipher_list);
-	std::string ciphersuite;
+        std::stringstream cipher_list_ss(cipher_list);
+        std::string ciphersuite;
 
-	int i=0;
-	while(std::getline(cipher_list_ss, ciphersuite, ':'))
-	  {
-	    const tls_cipher_name_pair* pair = tls_get_cipher_name_pair(ciphersuite);
-
-        if (pair && pair->iana_name != ciphersuite)
+        int i = 0;
+        while (std::getline(cipher_list_ss, ciphersuite, ':'))
         {
-            LOG_INFO("mbed TLS -- Deprecated cipher suite name '"
-                     << pair->openssl_name << "' please use IANA name ' "
-                     << pair->iana_name << "'");
+            const tls_cipher_name_pair *pair = tls_get_cipher_name_pair(ciphersuite);
+
+            if (pair && pair->iana_name != ciphersuite)
+            {
+                OVPN_LOG_INFO("mbed TLS -- Deprecated cipher suite name '"
+                              << pair->openssl_name << "' please use IANA name ' "
+                              << pair->iana_name << "'");
+            }
+
+            auto cipher_id = mbedtls_ssl_get_ciphersuite_id(ciphersuite.c_str());
+            if (cipher_id != 0)
+            {
+                allowed_ciphers[i] = cipher_id;
+                i++;
+            }
+            else
+            {
+                /* OpenVPN 2.x ignores silently ignores unknown cipher suites with
+                 * mbed TLS. We warn about them in OpenVPN 3.x */
+                OVPN_LOG_INFO("mbed TLS -- warning ignoring unknown cipher suite '"
+                              << ciphersuite << "' in tls-cipher");
+            }
         }
 
-        auto cipher_id = mbedtls_ssl_get_ciphersuite_id(ciphersuite.c_str());
-        if (cipher_id != 0)
-        {
-            allowed_ciphers[i] = cipher_id;
-            i++;
-        }
-        else
-        {
-            /* OpenVPN 2.x ignores silently ignores unknown cipher suites with
-             * mbed TLS. We warn about them in OpenVPN 3.x */
-            LOG_INFO("mbed TLS -- warning ignoring unknown cipher suite '"
-                     << ciphersuite << "' in tls-cipher");
-        }
+        // Last element needs to be null
+        allowed_ciphers[i] = 0;
+        mbedtls_ssl_conf_ciphersuites(sslconf, allowed_ciphers.get());
     }
-
-	  // Last element needs to be null
-	allowed_ciphers[i] = 0;
-	mbedtls_ssl_conf_ciphersuites(sslconf, allowed_ciphers.get());
-      }
 
       void set_mbedtls_groups(const std::string& tls_groups)
       {
@@ -1099,8 +1102,8 @@ const int ciphersuites[] = // CONST GLOBAL
                 }
                 else
                 {
-                    LOG_INFO("mbed TLS -- warning ignoring unknown group '"
-                             << group << "' in tls-groups");
+                    OVPN_LOG_INFO("mbed TLS -- warning ignoring unknown group '"
+                                  << group << "' in tls-groups");
                 }
             }
 
@@ -1356,7 +1359,7 @@ const int ciphersuites[] = // CONST GLOBAL
 
         // log status
         if (self->config->flags & SSLConst::LOG_VERIFY_STATUS)
-            LOG_INFO(status_string(cert, depth, flags));
+            OVPN_LOG_INFO(status_string(cert, depth, flags));
 
             // notify if connection is happening with an insecurely signed cert.
 
@@ -1380,21 +1383,21 @@ const int ciphersuites[] = // CONST GLOBAL
             // verify ns-cert-type
             if (self->ns_cert_type_defined() && !self->verify_ns_cert_type(cert))
             {
-                LOG_INFO("VERIFY FAIL -- bad ns-cert-type in leaf certificate");
+                OVPN_LOG_INFO("VERIFY FAIL -- bad ns-cert-type in leaf certificate");
                 fail = true;
             }
 
             // verify X509 key usage
             if (self->x509_cert_ku_defined() && !self->verify_x509_cert_ku(cert))
             {
-                LOG_INFO("VERIFY FAIL -- bad X509 key usage in leaf certificate");
+                OVPN_LOG_INFO("VERIFY FAIL -- bad X509 key usage in leaf certificate");
                 fail = true;
             }
 
             // verify X509 extended key usage
             if (self->x509_cert_eku_defined() && !self->verify_x509_cert_eku(cert))
             {
-                LOG_INFO("VERIFY FAIL -- bad X509 extended key usage in leaf certificate");
+                OVPN_LOG_INFO("VERIFY FAIL -- bad X509 extended key usage in leaf certificate");
                 fail = true;
             }
 
@@ -1406,7 +1409,7 @@ const int ciphersuites[] = // CONST GLOBAL
                 TLSRemote::log(self->config->tls_remote, subject, common_name);
                 if (!TLSRemote::test(self->config->tls_remote, subject, common_name))
                 {
-                    LOG_INFO("VERIFY FAIL -- tls-remote match failed");
+                    OVPN_LOG_INFO("VERIFY FAIL -- tls-remote match failed");
                     fail = true;
                 }
             }
@@ -1432,7 +1435,7 @@ const int ciphersuites[] = // CONST GLOBAL
                 }
                 if (!res)
                 {
-                    LOG_INFO("VERIFY FAIL -- verify-x509-name failed");
+                    OVPN_LOG_INFO("VERIFY FAIL -- verify-x509-name failed");
                     fail = true;
                 }
             }
@@ -1456,7 +1459,7 @@ const int ciphersuites[] = // CONST GLOBAL
             {
                 if (!load_issuer_fingerprint_into_authcert(*ssl->authcert, cert))
                 {
-                    LOG_INFO("VERIFY FAIL -- SHA1 calculation failed.");
+                    OVPN_LOG_INFO("VERIFY FAIL -- SHA1 calculation failed.");
                     fail = true;
                 }
             }
@@ -1466,21 +1469,21 @@ const int ciphersuites[] = // CONST GLOBAL
             // verify ns-cert-type
             if (self->ns_cert_type_defined() && !self->verify_ns_cert_type(cert))
             {
-                LOG_INFO("VERIFY FAIL -- bad ns-cert-type in leaf certificate");
+                OVPN_LOG_INFO("VERIFY FAIL -- bad ns-cert-type in leaf certificate");
                 fail = true;
             }
 
             // verify X509 key usage
             if (self->x509_cert_ku_defined() && !self->verify_x509_cert_ku(cert))
             {
-                LOG_INFO("VERIFY FAIL -- bad X509 key usage in leaf certificate");
+                OVPN_LOG_INFO("VERIFY FAIL -- bad X509 key usage in leaf certificate");
                 fail = true;
             }
 
             // verify X509 extended key usage
             if (self->x509_cert_eku_defined() && !self->verify_x509_cert_eku(cert))
             {
-                LOG_INFO("VERIFY FAIL -- bad X509 extended key usage in leaf certificate");
+                OVPN_LOG_INFO("VERIFY FAIL -- bad X509 extended key usage in leaf certificate");
                 fail = true;
             }
 
@@ -1528,8 +1531,8 @@ const int ciphersuites[] = // CONST GLOBAL
                             unsigned char *output,
                             size_t output_max_len)
     {
-        LOG_INFO("MbedTLSContext::epki_decrypt is unimplemented"
-                 << " output_max_len=" << output_max_len);
+        OVPN_LOG_INFO("MbedTLSContext::epki_decrypt is unimplemented"
+                      << " output_max_len=" << output_max_len);
 
         return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
     }
@@ -1583,11 +1586,11 @@ const int ciphersuites[] = // CONST GLOBAL
                     digest_prefix_len = sizeof(PKCS1::DigestPrefix::SHA512);
                     break;
                 default:
-                    LOG_INFO("MbedTLSContext::epki_sign unrecognized hash_id"
+                    OVPN_LOG_INFO("MbedTLSContext::epki_sign unrecognized hash_id"
 #if MBEDTLS_VERSION_NUMBER < 0x03000000
-                             << "mode=" << mode
+                                  << "mode=" << mode
 #endif
-                             << " md_alg=" << md_alg << " hashlen=" << hashlen);
+                                  << " md_alg=" << md_alg << " hashlen=" << hashlen);
                     return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
                 }
 
@@ -1600,11 +1603,13 @@ const int ciphersuites[] = // CONST GLOBAL
 	    /* convert from_buf to base64 */
 	    const std::string from_b64 = base64->encode(from_buf);
 
-	    /* get signature */
-	    std::string sig_b64;
-	    const bool status = self->config->external_pki->sign(from_b64, sig_b64, "RSA_PKCS1_PADDING", "", "");
-	    if (!status)
-	      throw ssl_external_pki("MbedTLS: could not obtain signature");
+        /* get signature */
+        std::string sig_b64;
+        const bool status = self->config->external_pki->sign(self->config->external_pki_alias, from_b64, sig_b64, "RSA_PKCS1_PADDING", "", "");
+        if (!status)
+        {
+            throw ssl_external_pki("MbedTLS: could not obtain signature");
+        }
 
 	    /* decode base64 signature to binary */
 	    const size_t len = self->key_len();
@@ -1620,11 +1625,11 @@ const int ciphersuites[] = // CONST GLOBAL
             }
             else
             {
-                LOG_INFO("MbedTLSContext::epki_sign unrecognized parameters"
+                OVPN_LOG_INFO("MbedTLSContext::epki_sign unrecognized parameters"
 #if MBEDTLS_VERSION_NUMBER < 0x03000000
-                         << "mode=" << mode
+                              << "mode=" << mode
 #endif
-                         << " md_alg=" << md_alg << " hashlen=" << hashlen);
+                              << " md_alg=" << md_alg << " hashlen=" << hashlen);
                 return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
             }
         }

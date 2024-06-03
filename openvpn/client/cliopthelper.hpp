@@ -4,7 +4,7 @@
 //               packet encryption, packet authentication, and
 //               packet compression.
 //
-//    Copyright (C) 2012-2022 OpenVPN Inc.
+//    Copyright (C) 2012 - 2024 OpenVPN Inc.
 //
 //    This program is free software: you can redistribute it and/or modify
 //    it under the terms of the GNU Affero General Public License Version 3
@@ -237,24 +237,30 @@ class ParseClientConfig
 	      }
 	  }
 
-	// profile name
-	{
-	  const Option* o = options.get_ptr("PROFILE");
-	  if (o)
-	    {
-	      // take PROFILE substring up to '/'
-	      const std::string& pn = o->get(1, 256);
-	      const size_t slashpos = pn.find('/');
-	      if (slashpos != std::string::npos)
-		profileName_ = pn.substr(0, slashpos);
-	      else
-		profileName_ = pn;
-	    }
-	  else
-	    {
-	      if (remoteList)
-		profileName_ = remoteList->get_item(0)->server_host;
-	    }
+    {
+        const Option *o = options.get_ptr("ca");
+        if (o)
+            vpnCa_ = o->get(1, Option::MULTILINE);
+    }
+
+    // profile name
+    {
+        const Option *o = options.get_ptr("PROFILE");
+        if (o)
+        {
+            // take PROFILE substring up to '/'
+            const std::string &pn = o->get(1, 256);
+            const size_t slashpos = pn.find('/');
+            if (slashpos != std::string::npos)
+                profileName_ = pn.substr(0, slashpos);
+            else
+                profileName_ = pn;
+        }
+        else
+        {
+            if (remoteList)
+                profileName_ = remoteList->get_item(0)->server_host;
+        }
 
 	  // windows-driver
 	  {
@@ -473,6 +479,11 @@ class ParseClientConfig
     bool externalPki() const
     {
         return externalPki_;
+    }
+
+    std::string vpnCa() const
+    {
+        return vpnCa_;
     }
 
     // static challenge, may be empty, ignored if autologin
@@ -922,6 +933,7 @@ class ParseClientConfig
     bool autologin_;
     bool clientCertEnabled_;
     bool externalPki_;
+    std::string vpnCa_;
     bool pushPeerInfo_;
     std::string staticChallenge_;
     bool staticChallengeEcho_;
