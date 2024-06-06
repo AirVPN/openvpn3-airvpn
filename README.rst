@@ -1,4 +1,4 @@
-OpenVPN 3 AirVPN (Version 3.9 20240515)
+OpenVPN 3 AirVPN (Version 3.9 20240606)
 =======================================
 
 OpenVPN 3 AirVPN is a direct fork of the official master project (https://github.com/OpenVPN/openvpn3) with these extra features:

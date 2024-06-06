@@ -179,7 +179,6 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         bool dco_compatible = false;
 
         bool synchronous_dns_lookup = false;
-        bool disable_client_cert = false;
         int default_key_direction = -1;
         bool allow_local_lan_access = false;
 
@@ -1335,7 +1334,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         cc->set_flags(SSLConst::LOG_VERIFY_STATUS);
         cc->set_debug_level(config.clientconf.sslDebugLevel);
         cc->set_rng(rng);
-        cc->set_local_cert_enabled(pcc.clientCertEnabled() && !config.disable_client_cert);
+        cc->set_local_cert_enabled(pcc.clientCertEnabled() && !config.clientconf.disableClientCert);
         /* load depends on private key password and legacy algorithms */
         cc->enable_legacy_algorithms(config.clientconf.enableLegacyAlgorithms);
         cc->set_private_key_password(config.clientconf.privateKeyPassword);
