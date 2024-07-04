@@ -33,9 +33,8 @@
 #include <openvpn/crypto/static_key.hpp>
 #include <openvpn/crypto/cryptoalgs.hpp>
 
-namespace openvpn {
-namespace MbedTLSCrypto {
-class CipherContextAEAD
+namespace openvpn::MbedTLSCrypto {
+class CipherContextAEAD : public CipherContextCommon
 {
     CipherContextAEAD(const CipherContextAEAD&) = delete;
     CipherContextAEAD& operator=(const CipherContextAEAD&) = delete;
@@ -366,5 +365,4 @@ private:
             return status == 0;
         }
 };
-} // namespace MbedTLSCrypto
-} // namespace openvpn
+} // namespace openvpn::MbedTLSCrypto

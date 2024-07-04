@@ -4,7 +4,7 @@
 //               packet encryption, packet authentication, and
 //               packet compression.
 //
-//    Copyright (C) 2012-2022 OpenVPN Inc.
+//    Copyright (C) 2024 OpenVPN Inc.
 //
 //    This program is free software: you can redistribute it and/or modify
 //    it under the terms of the GNU Affero General Public License Version 3
@@ -19,35 +19,22 @@
 //    along with this program in the COPYING file.
 //    If not, see <http://www.gnu.org/licenses/>.
 
-// OpenSSL specific methods for TLS version
-
 #pragma once
 
-#include <openvpn/ssl/tlsver.hpp>
+namespace openvpn {
 
-namespace openvpn::TLSVersion {
-
-inline int toTLSVersion(const Type version)
+// Replace std::unreachable, only available in C++23
+// Based on https://en.cppreference.com/w/cpp/utility/unreachable
+[[noreturn]] inline void unreachable()
 {
-
-    switch (version)
-    {
-    case Type::UNDEF:
-    default:
-        return 0;
-    case Type::V1_0:
-        return TLS1_VERSION;
-    case Type::V1_1:
-        return TLS1_1_VERSION;
-    case Type::V1_2:
-        return TLS1_2_VERSION;
-    case Type::V1_3:
-#ifdef TLS1_3_VERSION
-        return TLS1_3_VERSION;
-#else
-        // TLS 1.3 is SSL 3.4
-        return 0x0304;
+    // Uses compiler specific extensions if possible.
+    // Even if no extension is used, undefined behavior is still raised by
+    // an empty function body and the noreturn attribute.
+#if defined(__GNUC__)
+    __builtin_unreachable();
+#elif defined(_MSC_VER)
+    __assume(false);
 #endif
-    }
 }
-} // namespace openvpn::TLSVersion
+
+} // namespace openvpn

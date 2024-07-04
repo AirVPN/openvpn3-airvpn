@@ -37,8 +37,7 @@
 #include <openvpn/error/error.hpp>
 #include <openvpn/error/excode.hpp>
 
-namespace openvpn {
-  namespace CryptoAlgs {
+namespace openvpn::CryptoAlgs {
 
     OPENVPN_EXCEPTION(crypto_alg);
     OPENVPN_SIMPLE_EXCEPTION(crypto_alg_index);
@@ -422,10 +421,9 @@ enum
      */
     inline bool use_cipher_digest(const Type type)
     {
-      const Alg& alg = get(type);
-      return alg.mode() != AEAD;
+        const Alg &alg = get(type);
+        return alg.mode() != AEAD;
     }
-} // namespace CryptoAlgs
-} // namespace openvpn
+} // namespace openvpn::CryptoAlgs
 
 #endif

@@ -47,8 +47,7 @@
 #include <openvpn/tun/client/tunconfigflags.hpp>
 #include <openvpn/netconf/linux/gw.hpp>
 
-namespace openvpn {
-  namespace TunLinuxSetup {
+namespace openvpn::TunLinuxSetup {
 
     OPENVPN_EXCEPTION(tun_linux_error);
     OPENVPN_EXCEPTION(tun_open_error);
@@ -107,164 +106,163 @@ namespace openvpn {
 #endif
       };
 
-      void destroy(std::ostream &os) override
-      {
-	// remove added routes
-	remove_cmds->execute(os);
+    void destroy(std::ostream &os) override
+    {
+        // remove added routes
+        remove_cmds->execute(os);
 
-	// remove bypass route
-	remove_cmds_bypass_gw->execute(os);
-      }
+        // remove bypass route
+        remove_cmds_bypass_gw->execute(os);
+    }
 
-      bool add_bypass_route(const std::string& address,
-			    bool ipv6,
-			    std::ostream& os)
-      {
-	// nothing to do if we reconnect to the same gateway
-	if (connected_gw == address)
-	  return true;
+    bool add_bypass_route(const std::string &address,
+                          bool ipv6,
+                          std::ostream &os)
+    {
+        // nothing to do if we reconnect to the same gateway
+        if (connected_gw == address)
+            return true;
 
-	// remove previous bypass route
-	remove_cmds_bypass_gw->execute(os);
-	remove_cmds_bypass_gw->clear();
+        // remove previous bypass route
+        remove_cmds_bypass_gw->execute(os);
+        remove_cmds_bypass_gw->clear();
 
-	ActionList::Ptr add_cmds = new ActionList();
-	TUNMETHODS::add_bypass_route(tun_iface_name, address, ipv6, nullptr, *add_cmds, *remove_cmds_bypass_gw);
+        ActionList::Ptr add_cmds = new ActionList();
+        TUNMETHODS::add_bypass_route(tun_iface_name, address, ipv6, nullptr, *add_cmds, *remove_cmds_bypass_gw);
 
-	// add gateway bypass route
-	add_cmds->execute(os);
-	return true;
-      }
+        // add gateway bypass route
+        add_cmds->execute(os);
+        return true;
+    }
 
-      int establish(const TunBuilderCapture& pull, // defined by TunBuilderSetup::Base
-		    TunBuilderSetup::Config* config,
-		    Stop* stop,
-		    std::ostream& os) override
-      {
-	// get configuration
-	Config *conf = dynamic_cast<Config *>(config);
-	if (!conf)
-	  throw tun_linux_error("missing config");
+    int establish(const TunBuilderCapture &pull, // defined by TunBuilderSetup::Base
+                  TunBuilderSetup::Config *config,
+                  Stop *stop,
+                  std::ostream &os) override
+    {
+        // get configuration
+        Config *conf = dynamic_cast<Config *>(config);
+        if (!conf)
+            throw tun_linux_error("missing config");
 
-	int fd = -1;
-	if (!conf->dco)
-	  {
-	    fd = open_tun(conf);
-	  }
-	else
-	  {
-	    // in DCO case device is already opened
-	    tun_iface_name = conf->iface_name;
-	  }
+        int fd = -1;
+        if (!conf->dco)
+        {
+            fd = open_tun(conf);
+        }
+        else
+        {
+            // in DCO case device is already opened
+            tun_iface_name = conf->iface_name;
+        }
 
-	ActionList::Ptr add_cmds = new ActionList();
-	ActionList::Ptr remove_cmds_new = new ActionListReversed();
+        ActionList::Ptr add_cmds = new ActionList();
+        ActionList::Ptr remove_cmds_new = new ActionListReversed();
 
-	// configure tun properties
-	TUNMETHODS::tun_config(tun_iface_name,
-			       pull,
-			       nullptr,
-			       *add_cmds,
-			       *remove_cmds_new,
-			       (conf->add_bypass_routes_on_establish ? TunConfigFlags::ADD_BYPASS_ROUTES : 0));
+        // configure tun properties
+        TUNMETHODS::tun_config(tun_iface_name,
+                               pull,
+                               nullptr,
+                               *add_cmds,
+                               *remove_cmds_new,
+                               (conf->add_bypass_routes_on_establish ? TunConfigFlags::ADD_BYPASS_ROUTES : 0));
 
-	// execute commands to bring up interface
-	add_cmds->execute(os);
+        // execute commands to bring up interface
+        add_cmds->execute(os);
 
-	// tear down old routes
-	remove_cmds->execute(os);
-	std::swap(remove_cmds, remove_cmds_new);
+        // tear down old routes
+        remove_cmds->execute(os);
+        std::swap(remove_cmds, remove_cmds_new);
 
-	connected_gw = pull.remote_address.to_string();
+        connected_gw = pull.remote_address.to_string();
 
-	return fd;
-      }
+        return fd;
+    }
 
-    private:
-      int open_tun(Config* conf)
-      {
-	static const char node[] = "/dev/net/tun";
-	ScopedFD fd(open(node, O_RDWR));
-	if (!fd.defined())
-	  OPENVPN_THROW(tun_open_error, "error opening tun device " << node << ": " << errinfo(errno));
+  private:
+    int open_tun(Config *conf)
+    {
+        static const char node[] = "/dev/net/tun";
+        ScopedFD fd(open(node, O_RDWR));
+        if (!fd.defined())
+            OPENVPN_THROW(tun_open_error, "error opening tun device " << node << ": " << errinfo(errno));
 
-	struct ifreq ifr;
-	std::memset(&ifr, 0, sizeof(ifr));
-	ifr.ifr_flags = IFF_ONE_QUEUE;
-	ifr.ifr_flags |= IFF_NO_PI;
-	if (conf->layer() == Layer::OSI_LAYER_3)
-	  ifr.ifr_flags |= IFF_TUN;
-	else if (conf->layer() == Layer::OSI_LAYER_2)
-	  ifr.ifr_flags |= IFF_TAP;
-	else
-	  throw tun_layer_error("unknown OSI layer");
+        struct ifreq ifr;
+        std::memset(&ifr, 0, sizeof(ifr));
+        ifr.ifr_flags = IFF_ONE_QUEUE;
+        ifr.ifr_flags |= IFF_NO_PI;
+        if (conf->layer() == Layer::OSI_LAYER_3)
+            ifr.ifr_flags |= IFF_TUN;
+        else if (conf->layer() == Layer::OSI_LAYER_2)
+            ifr.ifr_flags |= IFF_TAP;
+        else
+            throw tun_layer_error("unknown OSI layer");
 
-	open_unit(conf->dev_name, ifr, fd);
+        open_unit(conf->dev_name, ifr, fd);
 
-	if (fcntl (fd(), F_SETFL, O_NONBLOCK) < 0)
-	  throw tun_fcntl_error(errinfo(errno));
+        if (fcntl(fd(), F_SETFL, O_NONBLOCK) < 0)
+            throw tun_fcntl_error(errinfo(errno));
 
-	// Set the TX send queue size
-	if (conf->txqueuelen > 0)
-	  {
-	    struct ifreq netifr;
-	    ScopedFD ctl_fd(socket (AF_INET, SOCK_DGRAM, 0));
+        // Set the TX send queue size
+        if (conf->txqueuelen)
+        {
+            struct ifreq netifr;
+            ScopedFD ctl_fd(socket(AF_INET, SOCK_DGRAM, 0));
 
-	    if (ctl_fd.defined())
-	      {
-		std::memset(&netifr, 0, sizeof(netifr));
-		strcpy (netifr.ifr_name, ifr.ifr_name);
-		netifr.ifr_qlen = conf->txqueuelen;
-		if (ioctl (ctl_fd(), SIOCSIFTXQLEN, (void *) &netifr) < 0)
-		  throw tun_tx_queue_len_error(errinfo(errno));
-	      }
-	    else
-	      throw tun_tx_queue_len_error(errinfo(errno));
-	  }
-	conf->iface_name = ifr.ifr_name;
-	tun_iface_name = ifr.ifr_name;
+            if (ctl_fd.defined())
+            {
+                std::memset(&netifr, 0, sizeof(netifr));
+                strcpy(netifr.ifr_name, ifr.ifr_name);
+                netifr.ifr_qlen = conf->txqueuelen;
+                if (ioctl(ctl_fd(), SIOCSIFTXQLEN, (void *)&netifr) < 0)
+                    throw tun_tx_queue_len_error(errinfo(errno));
+            }
+            else
+                throw tun_tx_queue_len_error(errinfo(errno));
+        }
+        conf->iface_name = ifr.ifr_name;
+        tun_iface_name = ifr.ifr_name;
 
-	return fd.release();
-      }
+        return fd.release();
+    }
 
-      void open_unit(const std::string& name, struct ifreq& ifr, ScopedFD& fd)
-      {
-	if (!name.empty())
-	  {
-	    const int max_units = 256;
-	    for (int unit = 0; unit < max_units; ++unit)
-	      {
-		std::string n = name;
-		if (unit)
-		  n += openvpn::to_string(unit);
-		if (n.length() < IFNAMSIZ)
-		  ::strcpy (ifr.ifr_name, n.c_str());
-		else
-		  throw tun_name_error();
-		if (ioctl (fd(), TUNSETIFF, (void *) &ifr) == 0)
-		  return;
-	      }
-	    const int eno = errno;
-	    OPENVPN_THROW(tun_ioctl_error, "failed to open tun device '" << name << "' after trying " << max_units << " units : " << errinfo(eno));
-	  }
-	else
-	  {
-	    if (ioctl (fd(), TUNSETIFF, (void *) &ifr) < 0)
-	      {
-		const int eno = errno;
-		OPENVPN_THROW(tun_ioctl_error, "failed to open tun device '" << name << "' : " << errinfo(eno));
-	      }
-	  }
-      }
+    void open_unit(const std::string &name, struct ifreq &ifr, ScopedFD &fd)
+    {
+        if (!name.empty())
+        {
+            const int max_units = 256;
+            for (int unit = 0; unit < max_units; ++unit)
+            {
+                std::string n = name;
+                if (unit)
+                    n += openvpn::to_string(unit);
+                if (n.length() < IFNAMSIZ)
+                    ::strcpy(ifr.ifr_name, n.c_str());
+                else
+                    throw tun_name_error();
+                if (ioctl(fd(), TUNSETIFF, (void *)&ifr) == 0)
+                    return;
+            }
+            const int eno = errno;
+            OPENVPN_THROW(tun_ioctl_error, "failed to open tun device '" << name << "' after trying " << max_units << " units : " << errinfo(eno));
+        }
+        else
+        {
+            if (ioctl(fd(), TUNSETIFF, (void *)&ifr) < 0)
+            {
+                const int eno = errno;
+                OPENVPN_THROW(tun_ioctl_error, "failed to open tun device '" << name << "' : " << errinfo(eno));
+            }
+        }
+    }
 
-      ActionList::Ptr remove_cmds_bypass_gw = new ActionList();
-      ActionListReversed::Ptr remove_cmds = new ActionListReversed();
+    ActionList::Ptr remove_cmds_bypass_gw = new ActionList();
+    ActionListReversed::Ptr remove_cmds = new ActionListReversed();
 
-      std::string connected_gw;
+    std::string connected_gw;
 
-      std::string tun_iface_name; // used to skip tun-based default gw when add bypass route
-    };
-  }
-} // namespace openvpn
+    std::string tun_iface_name; // used to skip tun-based default gw when add bypass route
+};
+} // namespace openvpn::TunLinuxSetup
 
 #endif // OPENVPN_TUN_LINUX_CLIENT_TUNCLI_H
