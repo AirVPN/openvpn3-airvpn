@@ -41,20 +41,17 @@ class AddrList : public std::vector<IP::Addr>, public RC<thread_unsafe_refcount>
 
     bool exists(const IP::Addr &a) const
     {
-        for (const_iterator i = begin(); i != end(); ++i)
-        {
-            if (a == *i)
-                return true;
-        }
-        return false;
+        return std::find(begin(), end(), a) != end();
     }
 
 #if 0
       void dump() const
       {
-	OPENVPN_LOG("******* AddrList::dump");
-	for (const_iterator i = begin(); i != end(); ++i)
-	  OPENVPN_LOG(i->to_string());
+          OPENVPN_LOG("******* AddrList::dump");
+          for (const auto& i : *this)
+          {
+              OPENVPN_LOG(i.to_string());
+          }
       }
 #endif
 };
