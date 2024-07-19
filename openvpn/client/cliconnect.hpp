@@ -441,17 +441,17 @@ namespace openvpn {
 
     virtual void client_proto_auth_pending_timeout(int timeout) override
     {
-      if (conn_timer_pending)
-	{
-	  auto timer_left = std::chrono::duration_cast<std::chrono::seconds>(conn_timer.expiry() - AsioTimer::clock_type::now()).count();
-	  if(timer_left < timeout)
-	    {
-	      OPENVPN_LOG("Extending connection timeout from " << timer_left  << " to " << timeout << " for pending authentification");
-	      conn_timer.cancel();
-	      conn_timer_pending = false;
-	      conn_timer_start(timeout);
-	    }
-	}
+        if (conn_timer_pending)
+        {
+            auto timer_left = std::chrono::duration_cast<std::chrono::seconds>(conn_timer.expiry() - AsioTimer::clock_type::now()).count();
+            if (timer_left < timeout)
+            {
+                OPENVPN_LOG("Extending connection timeout from " << timer_left << " to " << timeout << " for pending authentication");
+                conn_timer.cancel();
+                conn_timer_pending = false;
+                conn_timer_start(timeout);
+            }
+        }
     }
 
     virtual void client_proto_terminate() override

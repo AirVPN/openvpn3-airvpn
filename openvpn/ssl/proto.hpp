@@ -1654,15 +1654,22 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     template <typename S>
     static S read_control_string(const Buffer& buf)
     {
-      size_t size = buf.size();
-      if (size)
-	{
-	  if (buf[size-1] == 0)
-	    --size;
-	  if (size)
-	    return S((const char *)buf.c_data(), size);
-	}
-      return S();
+        size_t size = buf.size();
+        if (size)
+        {
+            /* Trim any trailing \n or \r or 0x00 characters. Scripts plugin sometimes accidentally include a \n or \r\n in AUTH_FAILED
+             * or similar messages */
+            while (size > 0 && (buf[size - 1] == 0 || buf[size - 1] == '\r' || buf[size - 1] == '\n'))
+            {
+                --size;
+            }
+
+            if (size)
+            {
+                return S{reinterpret_cast<const char *>(buf.c_data()), size};
+            }
+        }
+        return {};
     }
 
     template <typename S>

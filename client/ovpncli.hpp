@@ -764,7 +764,8 @@ class OpenVPNClientHelper
     */
     void start_cert_check(const std::string &client_cert,
                           const std::string &clientkey,
-                          const std::optional<const std::string> &ca = std::nullopt);
+                          const std::optional<const std::string> &ca = std::nullopt,
+                          bool disableTLS13 = false);
 
     /**
       @brief Start up the cert check handshake using the given epki_alias string
@@ -775,7 +776,7 @@ class OpenVPNClientHelper
       session ACC certcheck TLS handshake object. Every time this function is called the state of
       the handshake object will be reset and the handshake will be restarted.
     */
-    void start_cert_check_epki(const std::string &alias, const std::optional<const std::string> &ca);
+    void start_cert_check_epki(const std::string &alias, const std::optional<const std::string> &ca, bool disableTLS13 = false);
 
     // Callback for delivering events during connect() call.
     // Will be called from the thread executing connect().
