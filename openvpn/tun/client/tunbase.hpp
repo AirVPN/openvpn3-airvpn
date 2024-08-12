@@ -63,6 +63,8 @@ struct TunClient : public virtual RC<thread_unsafe_refcount>
     virtual int vpn_mtu() const = 0;
 
     virtual void adjust_mss(int mss){};
+
+    virtual void apply_push_update(const OptionList &, TransportClient &){};
 };
 
 // Base class for parent of tun interface object, used to
@@ -70,6 +72,8 @@ struct TunClient : public virtual RC<thread_unsafe_refcount>
 // special events, and progress notifications.
 struct TunClientParent
 {
+    virtual ~TunClientParent() = default;
+
     virtual void tun_recv(BufferAllocated &buf) = 0;
     virtual void tun_error(const Error::Type fatal_err, const std::string &err_text) = 0;
 

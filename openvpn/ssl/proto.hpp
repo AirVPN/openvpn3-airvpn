@@ -161,6 +161,8 @@ enum
 class ProtoContextCallbackInterface
 {
   public:
+    virtual ~ProtoContextCallbackInterface() = default;
+
     /**
      * Sends out bytes to the network.
      */
@@ -278,6 +280,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         IV_PROTO_AUTH_FAIL_TEMP = (1 << 8),
         IV_PROTO_DYN_TLS_CRYPT = (1 << 9),
         IV_PROTO_DNS_OPTION_V2 = (1 << 11),
+        IV_PROTO_PUSH_UPDATE = (1 << 12)
     };
 
     enum tlv_types : uint16_t
@@ -1162,12 +1165,13 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
 	// supports op32 and P_DATA_V2 and expects a push reply
 
-    unsigned int iv_proto = IV_PROTO_DATA_V2
-                            | IV_PROTO_REQUEST_PUSH
-                            | IV_PROTO_AUTH_PENDING_KW
-                            | IV_PROTO_DNS_OPTION_V2
-                            | IV_PROTO_CC_EXIT_NOTIFY
-                            | IV_PROTO_AUTH_FAIL_TEMP;
+            unsigned int iv_proto = IV_PROTO_DATA_V2
+                                    | IV_PROTO_REQUEST_PUSH
+                                    | IV_PROTO_AUTH_PENDING_KW
+                                    | IV_PROTO_DNS_OPTION_V2
+                                    | IV_PROTO_CC_EXIT_NOTIFY
+                                    | IV_PROTO_AUTH_FAIL_TEMP
+                                    | IV_PROTO_PUSH_UPDATE;
 
             if (CryptoAlgs::lookup("SHA256") != CryptoAlgs::NONE && CryptoAlgs::lookup("AES-256-CTR") != CryptoAlgs::NONE)
                 iv_proto |= IV_PROTO_DYN_TLS_CRYPT;

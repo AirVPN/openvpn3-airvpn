@@ -112,7 +112,9 @@ namespace openvpn {
     {
       typedef RCPtr<ConnBlockFactory> Ptr;
 
-      virtual ConnBlock::Ptr new_conn_block(const OptionList::Ptr& opt) = 0;
+        virtual ~ConnBlockFactory() = default;
+
+        virtual ConnBlock::Ptr new_conn_block(const OptionList::Ptr &opt) = 0;
     };
 
     // A single "remote" item
@@ -229,7 +231,9 @@ namespace openvpn {
 
     struct RemoteOverride
     {
-      virtual Item::Ptr get() = 0;
+        virtual ~RemoteOverride() = default;
+
+        virtual Item::Ptr get() = 0;
     };
 
   private:
@@ -309,11 +313,13 @@ namespace openvpn {
     public:
       typedef RCPtr<BulkResolve> Ptr;
 
-      struct NotifyCallback
-      {
-	// client callback when resolve operation is complete
-	virtual void bulk_resolve_done() = 0;
-      };
+        struct NotifyCallback
+        {
+            virtual ~NotifyCallback() = default;
+
+            // client callback when resolve operation is complete
+            virtual void bulk_resolve_done() = 0;
+        };
 
       BulkResolve(openvpn_io::io_context& io_context_arg,
 		 const RemoteList::Ptr& remote_list_arg,
