@@ -369,20 +369,20 @@ class Base : public RC<thread_safe_refcount>
     {
     }
 
-      std::string name;
-      std::string reason;
-      bool critical;
+    std::string name;
+    std::string reason;
+    bool critical;
 
-      virtual std::string render() const
-      {
-	std::ostringstream out;
-	out << "name: " << name << ", reason: " << reason << ", critical: " << critical;
-	return out.str();
-      }
-    };
-
-    struct Connected : public Base
+    std::string render() const override
     {
+        std::ostringstream out;
+        out << "name: " << name << ", reason: " << reason << ", critical: " << critical;
+        return out.str();
+    }
+};
+
+struct Connected : public Base
+{
       typedef RCPtr<Connected> Ptr;
 
     Connected()
@@ -407,25 +407,24 @@ class Base : public RC<thread_safe_refcount>
       int ping;
       int ping_restart;
 
-      virtual std::string render() const
-      {
-	std::ostringstream out;
-	// eg. "godot@foo.bar.gov:443 (1.2.3.4) via TCPv4 on tun0/5.5.1.1"
-	if (!user.empty())
-	  out << user << '@';
-	if (server_host.find_first_of(':') == std::string::npos)
-	  out << server_host;
-	else
-	  out << '[' << server_host << ']';
-	out << ':' << server_port
-	    << " (" << server_ip << ") via " << client_ip << '/' << server_proto
-	    << " on " << tun_name << '/' << vpn_ip4 << '/' << vpn_ip6
-	    << " gw=[" << vpn_gw4 << '/' << vpn_gw6 << ']'
-	    << " mtu=" << vpn_mtu
-        << " cipher=" << cipher;
-	return out.str();
-      }
-    };
+    std::string render() const override
+    {
+        std::ostringstream out;
+        // eg. "godot@foo.bar.gov:443 (1.2.3.4) via TCPv4 on tun0/5.5.1.1"
+        if (!user.empty())
+            out << user << '@';
+        if (server_host.find_first_of(':') == std::string::npos)
+            out << server_host;
+        else
+            out << '[' << server_host << ']';
+        out << ':' << server_port
+            << " (" << server_ip << ") via " << client_ip << '/' << server_proto
+            << " on " << tun_name << '/' << vpn_ip4 << '/' << vpn_ip6
+            << " gw=[" << vpn_gw4 << '/' << vpn_gw6 << ']'
+            << " mtu=" << vpn_mtu;
+        return out.str();
+    }
+};
 
 struct ReasonBase : public Base
 {
@@ -449,13 +448,13 @@ struct ReasonBase : public Base
       std::string reason;
     };
 
-    struct AuthFailed : public ReasonBase
-    {
+struct AuthFailed : public ReasonBase
+{
     AuthFailed(std::string reason)
         : ReasonBase(AUTH_FAILED, std::move(reason))
     {
     }
-    };
+};
 
 struct SessionExpired : public ReasonBase
 {

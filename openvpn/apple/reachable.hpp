@@ -205,9 +205,7 @@ class ReachabilityBase
     virtual Type vtype() const = 0;
     virtual Status vstatus(const SCNetworkReachabilityFlags flags) const = 0;
 
-    virtual ~ReachabilityBase()
-    {
-    }
+    virtual ~ReachabilityBase() = default;
 
     CF::NetworkReachability reach;
 };
@@ -224,12 +222,12 @@ class ReachabilityViaInternet : public ReachabilityBase
         reach.reset(SCNetworkReachabilityCreateWithAddress(kCFAllocatorDefault, (struct sockaddr *)&addr));
     }
 
-    virtual Type vtype() const
+    Type vtype() const override
     {
         return Internet;
     }
 
-    virtual Status vstatus(const SCNetworkReachabilityFlags flags) const
+    Status vstatus(const SCNetworkReachabilityFlags flags) const override
     {
         return status_from_flags(flags);
     }
@@ -292,12 +290,12 @@ class ReachabilityViaWiFi : public ReachabilityBase
         reach.reset(SCNetworkReachabilityCreateWithAddress(kCFAllocatorDefault, (struct sockaddr *)&addr));
     }
 
-    virtual Type vtype() const
+    Type vtype() const override
     {
         return WiFi;
     }
 
-    virtual Status vstatus(const SCNetworkReachabilityFlags flags) const
+    Status vstatus(const SCNetworkReachabilityFlags flags) const override
     {
         return status_from_flags(flags);
     }
@@ -348,7 +346,7 @@ class Reachability : public ReachabilityInterface
             return false;
     }
 
-    virtual Status reachable() const
+    Status reachable() const override
     {
         if (reachableViaWiFi())
             return ReachableViaWiFi;
@@ -358,7 +356,7 @@ class Reachability : public ReachabilityInterface
             return NotReachable;
     }
 
-    virtual bool reachableVia(const std::string &net_type) const
+    bool reachableVia(const std::string &net_type) const override
     {
         if (net_type == "cellular")
             return reachableViaCellular();
@@ -368,7 +366,7 @@ class Reachability : public ReachabilityInterface
             return reachableViaWiFi() || reachableViaCellular();
     }
 
-    virtual std::string to_string() const
+    std::string to_string() const override
     {
         std::string ret;
         if (internet)

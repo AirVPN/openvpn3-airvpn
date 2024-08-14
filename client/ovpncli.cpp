@@ -168,10 +168,10 @@ namespace openvpn {
 	parent = nullptr;
       }
 
-      virtual void error(const size_t err, const std::string* text=nullptr)
-      {
-	if (err < Error::N_ERRORS)
-	  {
+    void error(const size_t err, const std::string *text = nullptr) override
+    {
+        if (err < Error::N_ERRORS)
+        {
 #ifdef OPENVPN_DEBUG_VERBOSE_ERRORS
 	    if (text)
 	      OPENVPN_LOG("ERROR: " << Error::name(err) << " : " << *text);
@@ -197,24 +197,37 @@ namespace openvpn {
     {
     }
 
-      virtual void add_event(ClientEvent::Base::Ptr event) override
-      {
-	if (parent)
-	  {
-	    Event ev;
-	    ev.name = event->name();
-	    ev.info = event->render();
-	    ev.error = event->is_error();
-	    ev.fatal = event->is_fatal();
 
-	    // save connected event
-	    if (event->id() == ClientEvent::CONNECTED)
-	      last_connected = std::move(event);
-	    else if (event->id() == ClientEvent::DISCONNECTED)
-	      parent->on_disconnect();
-	    parent->event(ev);
-	  }
-      }
+    void add_event(ClientEvent::Base::Ptr event) override
+    {
+        if (parent)
+        {
+            if (event->id() == ClientEvent::CUSTOM_CONTROL)
+            {
+                AppCustomControlMessageEvent ev;
+                ClientEvent::AppCustomControlMessage *accm = static_cast<ClientEvent::AppCustomControlMessage *>(event.get());
+                ev.protocol = accm->protocol;
+                ev.payload = accm->custommessage;
+                parent->acc_event(ev);
+            }
+            else
+            {
+                Event ev;
+                ev.name = event->name();
+                ev.info = event->render();
+                ev.error = event->is_error();
+                ev.fatal = event->is_fatal();
+
+                // save connected event
+                if (event->id() == ClientEvent::CONNECTED)
+                    last_connected = std::move(event);
+                else if (event->id() == ClientEvent::DISCONNECTED)
+                    parent->on_disconnect();
+
+                parent->event(ev);
+            }
+        }
+    }
 
       void get_connection_info(ConnectionInfo& ci)
       {
@@ -319,13 +332,13 @@ class MySocketProtect : public SocketProtect
 	parent = nullptr;
       }
 
-      virtual bool pause_on_connection_timeout()
-      {
-	if (parent)
-	  return parent->pause_on_connection_timeout();
-	else
-	  return false;
-      }
+    bool pause_on_connection_timeout() override
+    {
+        if (parent)
+            return parent->pause_on_connection_timeout();
+        else
+            return false;
+    }
 
     private:
       OpenVPNClient* parent;
@@ -344,12 +357,12 @@ class MySocketProtect : public SocketProtect
 	parent = nullptr;
       }
 
-      virtual RemoteList::Item::Ptr get() override
-      {
-	if (parent)
-	  {
-	    const std::string title = "remote-override";
-	    ClientAPI::RemoteOverride ro;
+    RemoteList::Item::Ptr get() override
+    {
+        if (parent)
+        {
+            const std::string title = "remote-override";
+            ClientAPI::RemoteOverride ro;
             try
             {
 	      parent->remote_override(ro);

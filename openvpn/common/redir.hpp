@@ -49,14 +49,12 @@ struct RedirectBase
     OPENVPN_EXCEPTION(redirect_std_err);
     virtual void redirect() = 0;
     virtual void close() = 0;
-    virtual ~RedirectBase()
-    {
-    }
+    virtual ~RedirectBase() = default;
 };
 
 struct RedirectStdFD : public RedirectBase
 {
-    virtual void redirect() noexcept override
+    void redirect() noexcept override
     {
         // stdin
         if (in.defined())
@@ -87,7 +85,7 @@ struct RedirectStdFD : public RedirectBase
         close();
     }
 
-    virtual void close() override
+    void close() override
     {
         in.close();
         out.close();

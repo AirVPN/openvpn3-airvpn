@@ -46,7 +46,7 @@ class CFException : public std::exception
         set_errtxt(text, status);
     }
 
-    virtual const char *what() const noexcept
+    const char *what() const noexcept override
     {
         return errtxt.c_str();
     }
@@ -55,9 +55,7 @@ class CFException : public std::exception
         return errtxt;
     }
 
-    virtual ~CFException() noexcept
-    {
-    }
+    virtual ~CFException() noexcept = default;
 
   private:
     void set_errtxt(const std::string &text, const OSStatus status)

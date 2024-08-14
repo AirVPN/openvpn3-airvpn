@@ -219,212 +219,212 @@ const int ciphersuites[] = // CONST GLOBAL
         {
         }
 
-      virtual SSLFactoryAPI::Ptr new_factory()
-      {
-	return SSLFactoryAPI::Ptr(new MbedTLSContext(this));
-      }
+        SSLFactoryAPI::Ptr new_factory() override
+        {
+            return SSLFactoryAPI::Ptr(new MbedTLSContext(this));
+        }
 
-      virtual void set_mode(const Mode& mode_arg)
-      {
-	mode = mode_arg;
-      }
+        void set_mode(const Mode &mode_arg) override
+        {
+            mode = mode_arg;
+        }
 
-      virtual const Mode& get_mode() const
-      {
-	return mode;
-      }
+        const Mode &get_mode() const override
+        {
+            return mode;
+        }
 
         // if this callback is defined, no private key needs to be loaded
-        virtual void set_external_pki_callback(ExternalPKIBase *external_pki_arg, const std::string &alias)
+        void set_external_pki_callback(ExternalPKIBase *external_pki_arg, const std::string &alias) override
         {
             external_pki = external_pki_arg;
             external_pki_alias = alias;
         }
 
-      virtual void set_session_ticket_handler(TLSSessionTicketBase* session_ticket_handler_arg)
-      {
-	// fixme -- this method should be implemented for server-side TLS session resumption tickets
-	throw MbedTLSException("set_session_ticket_handler not implemented");
-      }
+        void set_session_ticket_handler(TLSSessionTicketBase *session_ticket_handler_arg) override
+        {
+            // fixme -- this method should be implemented for server-side TLS session resumption tickets
+            throw MbedTLSException("set_session_ticket_handler not implemented");
+        }
 
-      virtual void set_client_session_tickets(const bool v)
-      {
-	// fixme -- this method should be implemented for client-side TLS session resumption tickets
-	throw MbedTLSException("set_client_session_tickets not implemented");
-      }
+        void set_client_session_tickets(const bool v) override
+        {
+            // fixme -- this method should be implemented for client-side TLS session resumption tickets
+            throw MbedTLSException("set_client_session_tickets not implemented");
+        }
 
-        virtual void enable_legacy_algorithms(const bool v)
+        void enable_legacy_algorithms(const bool v) override
         {
 	// We ignore the request to enable legacy as we do not have a runtime
 	// configuration for this
       }
 
-      virtual void set_sni_handler(SNI::HandlerBase* sni_handler)
-      {
-	// fixme -- this method should be implemented on the server-side for SNI
-	throw MbedTLSException("set_sni_handler not implemented");
-      }
+        void set_sni_handler(SNI::HandlerBase *sni_handler) override
+        {
+            // fixme -- this method should be implemented on the server-side for SNI
+            throw MbedTLSException("set_sni_handler not implemented");
+        }
 
-      virtual void set_sni_name(const std::string& sni_name_arg)
-      {
-	// fixme -- this method should be implemented on the client-side for SNI
-	throw MbedTLSException("set_sni_name not implemented");
-      }
+        void set_sni_name(const std::string &sni_name_arg) override
+        {
+            // fixme -- this method should be implemented on the client-side for SNI
+            throw MbedTLSException("set_sni_name not implemented");
+        }
 
-      virtual void set_private_key_password(const std::string& pwd)
-      {
-	priv_key_pwd = pwd;
-      }
+        void set_private_key_password(const std::string &pwd) override
+        {
+            priv_key_pwd = pwd;
+        }
 
-      virtual void load_ca(const std::string& ca_txt, bool strict)
-      {
-	MbedTLSPKI::X509Cert::Ptr c = new MbedTLSPKI::X509Cert();
-	c->parse(ca_txt, "ca", strict);
-	ca_chain = c;
-      }
+        void load_ca(const std::string &ca_txt, bool strict) override
+        {
+            MbedTLSPKI::X509Cert::Ptr c = new MbedTLSPKI::X509Cert();
+            c->parse(ca_txt, "ca", strict);
+            ca_chain = c;
+        }
 
-      virtual void load_crl(const std::string& crl_txt)
-      {
-	MbedTLSPKI::X509CRL::Ptr c = new MbedTLSPKI::X509CRL();
-	c->parse(crl_txt);
-	crl_chain = c;
-      }
+        void load_crl(const std::string &crl_txt) override
+        {
+            MbedTLSPKI::X509CRL::Ptr c = new MbedTLSPKI::X509CRL();
+            c->parse(crl_txt);
+            crl_chain = c;
+        }
 
-      virtual void load_cert(const std::string& cert_txt)
-      {
-	MbedTLSPKI::X509Cert::Ptr c = new MbedTLSPKI::X509Cert();
-	c->parse(cert_txt, "cert", true);
-	crt_chain = c;
-      }
+        void load_cert(const std::string &cert_txt) override
+        {
+            MbedTLSPKI::X509Cert::Ptr c = new MbedTLSPKI::X509Cert();
+            c->parse(cert_txt, "cert", true);
+            crt_chain = c;
+        }
 
-      virtual void load_cert(const std::string& cert_txt, const std::string& extra_certs_txt)
-      {
-	MbedTLSPKI::X509Cert::Ptr c = new MbedTLSPKI::X509Cert();
-	c->parse(cert_txt, "cert", true);
-	if (!extra_certs_txt.empty())
-	  c->parse(extra_certs_txt, "extra-certs", true);
-	crt_chain = c;
-      }
+        void load_cert(const std::string &cert_txt, const std::string &extra_certs_txt) override
+        {
+            MbedTLSPKI::X509Cert::Ptr c = new MbedTLSPKI::X509Cert();
+            c->parse(cert_txt, "cert", true);
+            if (!extra_certs_txt.empty())
+                c->parse(extra_certs_txt, "extra-certs", true);
+            crt_chain = c;
+        }
 
-      virtual void load_private_key(const std::string& key_txt)
-      {
+        void load_private_key(const std::string &key_txt) override
+        {
             MbedTLSPKI::PKContext::Ptr p = new MbedTLSPKI::PKContext();
             auto *mbedrng = get_mbed_random_class();
             p->parse(key_txt, "config", priv_key_pwd, *mbedrng);
             priv_key = p;
       }
 
-      virtual void load_dh(const std::string& dh_txt)
-      {
+        void load_dh(const std::string &dh_txt) override
+        {
             MbedTLSPKI::DH::Ptr mydh = new MbedTLSPKI::DH();
             mydh->parse(dh_txt, "server-config");
             dh = mydh;
       }
 
-      virtual std::string extract_ca() const
-      {
-	if (!ca_chain)
-	  return std::string();
-	return ca_chain->extract();
-      }
+        std::string extract_ca() const override
+        {
+            if (!ca_chain)
+                return std::string();
+            return ca_chain->extract();
+        }
 
-      virtual std::string extract_crl() const
-      {
-	if (!crl_chain)
-	  return std::string();
-	return crl_chain->extract();
-      }
+        std::string extract_crl() const override
+        {
+            if (!crl_chain)
+                return std::string();
+            return crl_chain->extract();
+        }
 
-      virtual std::string extract_cert() const
-      {
-	if (!crt_chain)
-	  return std::string();
-	return crt_chain->extract();
-      }
+        std::string extract_cert() const override
+        {
+            if (!crt_chain)
+                return std::string();
+            return crt_chain->extract();
+        }
 
-      virtual std::vector<std::string> extract_extra_certs() const
-      {
-	if (!crt_chain)
-	  return std::vector<std::string>();
-	return crt_chain->extract_extra_certs();
-      }
+        std::vector<std::string> extract_extra_certs() const override
+        {
+            if (!crt_chain)
+                return std::vector<std::string>();
+            return crt_chain->extract_extra_certs();
+        }
 
-      virtual std::string extract_private_key() const
-      {
-	if (!priv_key)
-	  return std::string();
-	return priv_key->extract();
-      }
+        std::string extract_private_key() const override
+        {
+            if (!priv_key)
+                return std::string();
+            return priv_key->extract();
+        }
 
-      virtual std::string extract_dh() const
-      {
-	if (!dh)
-	  return std::string();
-	return dh->extract();
-      }
+        std::string extract_dh() const override
+        {
+            if (!dh)
+                return std::string();
+            return dh->extract();
+        }
 
-      virtual PKType::Type private_key_type() const
-      {
-	if (!priv_key)
-	  return PKType::PK_NONE;
-	return priv_key->key_type();
-      }
+        PKType::Type private_key_type() const override
+        {
+            if (!priv_key)
+                return PKType::PK_NONE;
+            return priv_key->key_type();
+        }
 
-      virtual size_t private_key_length() const
-      {
-	if (!priv_key)
-	  return 0;
-	return priv_key->key_length();
-      }
+        size_t private_key_length() const override
+        {
+            if (!priv_key)
+                return 0;
+            return priv_key->key_length();
+        }
 
-      virtual void set_frame(const Frame::Ptr& frame_arg)
-      {
-	frame = frame_arg;
-      }
+        void set_frame(const Frame::Ptr &frame_arg) override
+        {
+            frame = frame_arg;
+        }
 
-      virtual void set_debug_level(const int debug_level)
-      {
-	ssl_debug_level = debug_level;
-      }
+        void set_debug_level(const int debug_level) override
+        {
+            ssl_debug_level = debug_level;
+        }
 
-      virtual void set_flags(const unsigned int flags_arg)
-      {
-	flags = flags_arg;
-      }
+        void set_flags(const unsigned int flags_arg) override
+        {
+            flags = flags_arg;
+        }
 
-      virtual void set_ns_cert_type(const NSCert::Type ns_cert_type_arg)
-      {
-	ns_cert_type = ns_cert_type_arg;
-      }
+        void set_ns_cert_type(const NSCert::Type ns_cert_type_arg) override
+        {
+            ns_cert_type = ns_cert_type_arg;
+        }
 
-      virtual void set_remote_cert_tls(const KUParse::TLSWebType wt)
-      {
-	KUParse::remote_cert_tls(wt, ku, eku);
-      }
+        void set_remote_cert_tls(const KUParse::TLSWebType wt) override
+        {
+            KUParse::remote_cert_tls(wt, ku, eku);
+        }
 
-      virtual void set_tls_remote(const std::string& tls_remote_arg)
-      {
-	tls_remote = tls_remote_arg;
-      }
+        void set_tls_remote(const std::string &tls_remote_arg) override
+        {
+            tls_remote = tls_remote_arg;
+        }
 
-      virtual void set_tls_version_min(const TLSVersion::Type tvm)
-      {
-	tls_version_min = tvm;
-      }
+        void set_tls_version_min(const TLSVersion::Type tvm) override
+        {
+            tls_version_min = tvm;
+        }
 
-        virtual void set_tls_version_max(const TLSVersion::Type tvm)
+        void set_tls_version_max(const TLSVersion::Type tvm) override
         {
         }
 
-        virtual void set_tls_version_min_override(const std::string &override)
+        void set_tls_version_min_override(const std::string &override) override
         {
             TLSVersion::apply_override(tls_version_min, override);
         }
 
-      virtual void set_tls_cert_profile(const TLSCertProfile::Type type)
-      {
-	tls_cert_profile = type;
-      }
+        void set_tls_cert_profile(const TLSCertProfile::Type type) override
+        {
+            tls_cert_profile = type;
+        }
 
       virtual void set_tls_cipher_list(const std::string& override)
       {
@@ -443,40 +443,40 @@ const int ciphersuites[] = // CONST GLOBAL
           tls_groups = groups;
       }
 
-      virtual void set_tls_cert_profile_override(const std::string& override)
-      {
-	TLSCertProfile::apply_override(tls_cert_profile, override);
-      }
+        void set_tls_cert_profile_override(const std::string &override) override
+        {
+            TLSCertProfile::apply_override(tls_cert_profile, override);
+        }
 
-      virtual void set_local_cert_enabled(const bool v)
-      {
-	local_cert_enabled = v;
-      }
+        void set_local_cert_enabled(const bool v) override
+        {
+            local_cert_enabled = v;
+        }
 
-      virtual void set_x509_track(X509Track::ConfigSet x509_track_config_arg)
-      {
-	x509_track_config = std::move(x509_track_config_arg);
-      }
+        void set_x509_track(X509Track::ConfigSet x509_track_config_arg) override
+        {
+            x509_track_config = std::move(x509_track_config_arg);
+        }
 
-      virtual void set_rng(const RandomAPI::Ptr& rng_arg)
-      {
-        rng = rng_arg;
-      }
+        void set_rng(const StrongRandomAPI::Ptr &rng_arg) override
+        {
+            rng = rng_arg;
+        }
 
-      virtual std::string validate_cert(const std::string& cert_txt) const
-      {
-	MbedTLSPKI::X509Cert::Ptr cert = new MbedTLSPKI::X509Cert(cert_txt, "validation cert", true);
-	return cert_txt; // fixme -- implement parse/re-render semantics
-      }
+        std::string validate_cert(const std::string &cert_txt) const override
+        {
+            MbedTLSPKI::X509Cert::Ptr cert = new MbedTLSPKI::X509Cert(cert_txt, "validation cert", true);
+            return cert_txt; // fixme -- implement parse/re-render semantics
+        }
 
-      virtual std::string validate_cert_list(const std::string& certs_txt) const
-      {
-	MbedTLSPKI::X509Cert::Ptr cert = new MbedTLSPKI::X509Cert(certs_txt, "validation cert list", true);
-	return certs_txt; // fixme -- implement parse/re-render semantics
-      }
+        std::string validate_cert_list(const std::string &certs_txt) const override
+        {
+            MbedTLSPKI::X509Cert::Ptr cert = new MbedTLSPKI::X509Cert(certs_txt, "validation cert list", true);
+            return certs_txt; // fixme -- implement parse/re-render semantics
+        }
 
-      virtual std::string validate_private_key(const std::string& key_txt) const
-      {
+        std::string validate_private_key(const std::string &key_txt) const override
+        {
             auto *mbedrng = get_mbed_random_class();
             MbedTLSPKI::PKContext::Ptr pkey = new MbedTLSPKI::PKContext(key_txt, "validation", "", *mbedrng);
             return key_txt; // fixme -- implement parse/re-render semantics
@@ -552,18 +552,18 @@ const int ciphersuites[] = // CONST GLOBAL
             load_dh(dh_txt);
         }
 
-	// relay mode
-	std::string relay_prefix;
-	if (lflags & LF_RELAY_MODE)
-	  relay_prefix = "relay-";
+        // relay mode
+        std::string relay_prefix;
+        if (lflags & LF_RELAY_MODE)
+          relay_prefix = "relay-";
 
-	// parse ns-cert-type
-	ns_cert_type = NSCert::ns_cert_type(opt, relay_prefix);
+        // parse ns-cert-type
+        ns_cert_type = NSCert::ns_cert_type(opt, relay_prefix);
 
-	// parse remote-cert-x options
-	KUParse::remote_cert_tls(opt, relay_prefix, ku, eku);
-	KUParse::remote_cert_ku(opt, relay_prefix, ku);
-	KUParse::remote_cert_eku(opt, relay_prefix, eku);
+        // parse remote-cert-x options
+        KUParse::remote_cert_tls(opt, relay_prefix, ku, eku);
+        KUParse::remote_cert_ku(opt, relay_prefix, ku);
+        KUParse::remote_cert_eku(opt, relay_prefix, eku);
 
 	// parse tls-remote
 	tls_remote = opt.get_optional(relay_prefix + "tls-remote", 1, 256);
@@ -600,10 +600,10 @@ const int ciphersuites[] = // CONST GLOBAL
     }
 
 #ifdef OPENVPN_JSON_INTERNAL
-      virtual SSLConfigAPI::Ptr json_override(const Json::Value& root, const bool load_cert_key) const
-      {
-	throw MbedTLSException("json_override not implemented");
-      }
+        SSLConfigAPI::Ptr json_override(const Json::Value &root, const bool load_cert_key) const override
+        {
+            throw MbedTLSException("json_override not implemented");
+        }
 #endif
 
       bool is_server() const
@@ -693,112 +693,112 @@ const int ciphersuites[] = // CONST GLOBAL
     public:
       typedef RCPtr<SSL> Ptr;
 
-      virtual void start_handshake() override
-      {
-	mbedtls_ssl_handshake(ssl);
-      }
+        void start_handshake() override
+        {
+            mbedtls_ssl_handshake(ssl);
+        }
 
-      virtual ssize_t write_cleartext_unbuffered(const void *data, const size_t size) override
-      {
-	const int status = mbedtls_ssl_write(ssl, (const unsigned char*)data, size);
-	if (status < 0)
-	  {
-	    if (status == CT_WOULD_BLOCK)
-	      return SSLConst::SHOULD_RETRY;
-	    else if (status == CT_INTERNAL_ERROR)
-	      throw MbedTLSException("SSL write: internal error");
-	    else
-	      throw MbedTLSException("SSL write error", status);
-	  }
-	else
-	  return status;
-      }
+        ssize_t write_cleartext_unbuffered(const void *data, const size_t size) override
+        {
+            const int status = mbedtls_ssl_write(ssl, (const unsigned char *)data, size);
+            if (status < 0)
+            {
+                if (status == CT_WOULD_BLOCK)
+                    return SSLConst::SHOULD_RETRY;
+                else if (status == CT_INTERNAL_ERROR)
+                    throw MbedTLSException("SSL write: internal error");
+                else
+                    throw MbedTLSException("SSL write error", status);
+            }
+            else
+                return status;
+        }
 
-      virtual ssize_t read_cleartext(void *data, const size_t capacity) override
-      {
-	if (!overflow)
-	  {
-	    const int status = mbedtls_ssl_read(ssl, (unsigned char*)data, capacity);
-	    if (status < 0)
-	      {
-		if (status == CT_WOULD_BLOCK)
-		  return SSLConst::SHOULD_RETRY;
-		else if (status == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY)
-		  return SSLConst::PEER_CLOSE_NOTIFY;
-		else if (status == CT_INTERNAL_ERROR)
-		  throw MbedTLSException("SSL read: internal error");
-		else
-		  throw MbedTLSException("SSL read error", status);
-	      }
-	    else
-	      return status;
-	  }
-	else
-	  throw ssl_ciphertext_in_overflow();
-      }
+        ssize_t read_cleartext(void *data, const size_t capacity) override
+        {
+            if (!overflow)
+            {
+                const int status = mbedtls_ssl_read(ssl, (unsigned char *)data, capacity);
+                if (status < 0)
+                {
+                    if (status == CT_WOULD_BLOCK)
+                        return SSLConst::SHOULD_RETRY;
+                    else if (status == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY)
+                        return SSLConst::PEER_CLOSE_NOTIFY;
+                    else if (status == CT_INTERNAL_ERROR)
+                        throw MbedTLSException("SSL read: internal error");
+                    else
+                        throw MbedTLSException("SSL read error", status);
+                }
+                else
+                    return status;
+            }
+            else
+                throw ssl_ciphertext_in_overflow();
+        }
 
-      virtual bool read_cleartext_ready() const override
-      {
-	return !ct_in.empty() || mbedtls_ssl_get_bytes_avail(ssl);
-      }
+        bool read_cleartext_ready() const override
+        {
+            return !ct_in.empty() || mbedtls_ssl_get_bytes_avail(ssl);
+        }
 
-      virtual void write_ciphertext(const BufferPtr& buf) override
-      {
-	if (ct_in.size() < MAX_CIPHERTEXT_IN)
-	  ct_in.write_buf(buf);
-	else
-	  overflow = true;
-      }
+        void write_ciphertext(const BufferPtr &buf) override
+        {
+            if (ct_in.size() < MAX_CIPHERTEXT_IN)
+                ct_in.write_buf(buf);
+            else
+                overflow = true;
+        }
 
-      virtual void write_ciphertext_unbuffered(const unsigned char *data, const size_t size) override
-      {
-	if (ct_in.size() < MAX_CIPHERTEXT_IN)
-	  ct_in.write(data, size);
-	else
-	  overflow = true;
-      }
+        void write_ciphertext_unbuffered(const unsigned char *data, const size_t size) override
+        {
+            if (ct_in.size() < MAX_CIPHERTEXT_IN)
+                ct_in.write(data, size);
+            else
+                overflow = true;
+        }
 
-      virtual bool read_ciphertext_ready() const override
-      {
-	return !ct_out.empty();
-      }
+        bool read_ciphertext_ready() const override
+        {
+            return !ct_out.empty();
+        }
 
-      virtual BufferPtr read_ciphertext() override
-      {
-	return ct_out.read_buf();
-      }
+        BufferPtr read_ciphertext() override
+        {
+            return ct_out.read_buf();
+        }
 
-      virtual std::string ssl_handshake_details() const override
-      {
-	if (ssl)
-	  {
-	    const char *ver = mbedtls_ssl_get_version(ssl);
-	    const char *cs = mbedtls_ssl_get_ciphersuite(ssl);
-	    if (ver && cs)
-	      return ver + std::string("/") + cs;
-	  }
-	return "";
-      }
+        std::string ssl_handshake_details() const override
+        {
+            if (ssl)
+            {
+                const char *ver = mbedtls_ssl_get_version(ssl);
+                const char *cs = mbedtls_ssl_get_ciphersuite(ssl);
+                if (ver && cs)
+                    return ver + std::string("/") + cs;
+            }
+            return "";
+        }
 
-      virtual bool export_keying_material(const std::string& label, unsigned char*, size_t size) override
-      {
-	return false; // not implemented in our mbed TLS implementation
-      }
+        bool export_keying_material(const std::string &label, unsigned char *, size_t size) override
+        {
+            return false; // not implemented in our mbed TLS implementation
+        }
 
-      virtual bool did_full_handshake() override
-      {
-	return false; // fixme -- not implemented
-      }
+        bool did_full_handshake() override
+        {
+            return false; // fixme -- not implemented
+        }
 
-      virtual const AuthCert::Ptr& auth_cert() const override
-      {
-	return authcert;
-      }
+        const AuthCert::Ptr &auth_cert() const override
+        {
+            return authcert;
+        }
 
-      virtual void mark_no_cache() override
-      {
-	// fixme -- this method should be implemented for client-side TLS session resumption tickets
-      }
+        void mark_no_cache() override
+        {
+            // fixme -- this method should be implemented for client-side TLS session resumption tickets
+        }
 
       virtual ~SSL()
       {
@@ -1195,7 +1195,7 @@ const int ciphersuites[] = // CONST GLOBAL
     /////// start of main class implementation
 
     // create a new SSL instance
-    virtual SSLAPI::Ptr ssl() override
+    SSLAPI::Ptr ssl() override
     {
       return SSL::Ptr(new SSL(this, nullptr));
     }

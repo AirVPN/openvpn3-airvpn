@@ -288,9 +288,7 @@ class TunBuilderBase
       return false;
     }
 
-    virtual ~TunBuilderBase()
-    {
-    }
+    virtual ~TunBuilderBase() = default;
 
 #ifdef ENABLE_OVPNDCO
     /**
