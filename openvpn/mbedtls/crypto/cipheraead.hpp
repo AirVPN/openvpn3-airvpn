@@ -53,9 +53,131 @@ class CipherContextAEAD : public CipherContextCommon
 
         OPENVPN_EXCEPTION(mbedtls_aead_error);
 
-        // mode parameter for constructor
-        
-        enum
+    CipherContextAEAD() = default;
+
+    ~CipherContextAEAD()
+    {
+        erase();
+    }
+
+    void init(SSLLib::Ctx libctx,
+              const CryptoAlgs::Type alg,
+              const unsigned char *key,
+              const unsigned int keysize,
+              const int mode)
+    {
+        erase();
+
+        check_mode(mode);
+
+        // get cipher type
+        unsigned int ckeysz = 0;
+        const mbedtls_cipher_type_t cid = cipher_type(alg, ckeysz);
+        if (cid == MBEDTLS_CIPHER_NONE)
+            OPENVPN_THROW(mbedtls_aead_error, CryptoAlgs::name(alg) << ": not usable");
+
+        if (ckeysz > keysize)
+            throw mbedtls_aead_error("insufficient key material");
+
+        auto *ci = mbedtls_cipher_info_from_type(cid);
+
+        // initialize cipher context with cipher type
+        if (mbedtls_cipher_setup(&ctx, ci) < 0)
+            throw mbedtls_aead_error("mbedtls_cipher_setup");
+
+        if (mbedtls_cipher_setkey(&ctx, key, ckeysz * 8, (mbedtls_operation_t)mode) < 0)
+            throw mbedtls_aead_error("mbedtls_cipher_setkey");
+
+        initialized = true;
+    }
+
+
+
+    void encrypt(const unsigned char *input,
+                 unsigned char *output,
+                 size_t length,
+                 const unsigned char *iv,
+                 unsigned char *tag,
+                 const unsigned char *ad,
+                 size_t ad_len)
+    {
+        check_initialized();
+        const int status = mbedtls_cipher_auth_encrypt_ext(&ctx,
+                                                           iv,
+                                                           IV_LEN,
+                                                           ad,
+                                                           ad_len,
+                                                           input,
+                                                           length,
+                                                           output,
+                                                           length + AUTH_TAG_LEN,
+                                                           &length,
+                                                           AUTH_TAG_LEN);
+        if (unlikely(status))
+            OPENVPN_THROW(mbedtls_aead_error, "mbedtls_cipher_auth_encrypt failed with status=" << status);
+    }
+
+    /**
+     * Decrypts AEAD encrypted data. Note that this method ignores the tag parameter
+     * and the tag is assumed to be part of input and at the end of the input.
+     *
+     * @param input     Input data to decrypt
+     * @param output    Where decrypted data will be written to
+     * @param iv        IV of the encrypted data.
+     * @param length    length the of the data, this includes the tag at the end.
+     * @param ad        start of the additional data
+     * @param ad_len    length of the additional data
+     * @param tag       ignored by the mbed TLS variant of the method. (see OpenSSL variant of the method for more details).
+     *
+     * input and output may NOT be equal
+     */
+    bool decrypt(const unsigned char *input,
+                 unsigned char *output,
+                 size_t length,
+                 const unsigned char *iv,
+                 const unsigned char *tag,
+                 const unsigned char *ad,
+                 size_t ad_len)
+    {
+        check_initialized();
+
+        if (unlikely(tag != nullptr))
+        {
+            /* If we are called with a non-null tag, the function is not going to be able to decrypt */
+            throw mbedtls_aead_error("tag must be null for aead decrypt");
+        }
+
+        size_t olen;
+        const int status = mbedtls_cipher_auth_decrypt_ext(&ctx,
+                                                           iv,
+                                                           IV_LEN,
+                                                           ad,
+                                                           ad_len,
+                                                           input,
+                                                           length,
+                                                           output,
+                                                           length - AUTH_TAG_LEN,
+                                                           &olen,
+                                                           AUTH_TAG_LEN);
+
+        return (olen == length - AUTH_TAG_LEN) && (status == 0);
+    }
+
+    bool is_initialized() const
+    {
+        return initialized;
+    }
+
+    static bool is_supported(void *libctx, const CryptoAlgs::Type alg)
+    {
+        unsigned int keysize;
+        return (cipher_type(alg, keysize) != MBEDTLS_CIPHER_NONE);
+    }
+
+  private:
+    static mbedtls_cipher_type_t cipher_type(const CryptoAlgs::Type alg, unsigned int &keysize)
+    {
+        switch (alg)
         {
             MODE_UNDEF = MBEDTLS_OPERATION_NONE,
             ENCRYPT = MBEDTLS_ENCRYPT,

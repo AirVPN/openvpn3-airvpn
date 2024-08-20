@@ -96,13 +96,18 @@ static openvpn::Frame::Context frame_ctx()
 }
 
 
-TEST(crypto, dcaead)
+void test_datachannel_crypto(bool tag_at_the_end, bool longpktcounter = false)
 {
 
     auto frameptr = openvpn::Frame::Ptr{new openvpn::Frame{frame_ctx()}};
     auto statsptr = openvpn::SessionStats::Ptr{new openvpn::SessionStats{}};
 
-    openvpn::AEAD::Crypto<openvpn::SSLLib::CryptoAPI> cryptodc{nullptr, openvpn::CryptoAlgs::AES_256_GCM, frameptr, statsptr};
+    openvpn::CryptoDCSettingsData dc;
+    dc.set_cipher(openvpn::CryptoAlgs::AES_256_GCM);
+    dc.set_aead_tag_end(tag_at_the_end);
+    dc.set_64_bit_packet_id(longpktcounter);
+
+    openvpn::AEAD::Crypto<openvpn::SSLLib::CryptoAPI> cryptodc{nullptr, dc, frameptr, statsptr};
 
     const char *plaintext = "The quick little fox jumps over the bureaucratic hurdles";
 
@@ -119,16 +124,19 @@ TEST(crypto, dcaead)
         bigkey[i] = static_cast<uint8_t>(key[i % sizeof(key)] ^ i);
     }
 
-    openvpn::StaticKey const static_bigkey{bigkey, openvpn::OpenVPNStaticKey::KEY_SIZE};
-    openvpn::StaticKey static_en_key{key, sizeof(key)};
-    openvpn::StaticKey static_de_key = static_en_key;
+    openvpn::OpenVPNStaticKey static_key;
+    std::memcpy(static_key.raw_alloc(), bigkey, sizeof(bigkey));
 
-    /* StaticKey implements all implicit copy and move operations as it
-       explicitly defines none of them nor does it explicitly define a dtor */
-    cryptodc.init_cipher(std::move(static_en_key), std::move(static_de_key));
-    cryptodc.init_pid(openvpn::PacketID::SHORT_FORM,
-                      0,
-                      openvpn::PacketID::SHORT_FORM,
+    auto key_dir = openvpn::OpenVPNStaticKey::NORMAL;
+
+    /* We here make encrypt and decrypt keys the same by design to have the loopback decryption capability */
+    cryptodc.init_hmac(static_key.slice(openvpn::OpenVPNStaticKey::HMAC | openvpn::OpenVPNStaticKey::ENCRYPT | key_dir),
+                       static_key.slice(openvpn::OpenVPNStaticKey::HMAC | openvpn::OpenVPNStaticKey::ENCRYPT | key_dir));
+
+    cryptodc.init_cipher(static_key.slice(openvpn::OpenVPNStaticKey::CIPHER | openvpn::OpenVPNStaticKey::ENCRYPT | key_dir),
+                         static_key.slice(openvpn::OpenVPNStaticKey::CIPHER | openvpn::OpenVPNStaticKey::ENCRYPT | key_dir));
+
+    cryptodc.init_pid(0,
                       "DATA",
                       0,
                       statsptr);
@@ -149,20 +157,57 @@ TEST(crypto, dcaead)
     bool const wrapwarn = cryptodc.encrypt(work, now, op32);
     ASSERT_FALSE(wrapwarn);
 
-    /* 16 for tag, 4 for IV */
-    EXPECT_EQ(work.size(), std::strlen(plaintext) + 4 + 16);
+    size_t pkt_counter_len = longpktcounter ? 8 : 4;
+    size_t tag_len = 16;
 
-    const uint8_t expected_tag[16]{0xe0, 0xa7, 0x19, '*', 0x89, ']', 0x1d, 0x90, 0xc9, 0xd6, '\n', 0xee, '8', 'z', 0x01, 0xbd};
+    /* 16 for tag, 4 or 8 for packet counter */
+    EXPECT_EQ(work.size(), std::strlen(plaintext) + pkt_counter_len + tag_len);
+
+    const uint8_t exp_tag_short[16]{0x1f, 0xdd, 0x90, 0x8f, 0x0e, 0x9d, 0xc2, 0x5e, 0x79, 0xd8, 0x32, 0x02, 0x0d, 0x58, 0xe7, 0x3f};
+    const uint8_t exp_tag_long[16]{0x52, 0xee, 0xef, 0xdb, 0x34, 0xb7, 0xbd, 0x79, 0xfe, 0xbf, 0x69, 0xd0, 0x4e, 0x92, 0xfe, 0x4b};
+
+    const uint8_t *expected_tag;
+
+    if (longpktcounter)
+        expected_tag = exp_tag_long;
+    else
+        expected_tag = exp_tag_short;
+
     // Packet id/IV should 1
-    uint8_t packetid1[]{0, 0, 0, 1};
-    EXPECT_TRUE(std::memcmp(work.data(), packetid1, 4) == 0);
+    if (longpktcounter)
+    {
+        uint8_t packetid1[]{0, 0, 0, 0, 0, 0, 0, 1};
+        EXPECT_EQ(std::memcmp(work.data(), packetid1, 8), 0);
+    }
+    else
+    {
+        uint8_t packetid1[]{0, 0, 0, 1};
+        EXPECT_EQ(std::memcmp(work.data(), packetid1, 4), 0);
+    }
+
 
     // Tag is in the front after packet id
-    EXPECT_TRUE(std::memcmp(work.data() + 4, expected_tag, 16) == 0);
+    if (tag_at_the_end)
+    {
+        EXPECT_EQ(std::memcmp(work.data() + 56 + pkt_counter_len, expected_tag, 16), 0);
+    }
+    else
+    {
+        EXPECT_EQ(std::memcmp(work.data() + pkt_counter_len, expected_tag, 16), 0);
+    }
 
-    // Check a few random bytes of the encrypted output
-    const uint8_t bytesat30[6]{0x52, 0x2e, 0xbf, 0xdf, 0x24, 0x1c};
-    EXPECT_TRUE(std::memcmp(work.data() + 30, bytesat30, 6) == 0);
+    // Check a few random bytes of the encrypted output. Different IVs lead to different output here.
+    ptrdiff_t tagoffset = tag_at_the_end ? 0 : 16;
+    if (longpktcounter)
+    {
+        const uint8_t bytesat14[6]{0xc7, 0x40, 0x47, 0x81, 0xac, 0x8c};
+        EXPECT_EQ(std::memcmp(work.data() + tagoffset + 14, bytesat14, 6), 0);
+    }
+    else
+    {
+        const uint8_t bytesat14[6]{0xa8, 0x2e, 0x6b, 0x17, 0x06, 0xd9};
+        EXPECT_EQ(std::memcmp(work.data() + tagoffset + 14, bytesat14, 6), 0);
+    }
 
     /* Check now if decrypting also works */
     auto ret = cryptodc.decrypt(work, now, op32);
@@ -170,5 +215,27 @@ TEST(crypto, dcaead)
     EXPECT_EQ(ret, openvpn::Error::SUCCESS);
     EXPECT_EQ(work.size(), std::strlen(plaintext));
 
-    EXPECT_TRUE(std::memcmp(work.data(), plaintext, std::strlen(plaintext)) == 0);
+    EXPECT_EQ(std::memcmp(work.data(), plaintext, std::strlen(plaintext)), 0);
+}
+
+
+TEST(crypto, dcaead_tag_at_the_front)
+{
+    test_datachannel_crypto(false);
+}
+
+TEST(crypto, dcaead_tag_at_the_end)
+{
+    test_datachannel_crypto(true);
+}
+
+
+TEST(crypto, dcaead_tag_at_the_front_long_pktcntr)
+{
+    test_datachannel_crypto(false, true);
+}
+
+TEST(crypto, dcaead_tag_at_the_end_long_pktcntr)
+{
+    test_datachannel_crypto(true, true);
 }

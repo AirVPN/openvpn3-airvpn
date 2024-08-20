@@ -307,6 +307,12 @@ class ServerProto
         {
         }
 
+        bool supports_proto_v3() override
+        {
+            /* TODO: currently all server implementations do not implement this feature in their data channel */
+            return false;
+        }
+
         bool defined_() const
         {
             return !halt && TransportLink::send;
@@ -603,9 +609,11 @@ class ServerProto
 
         bool get_management()
         {
+            if (halt)
+                OPENVPN_LOG("Debug: ServerProto: get_management() called with halt=true ManLink::send=" << bool(ManLink::send) << " man_factory=" << bool(man_factory));
             if (!ManLink::send)
             {
-                if (man_factory)
+                if (man_factory && !halt)
                     ManLink::send = man_factory->new_man_obj(this);
             }
             return bool(ManLink::send);
@@ -613,9 +621,11 @@ class ServerProto
 
         bool get_tun()
         {
+            if (halt)
+                OPENVPN_LOG("Debug: ServerProto: get_tun() called with halt=true TunLink::send=" << bool(TunLink::send) << " tun_factory=" << bool(tun_factory));
             if (!TunLink::send)
             {
-                if (tun_factory)
+                if (tun_factory && !halt)
                     TunLink::send = tun_factory->new_tun_obj(this);
             }
             return bool(TunLink::send);
