@@ -40,8 +40,9 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <algorithm>         // for std::min
-#include <cstdint>           // for std::uint...
+#include <algorithm> // for std::min
+#include <cstdint>   // for std::uint...
+using namespace std::chrono_literals;
 
 #include <openvpn/io/io.hpp>
 
@@ -310,7 +311,7 @@ class Session : ProtoContextCallbackInterface,
     {
         return temp_fail_advance_;
     }
-    unsigned int reconnect_delay() const
+    std::chrono::milliseconds reconnect_delay() const
     {
         return temp_fail_backoff_;
     }
@@ -638,9 +639,9 @@ class Session : ProtoContextCallbackInterface,
 	if (msg.empty())
 	  return msg;
 
-	// Reset to default values
-	temp_fail_backoff_ = 0;
-	temp_fail_advance_ = RemoteList::Advance::Addr;
+        // Reset to default values
+        temp_fail_backoff_ = 0ms;
+        temp_fail_advance_ = RemoteList::Advance::Addr;
 
         std::string::size_type reason_idx = 0;
         auto endofflags = msg.find(']');
@@ -661,39 +662,40 @@ class Session : ProtoContextCallbackInterface,
 		    continue;
 		  }
 
-		if (key == "backoff")
-		  {
-		    if (!parse_number(value, temp_fail_backoff_))
-		      {
-			OPENVPN_LOG("invalid AUTH_FAILED,TEMP flag: " << flag);
-		      }
-		    temp_fail_backoff_ *= 1000; // Convert to ms
-		  }
-		else if (key == "advance")
-		  {
-		    if (value == "no")
-		      {
-			temp_fail_advance_ = RemoteList::Advance::None;
-		      }
-		    else if (value == "addr")
-		      {
-			temp_fail_advance_ = RemoteList::Advance::Addr;
-		      }
-		    else if (value == "remote")
-		      {
-			temp_fail_advance_ = RemoteList::Advance::Remote;
-		      }
-		    else
-		      {
-			OPENVPN_LOG("unknown AUTH_FAILED,TEMP flag: " << flag);
-		      }
-		  }
-		else
-		  {
-		    OPENVPN_LOG("unknown AUTH_FAILED,TEMP flag: " << flag);
-		  }
-	      }
-	  }
+                if (key == "backoff")
+                {
+                    int timeout;
+                    if (!parse_number(value, timeout))
+                    {
+                        OPENVPN_LOG("invalid AUTH_FAILED,TEMP flag: " << flag);
+                    }
+                    temp_fail_backoff_ = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds{timeout});
+                }
+                else if (key == "advance")
+                {
+                    if (value == "no")
+                    {
+                        temp_fail_advance_ = RemoteList::Advance::None;
+                    }
+                    else if (value == "addr")
+                    {
+                        temp_fail_advance_ = RemoteList::Advance::Addr;
+                    }
+                    else if (value == "remote")
+                    {
+                        temp_fail_advance_ = RemoteList::Advance::Remote;
+                    }
+                    else
+                    {
+                        OPENVPN_LOG("unknown AUTH_FAILED,TEMP flag: " << flag);
+                    }
+                }
+                else
+                {
+                    OPENVPN_LOG("unknown AUTH_FAILED,TEMP flag: " << flag);
+                }
+            }
+        }
 
 	if (reason_idx >= msg.size() || msg[reason_idx] != ':')
 	  return "";
@@ -1713,12 +1715,12 @@ class Session : ProtoContextCallbackInterface,
       std::shared_ptr<SessionStats::inc_callback_t> out_tun_callback_;
       std::shared_ptr<SessionStats::inc_callback_t> in_tun_callback_;
 
-      std::unique_ptr<std::vector<ClientEvent::Base::Ptr>> info_hold;
-      AsioTimer info_hold_timer;
+    std::unique_ptr<std::vector<ClientEvent::Base::Ptr>> info_hold;
+    AsioTimer info_hold_timer;
 
-      // AUTH_FAILED,TEMP flag values
-      unsigned int temp_fail_backoff_ = 0;
-      RemoteList::Advance temp_fail_advance_ = RemoteList::Advance::Addr;
+    // AUTH_FAILED,TEMP flag values
+    std::chrono::milliseconds temp_fail_backoff_{0};
+    RemoteList::Advance temp_fail_advance_ = RemoteList::Advance::Addr;
 
     // Client side certcheck
     AccHandshaker certcheck_hs;

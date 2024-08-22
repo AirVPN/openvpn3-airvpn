@@ -51,6 +51,8 @@
 
 #include <memory>
 #include <utility>
+#include <chrono>
+using namespace std::chrono_literals;
 
 #include <openvpn/common/bigmutex.hpp>
 #include <openvpn/common/rc.hpp>
@@ -427,14 +429,14 @@ namespace openvpn {
 	bulk_resolve->start(this);
     }
 
-    void queue_restart(const unsigned int delay_ms = default_delay_)
+    void queue_restart(std::chrono::milliseconds delay = default_delay_)
     {
-      OPENVPN_LOG("Client terminated, restarting in " << delay_ms << " ms...");
-      server_poll_timer.cancel();
-      interim_finalize();
-      restart_wait_timer.expires_after(Time::Duration::milliseconds(delay_ms));
-      restart_wait_timer.async_wait([self=Ptr(this), gen=generation](const openvpn_io::error_code& error)
-                                    {
+        OPENVPN_LOG("Client terminated, restarting in " << delay.count() << " ms...");
+        server_poll_timer.cancel();
+        interim_finalize();
+        restart_wait_timer.expires_after(Time::Duration::milliseconds(delay));
+        restart_wait_timer.async_wait([self = Ptr(this), gen = generation](const openvpn_io::error_code &error)
+                                      {
                                       OPENVPN_ASYNC_HANDLER;
                                       self->restart_wait_callback(gen, error); });
     }
@@ -454,202 +456,159 @@ namespace openvpn {
         }
     }
 
+
+    template <typename ErrorClass>
+    void add_error_and_stop(const Client *client)
+    {
+        add_error_and_stop<ErrorClass>(client->fatal(), client->fatal_reason());
+    }
+
+
+    template <typename ErrorClass>
+    void add_error_and_stop(const int error_code, const std::string &fatal_reason)
+    {
+        ClientEvent::Base::Ptr ev = new ErrorClass{fatal_reason};
+        client_options->events().add_event(std::move(ev));
+        client_options->stats().error(error_code);
+        stop();
+    }
+
+    template <typename ErrorClass>
+    void add_error_and_stop(const int error_code)
+    {
+        ClientEvent::Base::Ptr ev = new ErrorClass{};
+        client_options->events().add_event(std::move(ev));
+        client_options->stats().error(error_code);
+        stop();
+    }
+
+    template <typename ErrorClass>
+    void add_error_and_restart(std::chrono::milliseconds delay, const std::string &fatal_reason)
+    {
+        ClientEvent::Base::Ptr ev = new ErrorClass{fatal_reason};
+        client_options->events().add_event(std::move(ev));
+        client_options->stats().error(Error::TUN_ERROR);
+        queue_restart(delay);
+    }
+
+    template <typename ErrorClass>
+    void add_error_and_restart(std::chrono::milliseconds delay)
+    {
+        ClientEvent::Base::Ptr ev = new ErrorClass{};
+        client_options->events().add_event(std::move(ev));
+        client_options->stats().error(Error::TUN_ERROR);
+        queue_restart(delay);
+    }
+
     virtual void client_proto_terminate() override
     {
-      if (!halt)
-	{
-	  if (dont_restart_)
-	    {
-	      stop();
-	    }
-	  else
-	    {
-	      switch (client->fatal())
-		{
-		case Error::UNDEF: // means that there wasn't a fatal error
-		  {
-		    auto client_delay = client->reconnect_delay();
-		    queue_restart(client_delay ? client_delay : default_delay_);
-		  }
-		  break;
+        if (!halt)
+        {
+            if (dont_restart_)
+            {
+                stop();
+            }
+            else
+            {
+                auto fatal_code = client->fatal();
+                auto fatal_reason = client->fatal_reason();
+
+                switch (fatal_code)
+                {
+                case Error::UNDEF: // means that there wasn't a fatal error
+                    {
+                        std::chrono::duration client_delay = client->reconnect_delay();
+                        queue_restart(client_delay.count() > 0 ? client_delay : default_delay_);
+                    }
+                    break;
 
                 // Errors below will cause the client to NOT retry the connection,
                 // or otherwise give the error special handling.
 
                 case Error::SESSION_EXPIRED:
                 case Error::AUTH_FAILED:
-                    {
-                        const std::string &reason = client->fatal_reason();
-                        if (ChallengeResponse::is_dynamic(reason)) // dynamic challenge/response?
-                        {
-                            ClientEvent::Base::Ptr ev = new ClientEvent::DynamicChallenge(reason);
-                            client_options->events().add_event(std::move(ev));
-                            stop();
-                        }
-                        else
-                        {
-                            ClientEvent::Base::Ptr ev;
-                            if (client->fatal() == Error::SESSION_EXPIRED)
-                                ev = new ClientEvent::SessionExpired(reason);
-                            else
-                                ev = new ClientEvent::AuthFailed(reason);
-                            client_options->events().add_event(std::move(ev));
-                            client_options->stats().error(client->fatal());
-                            if (client_options->retry_on_auth_failed())
-                                queue_restart(5000);
-                            else
-                                stop();
-                        }
-                    }
+                    handle_auth_failed(fatal_code, fatal_reason);
                     break;
                 case Error::TUN_SETUP_FAILED:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::TunSetupFailed(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::TUN_SETUP_FAILED);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::TunSetupFailed>(client.get());
                     break;
                 case Error::TUN_REGISTER_RINGS_ERROR:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::TunSetupFailed(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::TUN_REGISTER_RINGS_ERROR);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::TunSetupFailed>(client.get());
                     break;
                 case Error::TUN_IFACE_CREATE:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::TunIfaceCreate(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::TUN_IFACE_CREATE);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::TunIfaceCreate>(client.get());
                     break;
                 case Error::TUN_IFACE_DISABLED:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::TunIfaceDisabled(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::TUN_IFACE_DISABLED);
-                        queue_restart(5000);
-                    }
+                    add_error_and_restart<ClientEvent::TunIfaceDisabled>(5000ms, fatal_reason);
                     break;
                 case Error::PROXY_ERROR:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::ProxyError(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::PROXY_ERROR);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::ProxyError>(client.get());
                     break;
                 case Error::PROXY_NEED_CREDS:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::ProxyNeedCreds(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::PROXY_NEED_CREDS);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::ProxyNeedCreds>(client.get());
                     break;
                 case Error::CERT_VERIFY_FAIL:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::CertVerifyFail(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::CERT_VERIFY_FAIL);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::CertVerifyFail>(client.get());
                     break;
                 case Error::TLS_VERSION_MIN:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::TLSVersionMinFail();
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::TLS_VERSION_MIN);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::TLSVersionMinFail>(fatal_code);
                     break;
                 case Error::CLIENT_HALT:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::ClientHalt(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::CLIENT_HALT);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::ClientHalt>(client.get());
                     break;
                 case Error::CLIENT_RESTART:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::ClientRestart(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::CLIENT_RESTART);
-                        queue_restart();
-                    }
+                    add_error_and_restart<ClientEvent::ClientRestart>(5000ms, fatal_reason);
                     break;
                 case Error::INACTIVE_TIMEOUT:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::InactiveTimeout();
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::INACTIVE_TIMEOUT);
-
-                        // explicit exit notify is sent earlier by
-                        // ClientProto::Session::inactive_callback()
-                        stop();
-                    }
+                    // explicit exit notify is sent earlier by
+                    // ClientProto::Session::inactive_callback()
+                    add_error_and_stop<ClientEvent::InactiveTimeout>(fatal_code);
                     break;
                 case Error::TRANSPORT_ERROR:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::TransportError(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::TRANSPORT_ERROR);
-                        queue_restart(5000); // use a larger timeout to allow preemption from higher levels
-                    }
+                    add_error_and_restart<ClientEvent::TransportError>(5000ms, fatal_reason);
                     break;
                 case Error::TUN_ERROR:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::TunError(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::TUN_ERROR);
-                        queue_restart(5000);
-                    }
+                    add_error_and_restart<ClientEvent::TunError>(5000ms, fatal_reason);
                     break;
                 case Error::TUN_HALT:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::TunHalt(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::TUN_HALT);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::TunHalt>(client.get());
                     break;
                 case Error::RELAY:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::Relay();
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::RELAY);
-                        transport_factory_relay = client->transport_factory_relay();
-                        queue_restart(0);
-                    }
+                    transport_factory_relay = client->transport_factory_relay();
+                    add_error_and_restart<ClientEvent::Relay>(0ms);
                     break;
                 case Error::RELAY_ERROR:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::RelayError(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::RELAY_ERROR);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::RelayError>(client.get());
                     break;
+
                 /* ProMIND: commented out for back compatibility
-                    case Error::COMPRESS_ERROR:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::CompressError(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::COMPRESS_ERROR);
-                        stop();
-                    }
+                case Error::COMPRESS_ERROR:
+                    add_error_and_stop<ClientEvent::CompressError>(client.get());
                     break; */
+
                 case Error::NTLM_MISSING_CRYPTO:
-                    {
-                        ClientEvent::Base::Ptr ev = new ClientEvent::NtlmMissingCryptoError(client->fatal_reason());
-                        client_options->events().add_event(std::move(ev));
-                        client_options->stats().error(Error::NTLM_MISSING_CRYPTO);
-                        stop();
-                    }
+                    add_error_and_stop<ClientEvent::NtlmMissingCryptoError>(client.get());
+                    break;
+                case Error::TLS_ALERT_PROTOCOL_VERSION:
+                    add_error_and_stop<ClientEvent::TLSAlertProtocolVersion>(fatal_code);
+                    break;
+                case Error::TLS_SIGALG_DISALLOWED_OR_UNSUPPORTED:
+                    add_error_and_stop<ClientEvent::TLSSigAlgDisallowedOrUnsupported>(fatal_code);
+                    break;
+                case Error::TLS_ALERT_UNKNOWN_CA:
+                    add_error_and_stop<ClientEvent::TLSAlertProtocolUnknownCA>(fatal_code);
+                    break;
+                case Error::TLS_ALERT_MISC:
+                    add_error_and_stop<ClientEvent::TLSAlertMisc>(fatal_code, fatal_reason);
+                    break;
+                case Error::TLS_ALERT_HANDSHAKE_FAILURE:
+                    add_error_and_stop<ClientEvent::TLSAlertHandshakeFailure>(fatal_code);
+                    break;
+                case Error::TLS_ALERT_CERTIFICATE_EXPIRED:
+                    add_error_and_stop<ClientEvent::TLSAlertCertificateExpire>(fatal_code);
+                    break;
+                case Error::TLS_ALERT_CERTIFICATE_REVOKED:
+                    add_error_and_stop<ClientEvent::TLSAlertCertificateRevoked>(fatal_code);
                     break;
                 case Error::BAD_DC_CIPHER_ERROR:
                   {
@@ -671,6 +630,30 @@ namespace openvpn {
                     throw client_connect_unhandled_exception();
                 }
             }
+        }
+    }
+
+    void handle_auth_failed(const int error_code, const std::string &reason)
+    {
+        if (ChallengeResponse::is_dynamic(reason)) // dynamic challenge/response?
+        {
+            ClientEvent::Base::Ptr ev = new ClientEvent::DynamicChallenge(reason);
+            client_options->events().add_event(std::move(ev));
+            stop();
+        }
+        else
+        {
+            ClientEvent::Base::Ptr ev;
+            if (error_code == Error::SESSION_EXPIRED)
+                ev = new ClientEvent::SessionExpired(reason);
+            else
+                ev = new ClientEvent::AuthFailed(reason);
+            client_options->events().add_event(std::move(ev));
+            client_options->stats().error(error_code);
+            if (client_options->retry_on_auth_failed())
+                queue_restart(5000ms);
+            else
+                stop();
         }
     }
 
@@ -768,8 +751,8 @@ namespace openvpn {
     std::unique_ptr<AsioWork> asio_work;
     RemoteList::BulkResolve::Ptr bulk_resolve;
 
-    static constexpr unsigned int default_delay_ = 2000; // ms
-  };
+    static constexpr std::chrono::milliseconds default_delay_ = 2000ms;
+};
 
 } // namespace openvpn
 
