@@ -66,7 +66,7 @@
 #include <openvpn/crypto/ovpnhmac.hpp>
 #include <openvpn/crypto/tls_crypt.hpp>
 #include <openvpn/crypto/tls_crypt_v2.hpp>
-#include <openvpn/crypto/packet_id.hpp>
+#include <openvpn/crypto/packet_id_control.hpp>
 #include <openvpn/crypto/static_key.hpp>
 #include <openvpn/crypto/bs64_data_limit.hpp>
 #include <openvpn/log/sessionstats.hpp>
@@ -414,9 +414,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
       TLSCryptMetadataFactory::Ptr tls_crypt_metadata_factory;
 
-      // packet_id parms for both data and control channels
-      int pid_mode = 0;                // PacketIDReceive::UDP_MODE or PacketIDReceive::TCP_MODE
-
       // timeout parameters, relative to construction of KeyContext object
       Time::Duration handshake_window; // SSL/TLS negotiation must complete by this time
       Time::Duration become_primary;   // KeyContext (that is ACTIVE) becomes primary at this time
@@ -474,7 +471,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	keepalive_timeout_early = keepalive_timeout;
 	comp_ctx = CompressContext(CompressContext::NONE, false);
 	protocol = Protocol();
-	pid_mode = PacketIDReceive::UDP_MODE;
 	key_direction = default_key_direction;
 
     // layer
@@ -501,6 +497,17 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         // negotiable data ciphers (openvpn 2.5) ProMIND
         {
             const Option *o = opt.get_ptr("data-ciphers");
+
+            // first set defaults
+            handshake_window = Time::Duration::seconds(60);
+            renegotiate = Time::Duration::seconds(3600);
+            tls_timeout = Time::Duration::seconds(1);
+            keepalive_ping = Time::Duration::seconds(8);
+            keepalive_timeout = Time::Duration::seconds(40);
+            keepalive_timeout_early = keepalive_timeout;
+            comp_ctx = CompressContext(CompressContext::NONE, false);
+            protocol = Protocol();
+            key_direction = default_key_direction;
 
             if(o)
             {
@@ -1021,23 +1028,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             return os.str();
         }
 
-        void set_pid_mode(const bool tcp_linear)
-        {
-            if (protocol.is_udp() || !tcp_linear)
-                pid_mode = PacketIDReceive::UDP_MODE;
-            else if (protocol.is_tcp())
-                pid_mode = PacketIDReceive::TCP_MODE;
-            else
-                throw proto_option_error(ERR_INVALID_OPTION_VAL, "transport protocol undefined");
-        }
-
-      void set_protocol(const Protocol& p)
-      {
-	// adjust options for new transport protocol
-	protocol = p;
-	set_pid_mode(false);
-      }
-
       void set_cipher(const CryptoAlgs::Type c)
       {
 	    if(c > CryptoAlgs::Type::NONE && c < CryptoAlgs::Type::SIZE)
@@ -1065,6 +1055,12 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	      dc.set_ncp_enabled(false);
 	    }
       }
+
+        void set_protocol(const Protocol &p)
+        {
+            // adjust options for new transport protocol
+            protocol = p;
+        }
 
         void set_tls_auth_digest(const CryptoAlgs::Type digest)
       {
@@ -1308,18 +1304,18 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 dc_overhead = CryptoAlgs::size(dc.digest()) // HMAC
                               + 64 / 8                      // Cipher IV
                               + 64 / 8;                     // worst-case PKCS#7 padding expansion (blocksize)
-	}
-	else
-	{
-	  dc_overhead = dc.context().encap_overhead();
-	}
-	const size_t adj = protocol.extra_transport_bytes() + // extra 2 bytes for TCP-streamed packet length
-          (enable_op32 ? 4 : 1) +                        // leading op
-	  comp_ctx.extra_payload_bytes() +               // compression header
-	  PacketID::size(PacketID::SHORT_FORM) +         // sequence number
-	  dc_overhead;                 // data channel crypto layer overhead
-	return (unsigned int)adj;
-      }
+            }
+            else
+            {
+                dc_overhead = dc.context().encap_overhead();
+            }
+            const size_t adj = protocol.extra_transport_bytes() + // extra 2 bytes for TCP-streamed packet length
+                               (enable_op32 ? 4 : 1) +            // leading op
+                               comp_ctx.extra_payload_bytes() +   // compression header
+                               PacketIDData::size(false) +        // sequence number
+                               dc_overhead;                       // data channel crypto layer overhead
+            return (unsigned int)adj;
+        }
 
     private:
         enum LoadCommonType
@@ -1549,71 +1545,71 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	else
 	  return "BAD_PACKET";
 
-	if (opcode == DATA_V1 || opcode == DATA_V2)
-	  {
-	    if (opcode == DATA_V2)
-	      {
-		const unsigned int p1 = b.pop_front();
-		const unsigned int p2 = b.pop_front();
-		const unsigned int p3 = b.pop_front();
-		const unsigned int peer_id = (p1<<16) + (p2<<8) + p3;
-		if (peer_id != 0xFFFFFF)
-		  out << " PEER_ID=" << peer_id;
-	      }
-	    out << " SIZE=" << b.size() << '/' << orig_size;
-	  }
-	else
-	  {
-	    {
-	      ProtoSessionID src_psid(b);
-	      out << " SRC_PSID=" << src_psid.str();
-	    }
-
-	    if (tls_wrap_mode == TLS_CRYPT || tls_wrap_mode == TLS_CRYPT_V2)
-	      {
-		PacketID pid;
-		pid.read(b, PacketID::LONG_FORM);
-		out << " PID=" << pid.str();
-
-		const unsigned char *hmac = b.read_alloc(hmac_size);
-		out << " HMAC=" << render_hex(hmac, hmac_size);
-                out << " TLS-CRYPT ENCRYPTED PAYLOAD=" << b.size() << " bytes";
-	      }
-	    else
-	      {
-		if (tls_wrap_mode == TLS_AUTH)
-	          {
-		    const unsigned char *hmac = b.read_alloc(hmac_size);
-		    out << " HMAC=" << render_hex(hmac, hmac_size);
-
-		    PacketID pid;
-		    pid.read(b, PacketID::LONG_FORM);
-		    out << " PID=" << pid.str();
-	          }
-
-	        ReliableAck ack{};
-	        ack.read(b);
-	        const bool dest_psid_defined = !ack.empty();
-	        out << " ACK=[";
-	        while (!ack.empty())
-	          {
-		    out << " " << ack.front();
-		    ack.pop_front();
-	          }
-	        out << " ]";
-
-	        if (dest_psid_defined)
-	          {
-		    ProtoSessionID dest_psid(b);
-		    out << " DEST_PSID=" << dest_psid.str();
-	          }
-
-	        if (opcode != ACK_V1)
-	          out << " MSG_ID=" << ReliableAck::read_id(b);
-
-	        out << " SIZE=" << b.size() << '/' << orig_size;
+            if (opcode == DATA_V1 || opcode == DATA_V2)
+            {
+                if (opcode == DATA_V2)
+                {
+                    const unsigned int p1 = b.pop_front();
+                    const unsigned int p2 = b.pop_front();
+                    const unsigned int p3 = b.pop_front();
+                    const unsigned int peer_id = (p1 << 16) + (p2 << 8) + p3;
+                    if (peer_id != 0xFFFFFF)
+                        out << " PEER_ID=" << peer_id;
+                }
+                out << " SIZE=" << b.size() << '/' << orig_size;
             }
-	  }
+            else
+            {
+                {
+                    ProtoSessionID src_psid(b);
+                    out << " SRC_PSID=" << src_psid.str();
+                }
+
+                if (tls_wrap_mode == TLS_CRYPT || tls_wrap_mode == TLS_CRYPT_V2)
+                {
+                    PacketIDControl pid;
+                    pid.read(b);
+                    out << " PID=" << pid.str();
+
+                    const unsigned char *hmac = b.read_alloc(hmac_size);
+                    out << " HMAC=" << render_hex(hmac, hmac_size);
+                    out << " TLS-CRYPT ENCRYPTED PAYLOAD=" << b.size() << " bytes";
+                }
+                else
+                {
+                    if (tls_wrap_mode == TLS_AUTH)
+                    {
+                        const unsigned char *hmac = b.read_alloc(hmac_size);
+                        out << " HMAC=" << render_hex(hmac, hmac_size);
+
+                        PacketIDControl pid;
+                        pid.read(b);
+                        out << " PID=" << pid.str();
+                    }
+
+                    ReliableAck ack{};
+                    ack.read(b);
+                    const bool dest_psid_defined = !ack.empty();
+                    out << " ACK=[";
+                    while (!ack.empty())
+                    {
+                        out << " " << ack.front();
+                        ack.pop_front();
+                    }
+                    out << " ]";
+
+                    if (dest_psid_defined)
+                    {
+                        ProtoSessionID dest_psid(b);
+                        out << " DEST_PSID=" << dest_psid.str();
+                    }
+
+                    if (opcode != ACK_V1)
+                        out << " MSG_ID=" << ReliableAck::read_id(b);
+
+                    out << " SIZE=" << b.size() << '/' << orig_size;
+                }
+            }
 #ifdef OPENVPN_DEBUG_PROTO_DUMP
             out << '\n'
                 << string::trim_crlf_copy(dump_hex(buf));
@@ -1712,10 +1708,10 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     template <typename S>
     void write_control_string(const S& str)
     {
-      const size_t len = str.length();
-      BufferPtr bp = new BufferAllocated(len+1, 0);
-      write_control_string(str, *bp);
-      control_send(std::move(bp));
+        const size_t len = str.length();
+        auto bp = BufferAllocatedRc::Create(len + 1, 0);
+        write_control_string(str, *bp);
+        control_send(std::move(bp));
     }
 
   protected:
@@ -1736,14 +1732,14 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
       {
       }
 
-      // clone packet, including buffer content
-      Packet clone() const
-      {
-	Packet pkt;
-	pkt.opcode = opcode;
-	pkt.buf.reset(new BufferAllocated(*buf));
-	return pkt;
-      }
+        // clone packet, including buffer content
+        Packet clone() const
+        {
+            Packet pkt;
+            pkt.opcode = opcode;
+            pkt.buf = BufferAllocatedRc::Create(*buf);
+            return pkt;
+        }
 
       void reset()
       {
@@ -1751,12 +1747,12 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	buf.reset();
       }
 
-      void frame_prepare(const Frame& frame, const unsigned int context)
-      {
-	if (!buf)
-	  buf.reset(new BufferAllocated());
-	frame.prepare(context, *buf);
-      }
+        void frame_prepare(const Frame &frame, const unsigned int context)
+        {
+            if (!buf)
+                buf = BufferAllocatedRc::Create();
+            frame.prepare(context, *buf);
+        }
 
       /**
        * This returns if this packet type has a payload that should considered
@@ -2345,8 +2341,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	    payload_overhead += 1;
 	  }
 
-	if (CryptoAlgs::mode(c.dc.cipher()) == CryptoAlgs::CBC_HMAC)
-	  payload_overhead += PacketID::size(PacketID::SHORT_FORM);
+            if (CryptoAlgs::mode(c.dc.cipher()) == CryptoAlgs::CBC_HMAC)
+                payload_overhead += PacketIDData::size(false);
 
             // account for IPv4 and TCP headers of the payload, mssfix method
             // will add 20 extra bytes if payload is IPv6
@@ -2356,9 +2352,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                             + (enable_op32 ? OP_SIZE_V2 : 1)
                             + c.dc.context().encap_overhead();
 
-	// in CBC mode, the packet id is part of the payload size / overhead
-	if (CryptoAlgs::mode(c.dc.cipher()) != CryptoAlgs::CBC_HMAC)
-	  overhead += PacketID::size(PacketID::SHORT_FORM);
+            // in CBC mode, the packet id is part of the payload size / overhead
+            if (CryptoAlgs::mode(c.dc.cipher()) != CryptoAlgs::CBC_HMAC)
+                overhead += PacketIDData::size(false);
 
 	if (c.mss_parms.mtu)
 	  {
@@ -2439,8 +2435,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	  crypto->init_hmac(key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | key_dir),
 			    key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::DECRYPT | key_dir));
 
-            crypto->init_pid(c.pid_mode,
-                             "DATA",
+            crypto->init_pid("DATA",
                              int(key_id_),
 			 proto.stats);
 
@@ -2493,9 +2488,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	  recv.advance(proto.hmac_size);
                 if (!proto.ta_hmac_recv->ovpn_hmac_cmp(orig_data,
                                                        orig_size,
-						 1 + ProtoSessionID::SIZE,
-						 proto.hmac_size,
-						 PacketID::size(PacketID::LONG_FORM)))
+                                                       1 + ProtoSessionID::SIZE,
+                                                       proto.hmac_size,
+                                                       PacketIDControl::size()))
                 {
 	    return false;
 	}
@@ -2505,11 +2500,11 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	if (!proto.psid_peer.match(src_psid))
 	  return false;
 
-	// read tls_auth packet ID
-	const PacketID pid = proto.ta_pid_recv.read_next(recv);
+            // read tls_auth packet ID
+            const PacketIDControl pid = proto.ta_pid_recv.read_next(recv);
 
-	// get current time_t
-	const PacketID::time_t t = now->seconds_since_epoch();
+            // get current time_t
+            const PacketIDControl::time_t t = now->seconds_since_epoch();
 
 	// verify tls_auth packet ID
 	const bool pid_ok = proto.ta_pid_recv.test_add(pid, t, false);
@@ -2530,19 +2525,19 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	const unsigned char *orig_data = recv.data();
 	const size_t orig_size = recv.size();
 
-	// advance buffer past initial op byte
-	recv.advance(1);
-	// get source PSID
-	ProtoSessionID src_psid(recv);
-	// read tls_auth packet ID
-	const PacketID pid = proto.ta_pid_recv.read_next(recv);
+            // advance buffer past initial op byte
+            recv.advance(1);
+            // get source PSID
+            ProtoSessionID src_psid(recv);
+            // read tls_auth packet ID
+            const PacketIDControl pid = proto.ta_pid_recv.read_next(recv);
 
 	recv.advance(proto.hmac_size);
 
-	const size_t head_size = 1 + ProtoSessionID::SIZE + PacketID::size(PacketID::LONG_FORM);
-	const size_t data_offset = head_size + proto.hmac_size;
-	if (orig_size < data_offset)
-	  return false;
+            const size_t head_size = 1 + ProtoSessionID::SIZE + PacketIDControl::size();
+            const size_t data_offset = head_size + proto.hmac_size;
+            if (orig_size < data_offset)
+                return false;
 
 	// we need a buffer to perform the payload decryption and being this a static
 	// function we can't use the instance member like in decapsulate_tls_crypt()
@@ -2578,8 +2573,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	    proto.psid_peer = src_psid;
 	  }
 
-	// get current time_t
-	const PacketID::time_t t = now->seconds_since_epoch();
+            // get current time_t
+            const PacketIDControl::time_t t = now->seconds_since_epoch();
 
 	// verify tls_auth packet ID
 	const bool pid_ok = proto.ta_pid_recv.test_add(pid, t, false);
@@ -2640,16 +2635,16 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
 	    static_assert(sizeof(op32) == OP_SIZE_V2, "OP_SIZE_V2 inconsistency");
 
-	    // encrypt packet
-	    pid_wrap = crypto->encrypt(buf, now->seconds_since_epoch(), (const unsigned char *)&op32);
+                // encrypt packet
+                pid_wrap = crypto->encrypt(buf, (const unsigned char *)&op32);
 
-	    // prepend op
-	    buf.prepend((const unsigned char *)&op32, sizeof(op32));
-	  }
-	else
-	  {
-	    // encrypt packet
-	    pid_wrap = crypto->encrypt(buf, now->seconds_since_epoch(), nullptr);
+                // prepend op
+                buf.prepend((const unsigned char *)&op32, sizeof(op32));
+            }
+            else
+            {
+                // encrypt packet
+                pid_wrap = crypto->encrypt(buf, nullptr);
 
 	    // prepend op
 	    buf.push_front(op_compose(DATA_V1, key_id_));
@@ -2982,7 +2977,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         void send_auth()
         {
-            BufferPtr buf = new BufferAllocated();
+            auto buf = BufferAllocatedRc::Create();
             proto.config->frame->prepare(Frame::WRITE_SSL_CLEARTEXT, *buf);
             buf->write(proto_context_private::auth_prefix, sizeof(proto_context_private::auth_prefix));
             tlsprf->self_randomize(*proto.config->rng);
@@ -2992,7 +2987,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             if (!proto.is_server())
             {
                 OVPN_LOG_INFO("Tunnel Options:" << options);
-                buf->or_flags(BufferAllocated::DESTRUCT_ZERO);
+                buf->or_flags(BufAllocFlags::DESTRUCT_ZERO);
                 if (proto.config->xmit_creds)
                     proto.client_auth(*buf);
                 else
@@ -3134,10 +3129,10 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	// write hmac
             proto.ta_hmac_send->ovpn_hmac_gen(buf.data(),
                                               buf.size(),
-					  1 + ProtoSessionID::SIZE,
-					  proto.hmac_size,
-					  PacketID::size(PacketID::LONG_FORM));
-      }
+                                              1 + ProtoSessionID::SIZE,
+                                              proto.hmac_size,
+                                              PacketIDControl::size());
+        }
 
       void gen_head_tls_crypt(const unsigned int opcode, BufferAllocated& buf)
       {
@@ -3238,72 +3233,72 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	gen_head(ACK_V1, buf);
       }
 
-      bool decapsulate_post_process(Packet& pkt, ProtoSessionID& src_psid, const PacketID pid)
-      {
-	Buffer& recv = *pkt.buf;
+        bool decapsulate_post_process(Packet &pkt, ProtoSessionID &src_psid, const PacketIDControl pid)
+        {
+            Buffer &recv = *pkt.buf;
 
-	// update our last-packet-received time
-	proto.update_last_received();
+            // update our last-packet-received time
+            proto.update_last_received();
 
-	// verify source PSID
-	if (!verify_src_psid(src_psid))
-	  return false;
+            // verify source PSID
+            if (!verify_src_psid(src_psid))
+                return false;
 
-	// get current time_t
-	const PacketID::time_t t = now->seconds_since_epoch();
-	// verify tls_auth/crypt packet ID
-	const bool pid_ok = proto.ta_pid_recv.test_add(pid, t, false);
+            // get current time_t
+            const PacketIDControl::time_t t = now->seconds_since_epoch();
+            // verify tls_auth/crypt packet ID
+            const bool pid_ok = proto.ta_pid_recv.test_add(pid, t, false);
 
-	// process ACKs sent by peer (if packet ID check failed,
-	// read the ACK IDs, but don't modify the rel_send object).
-	if (ReliableAck::ack(rel_send, recv, pid_ok))
-	  {
-	    // make sure that our own PSID is contained in packet received from peer
-	    if (!verify_dest_psid (recv))
-	      return false;
-	  }
+            // process ACKs sent by peer (if packet ID check failed,
+            // read the ACK IDs, but don't modify the rel_send object).
+            if (ReliableAck::ack(rel_send, recv, pid_ok))
+            {
+                // make sure that our own PSID is contained in packet received from peer
+                if (!verify_dest_psid(recv))
+                    return false;
+            }
 
-	// for CONTROL packets only, not ACK
-	if (pkt.opcode != ACK_V1)
-	  {
-	    // get message sequence number
-	    const id_t id = ReliableAck::read_id (recv);
+            // for CONTROL packets only, not ACK
+            if (pkt.opcode != ACK_V1)
+            {
+                // get message sequence number
+                const id_t id = ReliableAck::read_id(recv);
 
-	    if (pid_ok)
-	      {
-		// try to push message into reliable receive object
-		const unsigned int rflags = rel_recv.receive (pkt, id);
+                if (pid_ok)
+                {
+                    // try to push message into reliable receive object
+                    const unsigned int rflags = rel_recv.receive(pkt, id);
 
-		// should we ACK packet back to sender?
-		if (rflags & ReliableRecv::ACK_TO_SENDER)
-		  xmit_acks.push_back (id); // ACK packet to sender
+                    // should we ACK packet back to sender?
+                    if (rflags & ReliableRecv::ACK_TO_SENDER)
+                        xmit_acks.push_back(id); // ACK packet to sender
 
-		// was packet accepted by reliable receive object?
-		if (rflags & ReliableRecv::IN_WINDOW)
-		  {
+                    // was packet accepted by reliable receive object?
+                    if (rflags & ReliableRecv::IN_WINDOW)
+                    {
                         // remember tls_auth packet ID so that it can't be replaye
                         proto.ta_pid_recv.test_add(pid, t, true);
-		    return true;
-		  }
-	      }
-	    else // treat as replay
-	      {
-		proto.stats->error (Error::REPLAY_ERROR);
-		if (pid.is_valid ())
+                        return true;
+                    }
+                }
+                else // treat as replay
+                {
+                    proto.stats->error(Error::REPLAY_ERROR);
+                    if (pid.is_valid())
                         // even replayed packets must be ACKed or protocol could deadlock
                         xmit_acks.push_back(id);
-	      }
-	  }
-	else
-	  {
-	    if (pid_ok)
+                }
+            }
+            else
+            {
+                if (pid_ok)
                     // remember tls_auth packet ID of ACK packet to prevent replay
                     proto.ta_pid_recv.test_add(pid, t, true);
-	    else
-	      proto.stats->error (Error::REPLAY_ERROR);
-	  }
-	return false;
-      }
+                else
+                    proto.stats->error(Error::REPLAY_ERROR);
+            }
+            return false;
+        }
 
       bool decapsulate_tls_auth(Packet &pkt)
       {
@@ -3322,37 +3317,37 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	  recv.advance (proto.hmac_size);
                 if (!proto.ta_hmac_recv->ovpn_hmac_cmp(orig_data,
                                                        orig_size,
-						 1 + ProtoSessionID::SIZE,
-						 proto.hmac_size,
-						 PacketID::size (PacketID::LONG_FORM)))
-	    {
-	      proto.stats->error(Error::HMAC_ERROR);
-	      if (proto.is_tcp())
-		invalidate(Error::HMAC_ERROR);
-	      return false;
-	    }
-	}
+                                                       1 + ProtoSessionID::SIZE,
+                                                       proto.hmac_size,
+                                                       PacketIDControl::size()))
+                {
+                    proto.stats->error(Error::HMAC_ERROR);
+                    if (proto.is_tcp())
+                        invalidate(Error::HMAC_ERROR);
+                    return false;
+                }
+            }
 
-	// read tls_auth packet ID
-	const PacketID pid = proto.ta_pid_recv.read_next(recv);
+            // read tls_auth packet ID
+            const PacketIDControl pid = proto.ta_pid_recv.read_next(recv);
 
 	return decapsulate_post_process(pkt, src_psid, pid);
       }
 
-      bool decapsulate_tls_crypt(Packet &pkt)
-      {
-	BufferAllocated& recv = *pkt.buf;
-	const unsigned char *orig_data = recv.data();
-	const size_t orig_size = recv.size();
+        bool decapsulate_tls_crypt(Packet &pkt)
+        {
+            auto &recv = *pkt.buf;
+            const unsigned char *orig_data = recv.data();
+            const size_t orig_size = recv.size();
 
-	// advance buffer past initial op byte
-	recv.advance(1);
-	// get source PSID
-	ProtoSessionID src_psid(recv);
-	// get tls-crypt packet ID
-	const PacketID pid = proto.ta_pid_recv.read_next(recv);
-	// skip the hmac
-	recv.advance(proto.hmac_size);
+            // advance buffer past initial op byte
+            recv.advance(1);
+            // get source PSID
+            ProtoSessionID src_psid(recv);
+            // get tls-crypt packet ID
+            const PacketIDControl pid = proto.ta_pid_recv.read_next(recv);
+            // skip the hmac
+            recv.advance(proto.hmac_size);
 
 	const size_t data_offset = TLSCryptContext::hmac_offset + proto.hmac_size;
 	if (orig_size < data_offset)
@@ -3453,7 +3448,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	const size_t orig_size = recv.size();
 	const size_t hmac_size = proto.config->tls_crypt_context->digest_size();
             const size_t tls_frame_size = 1 + ProtoSessionID::SIZE
-                                          + PacketID::size(PacketID::LONG_FORM)
+                                          + PacketIDControl::size()
                                           + hmac_size
 				      // the following is the tls-crypt payload
                                           + sizeof(char)  // length of ACK array
@@ -3475,7 +3470,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             if ((wkc_len - sizeof(uint16_t)) != wkc_raw_size)
                 return false;
 
-	BufferAllocated plaintext(wkc_len, BufferAllocated::CONSTRUCT_ZERO);
+            BufferAllocated plaintext(wkc_len, BufAllocFlags::CONSTRUCT_ZERO);
             // plaintext will be used to compute the Auth Tag, therefore start by prepending
 	// the WKc length in network order
 	wkc_len = htons(wkc_len);
@@ -3763,13 +3758,13 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
                 return ta_hmac_recv->ovpn_hmac_cmp(net_buf.c_data(),
                                                    net_buf.size(),
-					       1 + ProtoSessionID::SIZE,
-					       ta_hmac_recv->output_size(),
-					       PacketID::size(PacketID::LONG_FORM));
-	}
-	catch (BufferException&)
-	{
-	}
+                                                   1 + ProtoSessionID::SIZE,
+                                                   ta_hmac_recv->output_size(),
+                                                   PacketIDControl::size());
+            }
+            catch (BufferException &)
+            {
+            }
 
 	return false;
       }
@@ -3959,8 +3954,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         // get HMAC size from Digest object
         hmac_size = c.tls_crypt_context->digest_size();
 
-        ta_pid_send.init(PacketID::LONG_FORM);
-        ta_pid_recv.init(c.pid_mode, PacketID::LONG_FORM, "SSL-CC", 0, stats);
+        ta_pid_send.init();
+        ta_pid_recv.init("SSL-CC", 0, stats);
 
         reset_tls_crypt(c, dyn_key);
     }
@@ -4007,52 +4002,52 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
       // start with key ID 0
       upcoming_key_id = 0;
 
-      unsigned int key_dir;
-      const PacketID::id_t EARLY_NEG_START = 0x0f000000;
+        unsigned int key_dir;
+        const PacketIDControl::id_t EARLY_NEG_START = 0x0f000000;
 
       // tls-auth initialization
         reset_tls_wrap_mode(c);
-      switch (tls_wrap_mode)
-	{
-	  case TLS_CRYPT:
-	    reset_tls_crypt(c, c.tls_key);
-	    // init tls_crypt packet ID
-	    ta_pid_send.init(PacketID::LONG_FORM);
-	    ta_pid_recv.init(c.pid_mode, PacketID::LONG_FORM, "SSL-CC", 0, stats);
-	    break;
-	  case TLS_CRYPT_V2:
-	    if (is_server())
-	      // setup key to be used to unwrap WKc upon client connection.
-	      // tls-crypt session key setup is postponed to reception of WKc
-	      // from client
-	      reset_tls_crypt_server(c);
-	    else
-	      reset_tls_crypt(c, c.tls_key);
-           /** tls-auth/tls-crypt packet id. We start with a different id here
-            * to indicate EARLY_NEG_START/CONTROL_WKC_V1 support */
+        switch (tls_wrap_mode)
+        {
+        case TLS_CRYPT:
+            reset_tls_crypt(c, c.tls_key);
             // init tls_crypt packet ID
-	    ta_pid_send.init(PacketID::LONG_FORM, EARLY_NEG_START);
-	    ta_pid_recv.init(c.pid_mode, PacketID::LONG_FORM, "SSL-CC", 0, stats);
-	    break;
-	  case TLS_AUTH:
-	    // init OvpnHMACInstance
-	    ta_hmac_send = c.tls_auth_context->new_obj();
-	    ta_hmac_recv = c.tls_auth_context->new_obj();
+            ta_pid_send.init();
+            ta_pid_recv.init("SSL-CC", 0, stats);
+            break;
+        case TLS_CRYPT_V2:
+            if (is_server())
+                // setup key to be used to unwrap WKc upon client connection.
+                // tls-crypt session key setup is postponed to reception of WKc
+                // from client
+                reset_tls_crypt_server(c);
+            else
+                reset_tls_crypt(c, c.tls_key);
+            /** tls-auth/tls-crypt packet id. We start with a different id here
+             * to indicate EARLY_NEG_START/CONTROL_WKC_V1 support */
+            // init tls_crypt packet ID
+            ta_pid_send.init(EARLY_NEG_START);
+            ta_pid_recv.init("SSL-CC", 0, stats);
+            break;
+        case TLS_AUTH:
+            // init OvpnHMACInstance
+            ta_hmac_send = c.tls_auth_context->new_obj();
+            ta_hmac_recv = c.tls_auth_context->new_obj();
 
-	    // init tls_auth hmac
-	    if (c.key_direction >= 0)
-	      {
-	        // key-direction is 0 or 1
-	        key_dir = c.key_direction ? OpenVPNStaticKey::INVERSE : OpenVPNStaticKey::NORMAL;
-	        ta_hmac_send->init(c.tls_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | key_dir));
-	        ta_hmac_recv->init(c.tls_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::DECRYPT | key_dir));
-	      }
-	    else
-	      {
-	        // key-direction bidirectional mode
-	        ta_hmac_send->init(c.tls_key.slice(OpenVPNStaticKey::HMAC));
-	        ta_hmac_recv->init(c.tls_key.slice(OpenVPNStaticKey::HMAC));
-	      }
+            // init tls_auth hmac
+            if (c.key_direction >= 0)
+            {
+                // key-direction is 0 or 1
+                key_dir = c.key_direction ? OpenVPNStaticKey::INVERSE : OpenVPNStaticKey::NORMAL;
+                ta_hmac_send->init(c.tls_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | key_dir));
+                ta_hmac_recv->init(c.tls_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::DECRYPT | key_dir));
+            }
+            else
+            {
+                // key-direction bidirectional mode
+                ta_hmac_send->init(c.tls_key.slice(OpenVPNStaticKey::HMAC));
+                ta_hmac_recv->init(c.tls_key.slice(OpenVPNStaticKey::HMAC));
+            }
 
             /**
              * @brief Initialize tls_auth packet ID for the send case
@@ -4063,8 +4058,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
              * expect to handle the 1st packet, id 0.
              *
              */
-            ta_pid_send.init(PacketID::LONG_FORM, cookie_psid.defined() ? 1 : 0);
-            ta_pid_recv.init(c.pid_mode, PacketID::LONG_FORM, "SSL-CC", 0, stats);
+            ta_pid_send.init(cookie_psid.defined() ? 1 : 0);
+            ta_pid_recv.init("SSL-CC", 0, stats);
             break;
         case TLS_PLAIN:
             break;
@@ -4229,7 +4224,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
     void control_send(BufferAllocated&& app_buf)
     {
-      control_send(app_buf.move_to_ptr());
+        control_send(BufferAllocatedRc::Create(std::move(app_buf)));
     }
 
     // validate a control channel network packet
@@ -4242,14 +4237,14 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
     bool control_net_recv(const PacketType& type, BufferAllocated&& net_buf)
     {
-      Packet pkt(net_buf.move_to_ptr(), type.opcode);
-      if (type.is_soft_reset() && !renegotiate_request(pkt))
-	return false;
-      return select_key_context(type, true).net_recv(std::move(pkt));
+        Packet pkt(BufferAllocatedRc::Create(std::move(net_buf)), type.opcode);
+        if (type.is_soft_reset() && !renegotiate_request(pkt))
+            return false;
+        return select_key_context(type, true).net_recv(std::move(pkt));
     }
 
     // this version only appears to support test_proto.cpp; suggest creating a
-    // local BufferAllocated and move the BufferPtr contents into it; then use
+    // local BufferAllocatedRc and move the BufferPtr contents into it; then use
     // the version above
     bool control_net_recv(const PacketType &type, BufferPtr &&net_bp)
     {
@@ -4851,8 +4846,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     TLSCryptInstance::Ptr tls_crypt_server;
     TLSCryptMetadata::Ptr tls_crypt_metadata;
 
-    PacketIDSend ta_pid_send;
-    PacketIDReceive ta_pid_recv;
+    PacketIDControlSend ta_pid_send;
+    PacketIDControlReceive ta_pid_recv;
 
     ProtoSessionID psid_self;
     ProtoSessionID psid_peer;

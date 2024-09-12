@@ -1,4 +1,4 @@
-OpenVPN 3 AirVPN (Version 3.11 20240822)
+OpenVPN 3 AirVPN (Version 3.11 20240912)
 =======================================
 
 OpenVPN 3 AirVPN is a direct fork of the official master project (https://github.com/OpenVPN/openvpn3) with these extra features:
@@ -465,7 +465,7 @@ Here is a brief set of guidelines:
   rather than a :code:`char *`.
 
 * When dealing with binary data or buffers, always try to use a
-  :code:`Buffer`, :code:`ConstBuffer`, :code:`BufferAllocated`, or
+  :code:`Buffer`, :code:`ConstBuffer`, :code:`BufferAllocatedRc`, or
   :code:`BufferPtr` object to provide managed access to the buffer, to
   protect against security bugs that arise when using raw buffer pointers.
   See `<openvpn/buffer/buffer.hpp>`_ for the OpenVPN :code:`Buffer` classes.

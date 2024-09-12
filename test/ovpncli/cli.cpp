@@ -123,16 +123,12 @@ class ClientBase : public ClientAPI::OpenVPNClient
   public:
     bool tun_builder_new() override
     {
-        tbc.tun_builder_set_mtu(1500);
         return true;
     }
 
     int tun_builder_establish() override
     {
-        if (!tun)
-        {
-            tun.reset(new TUN_CLASS_SETUP());
-        }
+        tun.reset(new TUN_CLASS_SETUP());
 
         TUN_CLASS_SETUP::Config config;
         config.layer = Layer(Layer::Type::OSI_LAYER_3);
@@ -195,6 +191,16 @@ class ClientBase : public ClientAPI::OpenVPNClient
         auto os_print = Cleanup([&os]()
                                 { OPENVPN_LOG_STRING(os.str()); });
         return tun->add_bypass_route(remote, ipv6, os);
+    }
+
+    bool tun_builder_add_dns_options(const DnsOptions &dns) override
+    {
+        return tbc.tun_builder_add_dns_options(dns);
+    }
+
+    bool tun_builder_set_mtu(int mtu) override
+    {
+        return tbc.tun_builder_set_mtu(mtu);
     }
 
   private:
@@ -533,7 +539,7 @@ class Client : public ClientBase
     {
         using PKEY_CTX_unique_ptr = std::unique_ptr<::EVP_PKEY_CTX, decltype(&::EVP_PKEY_CTX_free)>;
 
-        BufferAllocated signdata(256, BufferAllocated::GROW);
+        BufferAllocated signdata(256, BufAllocFlags::GROW);
         base64->decode(signdata, signreq.data);
 
         EVP_PKEY *pkey = epki_pkey.obj();
@@ -572,7 +578,7 @@ class Client : public ClientBase
             throw Exception("epki_sign failed, error signing data: " + openssl_error());
         }
 
-        BufferAllocated sig(outlen, BufferAllocated::ARRAY);
+        BufferAllocated sig(outlen, BufAllocFlags::ARRAY);
 
         if ((EVP_PKEY_sign(pkey_ctx.get(), sig.data(), &outlen, signdata.c_data(), signdata.size())) < 0)
         {
@@ -598,7 +604,7 @@ class Client : public ClientBase
     void doOpenSSLDigestSignature(ClientAPI::ExternalPKISignRequest &signreq)
     {
         EVP_PKEY_CTX *pkey_ctx = nullptr;
-        BufferAllocated signdata(256, BufferAllocated::GROW);
+        BufferAllocated signdata(256, BufAllocFlags::GROW);
         base64->decode(signdata, signreq.data);
 
         using MD_unique_ptr = std::unique_ptr<::EVP_MD_CTX, decltype(&::EVP_MD_CTX_free)>;
@@ -660,7 +666,7 @@ class Client : public ClientBase
             throw Exception("epki_sign failed, error signing data: " + openssl_error());
         }
 
-        BufferAllocated sig(outlen, BufferAllocated::ARRAY);
+        BufferAllocated sig(outlen, BufAllocFlags::ARRAY);
 
         if (EVP_DigestSign(md.get(), sig.data(), &outlen, signdata.data(), signdata.size()) < 0)
         {
@@ -694,7 +700,7 @@ class Client : public ClientBase
             try
             {
                 // decode base64 sign request
-                BufferAllocated signdata(256, BufferAllocated::GROW);
+                BufferAllocated signdata(256, BufAllocFlags::GROW);
                 base64->decode(signdata, signreq.data);
 
                 // get MD alg
@@ -704,7 +710,7 @@ class Client : public ClientBase
                 OPENVPN_LOG("SIGN[" << PKCS1::DigestPrefix::MbedTLSParse::to_string(md_alg) << ',' << signdata.size() << "]: " << render_hex_generic(signdata));
 
                 // allocate buffer for signature
-                BufferAllocated sig(mbedtls_pk_get_len(epki_ctx.get()), BufferAllocated::ARRAY);
+                BufferAllocated sig(mbedtls_pk_get_len(epki_ctx.get()), BufAllocFlags::ARRAY);
 
                 // sign it
                 size_t sig_size = 0;

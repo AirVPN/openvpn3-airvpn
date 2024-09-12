@@ -63,7 +63,8 @@ add_executable(coreUnitTests
         test_ostream_containers.cpp
         test_parseargv.cpp
         test_path.cpp
-        test_pktid.cpp
+        test_pktid_control.cpp
+        test_pktid_data.cpp
         test_prefixlen.cpp
         test_randapi.cpp
         test_rc.cpp
@@ -74,6 +75,7 @@ add_executable(coreUnitTests
         test_statickey.cpp
         test_streq.cpp
         test_time.cpp
+        test_make_rc.cpp
         test_typeindex.cpp
         test_tun_builder.cpp
         test_userpass.cpp

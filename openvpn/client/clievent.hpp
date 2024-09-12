@@ -402,30 +402,31 @@ struct TLSAlertProtocolUnknownCA : public Base
 
 #ifdef HAVE_JSON
 
-    struct InfoJSON : public Base
+struct InfoJSON : public Base
+{
+    typedef RCPtr<InfoJSON> Ptr;
+
+    InfoJSON(std::string msg_type_arg,
+             Json::Value jdata_arg)
+        : Base(INFO_JSON),
+          msg_type(std::move(msg_type_arg)),
+          jdata(std::move(jdata_arg))
     {
-      typedef RCPtr<InfoJSON> Ptr;
+    }
 
-      InfoJSON(std::string msg_type_arg,
-	       Json::Value jdata_arg)
-	: Base(INFO_JSON),
-	  msg_type(std::move(msg_type_arg)),
-	  jdata(std::move(jdata_arg))
-      {
-      }
+    virtual std::string render() const
+    {
+        BufferAllocated buf(512, BufAllocFlags::GROW);
+        buf_append_string(buf, msg_type);
+        buf_append_string(buf, ":");
+        json::format_compact(jdata, buf);
+        return buf_to_string(buf);
+    }
 
-      virtual std::string render() const
-      {
-	BufferAllocated buf(512, BufferAllocated::GROW);
-	buf_append_string(buf, msg_type);
-	buf_append_string(buf, ":");
-	json::format_compact(jdata, buf);
-	return buf_to_string(buf);
-      }
+    std::string msg_type;
+    Json::Value jdata;
+};
 
-      std::string msg_type;
-      Json::Value jdata;
-    };
 
 #endif
 

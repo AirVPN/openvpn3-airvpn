@@ -75,12 +75,10 @@ class Instance : public CryptoDCInstance
         info.decrypt_hmac = std::move(decrypt_key);
     }
 
-    void init_pid(const int recv_mode,
-                  const char *recv_name,
+    void init_pid(const char *recv_name,
                   const int recv_unit,
                   const SessionStats::Ptr &recv_stats_arg) override
     {
-        info.tcp_linear = (recv_mode == PacketIDReceive::TCP_MODE);
     }
 
     void init_remote_peer_id(const int remote_peer_id) override
@@ -110,12 +108,12 @@ class Instance : public CryptoDCInstance
     // should never be reached.
 
     // returns true if packet ID is close to wrapping
-    bool encrypt(BufferAllocated &buf, const PacketID::time_t now, const unsigned char *op32) override
+    bool encrypt(BufferAllocated &buf, const unsigned char *op32) override
     {
         throw korekey_error("encrypt");
     }
 
-    Error::Type decrypt(BufferAllocated &buf, const PacketID::time_t now, const unsigned char *op32) override
+    Error::Type decrypt(BufferAllocated &buf, const std::time_t now, const unsigned char *op32) override
     {
         throw korekey_error("decrypt");
     }
