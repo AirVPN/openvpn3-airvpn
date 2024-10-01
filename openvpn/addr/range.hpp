@@ -4,29 +4,16 @@
 //               packet encryption, packet authentication, and
 //               packet compression.
 //
-//    Copyright (C) 2012-2022 OpenVPN Inc.
+//    Copyright (C) 2012- OpenVPN Inc.
 //
-//    This program is free software: you can redistribute it and/or modify
-//    it under the terms of the GNU Affero General Public License Version 3
-//    as published by the Free Software Foundation.
+//    SPDX-License-Identifier: MPL-2.0 OR AGPL-3.0-only WITH openvpn3-openssl-exception
 //
-//    This program is distributed in the hope that it will be useful,
-//    but WITHOUT ANY WARRANTY; without even the implied warranty of
-//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//    GNU Affero General Public License for more details.
-//
-//    You should have received a copy of the GNU Affero General Public License
-//    along with this program in the COPYING file.
-//    If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef OPENVPN_ADDR_RANGE_H
 #define OPENVPN_ADDR_RANGE_H
 
 #include <string>
 #include <sstream>
-
-#include <openvpn/common/size.hpp>
-#include <openvpn/common/exception.hpp>
 
 #include <openvpn/addr/ip.hpp>
 
@@ -64,6 +51,22 @@ class RangeType
             }
         }
 
+        Iterator &operator++()
+        {
+            next();
+            return *this;
+        }
+
+        const ADDR &operator*() const
+        {
+            return addr_;
+        }
+
+        bool operator!=(const Iterator &rhs) const
+        {
+            return remaining_ != rhs.remaining_ || addr_ != rhs.addr_;
+        }
+
       private:
         Iterator(const RangeType &range)
             : addr_(range.start_), remaining_(range.extent_)
@@ -84,6 +87,19 @@ class RangeType
     {
     }
 
+    Iterator begin() const
+    {
+        return Iterator(*this);
+    }
+
+    Iterator end() const
+    {
+        RangeType end_range = *this;
+        end_range.start_ += static_cast<long>(end_range.extent_);
+        end_range.extent_ = 0;
+        return Iterator(end_range);
+    }
+
     Iterator iterator() const
     {
         return Iterator(*this);
@@ -93,10 +109,12 @@ class RangeType
     {
         return extent_ > 0;
     }
+
     const ADDR &start() const
     {
         return start_;
     }
+
     size_t extent() const
     {
         return extent_;
