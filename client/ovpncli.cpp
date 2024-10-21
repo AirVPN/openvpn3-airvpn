@@ -687,9 +687,9 @@ class MySocketProtect : public SocketProtect
                 re.server = eval.remoteHost;
                 re.port = eval.remotePort;
                 re.protocol = eval.remoteProto;
-                
+
                 eval.remoteList.push_back(re);
-                
+
                 item->server_host = eval.remoteHost;
                 item->server_port = re.port;
                 item->transport_protocol = Protocol::parse(re.protocol, Protocol::NO_SUFFIX);
@@ -711,7 +711,7 @@ class MySocketProtect : public SocketProtect
                         re.port = config.portOverride;
                     else
                         re.port = item->server_port;
-                
+
                     const char *proto = item->transport_protocol.protocol_to_string();
 
                     if(config.protoOverride != "")
@@ -777,7 +777,7 @@ class MySocketProtect : public SocketProtect
 
             if(config.tcpQueueLimit > 0)
                 state->tcp_queue_limit = config.tcpQueueLimit;
-            
+
             state->ncp_disable = config.disableNCP;
 
             if (!config.compressionMode.empty())
@@ -886,7 +886,7 @@ class MySocketProtect : public SocketProtect
       // handle extra settings in config
       parse_extras(config, eval);
       state->eval = eval;
-      return eval;      
+      return eval;
     }
 
     OPENVPN_CLIENT_EXPORT Status OpenVPNClient::provide_creds(const ProvideCreds &creds)
@@ -1468,17 +1468,6 @@ OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &alias,
         return config;
     }
 
-    /**
-      @brief Start up the cert check handshake using the given certs and key
-      @param client_cert String containing the properly encoded client certificate
-      @param clientkey String containing the properly encoded private key for \p client_cert
-      @param ca String containing the properly encoded authority
-      @param disableTLS13 disable TLS 1.3 support
-
-          Creates, initializes,and installs an SSLLib::SSLAPI::Config object into the TLS
-          handshake object we use for the certcheck function. Then begins the handshake
-          with Client Hello via the ACC by calling start_acc_certcheck.
-    */
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::start_cert_check(const std::string &client_cert,
                                                                const std::string &clientkey,
                                                                const std::optional<const std::string> &ca,
@@ -1570,11 +1559,11 @@ OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &alias,
         return SSLeay_version(SSLEAY_VERSION);
 
 #elif defined(USE_MBEDTLS)
-        
+
         char version[32];
-        
+
         mbedtls_version_get_string_full(version);
-        
+
         return version;
 
 #else
@@ -1588,7 +1577,7 @@ OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &alias,
     {
         return pull_filter_options_;
     }
-                
+
     OPENVPN_CLIENT_EXPORT OpenVPNClient::~OpenVPNClient()
     {
         delete state;
