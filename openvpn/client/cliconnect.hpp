@@ -600,6 +600,14 @@ namespace openvpn {
                 case Error::TLS_ALERT_CERTIFICATE_REVOKED:
                     add_error_and_stop<ClientEvent::TLSAlertCertificateRevoked>(fatal_code);
                     break;
+                case Error::NEED_CREDS:
+                    {
+                        ClientEvent::Base::Ptr ev = new ClientEvent::NeedCreds();
+                        client_options->events().add_event(std::move(ev));
+                        client_options->stats().error(Error::NEED_CREDS);
+                        stop();
+                    }
+                    break;
                 case Error::BAD_DC_CIPHER_ERROR:
                   {
                     ClientEvent::Base::Ptr ev = new ClientEvent::ClientSetup(client->fatal_reason(), "");
