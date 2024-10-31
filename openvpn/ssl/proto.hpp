@@ -265,6 +265,10 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     enum iv_proto_flag : unsigned int
     {
         // See ssl.h in openvpn2 for detailed documentation of IV_PROTO
+        //
+        // NOTE: Bit field (1 << 0) is reserved for historic reasons
+        //       and not expected to be set. Do not use this field.
+        //
         IV_PROTO_DATA_V2 = (1 << 1),
         IV_PROTO_REQUEST_PUSH = (1 << 2),
         IV_PROTO_TLS_KEY_EXPORT = (1 << 3),
@@ -3690,6 +3694,11 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         bool client_supports_auth_pending_kwargs() const
         {
             return proto_field_ & iv_proto_flag::IV_PROTO_AUTH_PENDING_KW;
+        }
+
+        bool client_supports_push_update() const
+        {
+            return proto_field_ & iv_proto_flag::IV_PROTO_PUSH_UPDATE;
         }
 
       private:
