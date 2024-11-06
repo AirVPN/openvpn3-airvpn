@@ -3701,6 +3701,11 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             return proto_field_ & iv_proto_flag::IV_PROTO_PUSH_UPDATE;
         }
 
+        bool client_supports_request_push() const
+        {
+            return proto_field_ & iv_proto_flag::IV_PROTO_REQUEST_PUSH;
+        }
+
       private:
         unsigned int proto_field_;
     };
