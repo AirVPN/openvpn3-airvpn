@@ -1553,6 +1553,24 @@ class Session : ProtoContextCallbackInterface,
         {
             if (!e && !halt)
             {
+                // In non-DCO case, inactivity timeout is reset on data channel activity,
+                // so this function is only called on timeout.
+                //
+                // With DCO, OpenVPN doesn't see data channel packets, so we have to
+                // change the logic and check kernel counters here, either stopping or
+                // rearming the timer if there is sufficient traffic.
+                if (cli_stats->dco_update())
+                {
+                    auto sample = cli_stats->get_stat(SessionStats::TUN_BYTES_IN) + cli_stats->get_stat(SessionStats::TUN_BYTES_OUT);
+                    auto delta = sample - inactive_last_sample;
+                    if (delta >= inactivity_minimum_bytes)
+                    {
+                        inactive_last_sample = sample;
+                        schedule_inactive_timer();
+                        return;
+                    }
+                }
+
                 fatal_ = Error::INACTIVE_TIMEOUT;
                 send_explicit_exit_notify();
                 if (notify_callback)
@@ -1665,58 +1683,59 @@ class Session : ProtoContextCallbackInterface,
 
     openvpn_io::io_context &io_context;
 
-      TransportClientFactory::Ptr transport_factory;
-      TransportClient::Ptr transport;
+    TransportClientFactory::Ptr transport_factory;
+    TransportClient::Ptr transport;
 
-      TunClientFactory::Ptr tun_factory;
-      TunClient::Ptr tun;
+    TunClientFactory::Ptr tun_factory;
+    TunClient::Ptr tun;
 
     unsigned int tcp_queue_limit;
-      bool transport_has_send_queue = false;
+    bool transport_has_send_queue = false;
 
-      NotifyCallback* notify_callback;
+    NotifyCallback* notify_callback;
 
-      CoarseTime housekeeping_schedule;
-      AsioTimer housekeeping_timer;
-      AsioTimer push_request_timer;
-      bool halt = false;
+    CoarseTime housekeeping_schedule;
+    AsioTimer housekeeping_timer;
+    AsioTimer push_request_timer;
+    bool halt = false;
 
-      OptionListContinuation received_options;
+    OptionListContinuation received_options;
 
-      ClientCreds::Ptr creds;
+    ClientCreds::Ptr creds;
 
-      ProtoContextCompressionOptions::Ptr proto_context_options;
+    ProtoContextCompressionOptions::Ptr proto_context_options;
 
-      CryptoAlgs::Type cipher = CryptoAlgs::Type::NONE;
-      CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
+    CryptoAlgs::Type cipher = CryptoAlgs::Type::NONE;
+    CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
 
-      bool first_packet_received_ = false;
-      bool sent_push_request = false;
-      bool auth_pending = false;
+    bool first_packet_received_ = false;
+    bool sent_push_request = false;
+    bool auth_pending = false;
 
-      SessionStats::Ptr cli_stats;
-      ClientEvent::Queue::Ptr cli_events;
+    SessionStats::Ptr cli_stats;
+    ClientEvent::Queue::Ptr cli_events;
 
-      ClientEvent::Connected::Ptr connected_;
+    ClientEvent::Connected::Ptr connected_;
 
-      bool ncp_disable;
-      bool echo;
-      bool info;
+    bool ncp_disable;
+    bool echo;
+    bool info;
 
-      Error::Type fatal_ = Error::UNDEF;
-      std::string fatal_reason_;
+    Error::Type fatal_ = Error::UNDEF;
+    std::string fatal_reason_;
 
-      OptionList::Limits pushed_options_limit;
-      OptionList::FilterBase::Ptr pushed_options_filter;
-      PushOptionsMerger::Ptr pushed_options_merger;
+    OptionList::Limits pushed_options_limit;
+    OptionList::FilterBase::Ptr pushed_options_filter;
+    PushOptionsMerger::Ptr pushed_options_merger;
 
-      AsioTimer inactive_timer;
-      Time::Duration inactive_duration;
+    AsioTimer inactive_timer;
+    Time::Duration inactive_duration;
 
-      unsigned int inactivity_minimum_bytes = 0;
-      std::uint64_t inactivity_bytes = 0;
-      std::shared_ptr<SessionStats::inc_callback_t> out_tun_callback_;
-      std::shared_ptr<SessionStats::inc_callback_t> in_tun_callback_;
+    count_t inactive_last_sample = 0;
+    unsigned int inactivity_minimum_bytes = 0;
+    std::uint64_t inactivity_bytes = 0;
+    std::shared_ptr<SessionStats::inc_callback_t> out_tun_callback_;
+    std::shared_ptr<SessionStats::inc_callback_t> in_tun_callback_;
 
     std::unique_ptr<std::vector<ClientEvent::Base::Ptr>> info_hold;
     AsioTimer info_hold_timer;
