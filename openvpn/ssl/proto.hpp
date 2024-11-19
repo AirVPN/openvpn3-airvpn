@@ -1199,47 +1199,47 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             if (CryptoAlgs::lookup("SHA256") != CryptoAlgs::NONE && CryptoAlgs::lookup("AES-256-CTR") != CryptoAlgs::NONE)
                 iv_proto |= IV_PROTO_DYN_TLS_CRYPT;
 
-	if (SSLLib::SSLAPI::support_key_material_export())
-	  {
-	    iv_proto |= IV_PROTO_TLS_KEY_EXPORT;
-	  }
+            if (SSLLib::SSLAPI::support_key_material_export())
+            {
+                iv_proto |= IV_PROTO_TLS_KEY_EXPORT;
+            }
 
-	out << "IV_VER=" << OPENVPN_VERSION << '\n';
-	out << "IV_PLAT=" << platform_name() << '\n';
+            out << "IV_VER=" << OPENVPN_VERSION << '\n';
+            out << "IV_PLAT=" << platform_name() << '\n';
 
-	if(dc.ncp_enabled())
-	{
-	    out << "IV_NCP=2\n"; // negotiable crypto parameters V2
-	}
+            if(dc.ncp_enabled())
+            {
+                out << "IV_NCP=2\n"; // negotiable crypto parameters V2
+            }
 
-	out << "IV_TCPNL=1\n"; // supports TCP non-linear packet ID
-	out << "IV_PROTO=" << std::to_string(iv_proto) << '\n';
-	out << "IV_MTU=" << std::to_string(tun_mtu_max) << "\n";
+            out << "IV_TCPNL=1\n"; // supports TCP non-linear packet ID
+            out << "IV_PROTO=" << iv_proto << '\n';
+            out << "IV_MTU=" << tun_mtu_max << "\n";
 
-	/*
-         * ProMIND [24/11/2020}
-         * 
-         * Negotiable data ciphers complying to OpenVPN 2.5 specifications.
-         * In case "data-ciphers" is found in the .ovpn file (internally assigned
-         * to std::string negotiable_data_ciphers, IV_CIPHERS is assigned to the algorithms
-         * found in "data-ciphers". In this specific case, "cipher" directive
-         * (found in dc.cipher()) is meant as a fallback cipher and, if not already
-         * specified in "data-ciphers", is appended to IV_CIPHERS
-         */
+            /*
+             * ProMIND [24/11/2020}
+             * 
+             * Negotiable data ciphers complying to OpenVPN 2.5 specifications.
+             * In case "data-ciphers" is found in the .ovpn file (internally assigned
+             * to std::string negotiable_data_ciphers, IV_CIPHERS is assigned to the algorithms
+             * found in "data-ciphers". In this specific case, "cipher" directive
+             * (found in dc.cipher()) is meant as a fallback cipher and, if not already
+             * specified in "data-ciphers", is appended to IV_CIPHERS
+             */
 
-        out << "IV_CIPHERS=";
-        
-        if(negotiable_data_ciphers.length() > 0 && cipher_override == openvpn::CryptoAlgs::Type::NONE)
-        {
-            out << negotiable_data_ciphers;
+            out << "IV_CIPHERS=";
+            
+            if(negotiable_data_ciphers.length() > 0 && cipher_override == openvpn::CryptoAlgs::Type::NONE)
+            {
+                out << negotiable_data_ciphers;
 
-            if(negotiable_data_ciphers.find(openvpn::CryptoAlgs::name(dc.cipher(), "AES-256-GCM")) == std::string::npos)
-                out << ":" << openvpn::CryptoAlgs::name(dc.cipher(), "AES-256-GCM");
-        }
-        else
-            out << openvpn::CryptoAlgs::name(dc.cipher(), "AES-256-GCM");
-        
-        out << "\n";
+                if(negotiable_data_ciphers.find(openvpn::CryptoAlgs::name(dc.cipher(), "AES-256-GCM")) == std::string::npos)
+                    out << ":" << openvpn::CryptoAlgs::name(dc.cipher(), "AES-256-GCM");
+            }
+            else
+                out << openvpn::CryptoAlgs::name(dc.cipher(), "AES-256-GCM");
+
+            out << "\n";
 
 	/*
 	 * OpenVPN3 allows the push of any cipher that it supports as it

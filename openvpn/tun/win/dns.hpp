@@ -533,14 +533,14 @@ class Dns
             SC_HANDLE scm = static_cast<SC_HANDLE>(INVALID_HANDLE_VALUE);
             SC_HANDLE dnssvc = static_cast<SC_HANDLE>(INVALID_HANDLE_VALUE);
 
-            scm = ::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
-            if (scm == NULL)
+            scm = ::OpenSCManager(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+            if (scm == nullptr)
             {
                 goto out;
             }
 
             dnssvc = ::OpenServiceA(scm, "Dnscache", SERVICE_PAUSE_CONTINUE);
-            if (dnssvc == NULL)
+            if (dnssvc == nullptr)
             {
                 goto out;
             }
@@ -587,8 +587,6 @@ class Dns
          */
         bool apply_gpol_nrtp_rules_32()
         {
-            bool res = false;
-
             using publish_fn_t = NTSTATUS(__stdcall *)(
                 DWORD StateNameLo,
                 DWORD StateNameHi,
@@ -601,26 +599,17 @@ class Dns
             constexpr DWORD WNF_GPOL_SYSTEM_CHANGES_LO = 0xA3BC0875;
 
             HMODULE ntdll = ::LoadLibraryA("ntdll.dll");
-            if (ntdll == NULL)
-            {
-                goto out;
-            }
+            if (ntdll == nullptr)
+                return false;
 
             RtlPublishWnfStateData = reinterpret_cast<publish_fn_t>(::GetProcAddress(ntdll, "RtlPublishWnfStateData"));
-            if (RtlPublishWnfStateData == NULL)
-            {
-                goto out;
-            }
+            if (RtlPublishWnfStateData == nullptr)
+                return false;
 
             if (RtlPublishWnfStateData(WNF_GPOL_SYSTEM_CHANGES_LO, WNF_GPOL_SYSTEM_CHANGES_HI, 0, 0, 0, 0) != ERROR_SUCCESS)
-            {
-                goto out;
-            }
+                return false;
 
-            res = true;
-
-        out:
-            return res;
+            return true;
         }
 
         /**
@@ -631,8 +620,6 @@ class Dns
          */
         bool apply_gpol_nrtp_rules_64()
         {
-            bool res = false;
-
             using publish_fn_t = NTSTATUS (*)(
                 __int64 StateName,
                 __int64 TypeId,
@@ -643,26 +630,17 @@ class Dns
             constexpr INT64 WNF_GPOL_SYSTEM_CHANGES = 0x0D891E2AA3BC0875;
 
             HMODULE ntdll = ::LoadLibraryA("ntdll.dll");
-            if (ntdll == NULL)
-            {
-                goto out;
-            }
+            if (ntdll == nullptr)
+                return false;
 
             RtlPublishWnfStateData = reinterpret_cast<publish_fn_t>(::GetProcAddress(ntdll, "RtlPublishWnfStateData"));
-            if (RtlPublishWnfStateData == NULL)
-            {
-                goto out;
-            }
+            if (RtlPublishWnfStateData == nullptr)
+                return false;
 
             if (RtlPublishWnfStateData(WNF_GPOL_SYSTEM_CHANGES, 0, 0, 0, 0) != ERROR_SUCCESS)
-            {
-                goto out;
-            }
+                return false;
 
-            res = true;
-
-        out:
-            return res;
+            return true;
         }
     };
 };
