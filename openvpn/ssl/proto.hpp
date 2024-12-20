@@ -730,6 +730,16 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	load_common(opt, pco, server ? LOAD_COMMON_SERVER : LOAD_COMMON_CLIENT);
       }
 
+        /**
+         * Fire up the infrastructure needed in order to be able to process dynamic
+         * TLS-crypt renegotiation.
+         */
+        void enable_dynamic_tls_crypt()
+        {
+            set_tls_crypt_algs();
+            tls_crypt_ |= TLSCrypt::Dynamic;
+        }
+
         // load options string pushed by server
         void process_push(const OptionList &opt, const ProtoContextCompressionOptions &pco)
         {
@@ -888,8 +898,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                         }
                         else if (flag == "dyn-tls-crypt")
                         {
-                            set_tls_crypt_algs();
-                            tls_crypt_ |= Dynamic;
+                            enable_dynamic_tls_crypt();
                         }
                         else if (flag == "tls-ekm")
                         {
@@ -3714,6 +3723,12 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         bool client_supports_exit_notify() const
         {
             return proto_field_ & iv_proto_flag::IV_PROTO_CC_EXIT_NOTIFY;
+        }
+
+        //! Checks if the client can handle dynamic TLS-crypt.
+        bool client_supports_dynamic_tls_crypt() const
+        {
+            return proto_field_ & iv_proto_flag::IV_PROTO_DYN_TLS_CRYPT;
         }
 
       private:
