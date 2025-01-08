@@ -740,7 +740,7 @@ class MySocketProtect : public SocketProtect
             ServerEntry se;
             se.server = i->server;
             se.friendlyName = i->friendlyName;
-            eval.serverList.push_back(se);
+            eval.serverList.push_back(std::move(se));
         }
 
         eval.routeList.clear();
