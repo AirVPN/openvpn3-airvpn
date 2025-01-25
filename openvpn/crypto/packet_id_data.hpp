@@ -35,7 +35,7 @@ namespace openvpn {
 /**
  * Communicate packet-id over the wire for data channel packets
  * A short packet-id is just a 32 bit sequence number. A long packet-id is a
- * 64 bit sequence number. This sequence number is reused for AEAD IV when
+ * 16 bit epoch + 48 bit sequence number. This sequence number is reused for AEAD IV when
  * AEAD is used as a cipher. CBC transmits an additional IV.
  *
  * This data structure is always sent over the net in network byte order,
@@ -50,6 +50,11 @@ namespace openvpn {
 struct PacketIDData
 {
     typedef std::uint64_t data_id_t;
+
+    /* the part of the packet id that represents the PID, the first 16 bits
+     * are used by the Epoch*/
+    static constexpr inline data_id_t epoch_packet_id_mask = 0x0000ffffffffffffull;
+
 
     data_id_t id = 0; // legal values are 1 through 2^64-1
     bool wide = false;
@@ -93,6 +98,11 @@ struct PacketIDData
     void reset()
     {
         id = data_id_t(0);
+    }
+
+    uint16_t get_epoch()
+    {
+        return static_cast<uint16_t>((id & ~epoch_packet_id_mask) >> 48ull);
     }
 
     /**
@@ -159,12 +169,19 @@ class PacketIDDataSend
   public:
     OPENVPN_SIMPLE_EXCEPTION(packet_id_wrap);
 
-    explicit PacketIDDataSend(bool wide_arg)
-        : pid_(wide_arg)
+    /** the maximum allowed value for a epoch packet counter (48 bit) */
+    static constexpr inline PacketIDData::data_id_t epoch_packet_id_max = 0x0000ffffffffffffull;
+
+
+    explicit PacketIDDataSend(bool wide_arg, uint16_t epoch)
+        : pid_(wide_arg, static_cast<PacketIDData::data_id_t>(epoch) << 48ull)
     {
     }
 
-
+    explicit PacketIDDataSend()
+        : pid_(false)
+    {
+    }
     /**
      * Increment the packet ID and return the next packet id to use.
      * @throws  packet_id_wrap if the packet id space is exhausted
@@ -174,11 +191,7 @@ class PacketIDDataSend
     {
         ++pid_.id;
         PacketIDData ret{pid_.wide, pid_.id};
-        if (!pid_.wide && unlikely(pid_.id == std::numeric_limits<std::uint32_t>::max())) // wraparound
-        {
-            throw packet_id_wrap();
-        }
-        else if (unlikely(pid_.id == std::numeric_limits<decltype(pid_.id)>::max()))
+        if (at_limit())
         {
             throw packet_id_wrap();
         }
@@ -243,6 +256,20 @@ class PacketIDDataSend
         return pid_.id >= wrap_at;
     }
 
+    bool at_limit()
+    {
+        if (!pid_.wide && unlikely(pid_.id == std::numeric_limits<std::uint32_t>::max())) // wraparound
+        {
+            return true;
+        }
+        else if (unlikely((pid_.id & PacketIDData::epoch_packet_id_mask) == epoch_packet_id_max))
+        {
+            return true;
+        }
+        return false;
+    }
+
+
   protected:
     PacketIDData pid_;
 };
@@ -262,10 +289,49 @@ class PacketIDDataReceiveType
     static constexpr unsigned int REPLAY_WINDOW_BYTES = 1u << REPLAY_WINDOW_ORDER;
     static constexpr unsigned int REPLAY_WINDOW_SIZE = REPLAY_WINDOW_BYTES * 8;
 
+#if defined(__GNUC__) && (__GNUC__ < 11)
+    /*
+     * For some reason g++ versions 10.x are regenerating a move constructor
+     * and move assignment operators that g++ itself then complains about them
+     * with "error: writing 16 bytes into a region of size 0 [-Werror=stringop-overflow=]
+     *
+     * So we manually define these to avoid this behaviour
+     */
+
+    PacketIDDataReceiveType() = default;
+    PacketIDDataReceiveType(const PacketIDDataReceiveType &other) = default;
+    PacketIDDataReceiveType(PacketIDDataReceiveType &&other)
+    {
+        wide = other.wide;
+        base = other.base;
+        extent = other.extent;
+        expire = other.expire;
+        id_high = other.id_high;
+        id_floor = other.id_floor;
+        unit = other.unit;
+        name = other.name;
+        memcpy(history, other.history, sizeof(history));
+    }
+
+    PacketIDDataReceiveType &operator=(PacketIDDataReceiveType &&other) noexcept
+    {
+        wide = other.wide;
+        base = other.base;
+        extent = other.extent;
+        expire = other.expire;
+        id_high = other.id_high;
+        id_floor = other.id_floor;
+        unit = other.unit;
+        name = other.name;
+        memcpy(history, other.history, sizeof(history));
+        return *this;
+    }
+    PacketIDDataReceiveType &operator=(const PacketIDDataReceiveType &other) = default;
+#endif
+
     void init(const char *name_arg,
               const int unit_arg,
-              bool wide_arg,
-              const SessionStats::Ptr &stats_arg)
+              bool wide_arg)
     {
         wide = wide_arg;
         base = 0;
@@ -275,7 +341,6 @@ class PacketIDDataReceiveType
         id_floor = 0;
         unit = unit_arg;
         name = name_arg;
-        stats = stats_arg;
         std::memset(history, 0, sizeof(history));
     }
 
@@ -288,10 +353,12 @@ class PacketIDDataReceiveType
      *
      * @param pin       packet ID to check
      * @param now       Current time to check that reordered packets are in the allowed time
+     * @param stats     Stats to update when an error occurs
      * @return          true if the packet id is okay and has been accepted
      */
     [[nodiscard]] bool test_add(const PacketIDData &pin,
-                                const Time::base_type now)
+                                const Time::base_type now,
+                                const SessionStats::Ptr &stats)
     {
         const Error::Type err = do_test_add(pin, now);
         if (unlikely(err != Error::SUCCESS))
@@ -411,18 +478,16 @@ class PacketIDDataReceiveType
         return (base + i) & (REPLAY_WINDOW_SIZE - 1);
     }
 
-    std::size_t base;                 // bit position of deque base in history
-    std::size_t extent;               // extent (in bits) of deque in history
-    Time::base_type expire;           // expiration of history
-    PacketIDData::data_id_t id_high;  // highest sequence number received
-    PacketIDData::data_id_t id_floor; // we will only accept backtrack IDs > id_floor
+    std::size_t base = 0;                 // bit position of deque base in history
+    std::size_t extent = 0;               // extent (in bits) of deque in history
+    Time::base_type expire = 0;           // expiration of history
+    PacketIDData::data_id_t id_high = 0;  // highest sequence number received
+    PacketIDData::data_id_t id_floor = 0; // we will only accept backtrack IDs > id_floor
 
     //!< 32 or 64 bit packet counter
-    bool wide;
-    int unit;         // unit number of this object (for debugging)
-    std::string name; // name of this object (for debugging)
-
-    SessionStats::Ptr stats;
+    bool wide = false;
+    int unit = -1;                       // unit number of this object (for debugging)
+    std::string name{"not initialised"}; // name of this object (for debugging)
 
     //! "sliding window" bitmask of recent packet IDs received */
     std::uint8_t history[REPLAY_WINDOW_BYTES];

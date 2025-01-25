@@ -23,7 +23,6 @@
 #include <openvpn/common/exception.hpp>
 #include <openvpn/crypto/static_key.hpp>
 #include <openvpn/crypto/cryptoalgs.hpp>
-#include <openvpn/ssl/sslapi.hpp>
 
 namespace openvpn::MbedTLSCrypto {
 class CipherContextCommon
@@ -51,6 +50,34 @@ class CipherContextCommon
     }
 
   protected:
+    CipherContextCommon() = default;
+
+    virtual ~CipherContextCommon()
+    {
+        erase();
+    }
+
+    CipherContextCommon(const CipherContextCommon &other) = delete;
+    CipherContextCommon &operator=(const CipherContextCommon &other) = delete;
+
+
+    CipherContextCommon(CipherContextCommon &&other) noexcept
+    {
+        ctx = other.ctx;
+        initialized = other.initialized;
+        other.ctx = {};
+        other.initialized = false;
+    }
+
+    CipherContextCommon &operator=(CipherContextCommon &&other)
+    {
+        ctx = other.ctx;
+        initialized = other.initialized;
+        other.ctx = {};
+        other.initialized = false;
+        return *this;
+    }
+
     static void check_mode(int mode)
     {
         // check that mode is valid

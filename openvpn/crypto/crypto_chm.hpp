@@ -42,6 +42,7 @@ class CryptoCHM : public CryptoDCInstance
     {
         encrypt_.frame = frame;
         decrypt_.frame = frame;
+        decrypt_.stats = stats_arg;
         encrypt_.set_rng(rng);
     }
 
@@ -82,8 +83,9 @@ class CryptoCHM : public CryptoDCInstance
         /* CBC encryption always uses short packet ID */
         constexpr bool wide = false;
 
-        encrypt_.pid_send = PacketIDDataSend{wide};
-        decrypt_.pid_recv.init(recv_name, recv_unit, wide, recv_stats_arg);
+        encrypt_.pid_send = PacketIDDataSend{};
+        decrypt_.pid_recv.init(recv_name, recv_unit, wide);
+        stats = recv_stats_arg;
     }
 
     bool consider_compression(const CompressContext &comp_ctx) override

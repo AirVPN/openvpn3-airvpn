@@ -23,6 +23,7 @@
 #include <openvpn/common/likely.hpp>
 #include <openvpn/crypto/static_key.hpp>
 #include <openvpn/crypto/cryptoalgs.hpp>
+#include <openvpn/crypto/aead_usage_limit.hpp>
 #include <openvpn/openssl/util/error.hpp>
 
 namespace openvpn::OpenSSLCrypto {
@@ -41,6 +42,19 @@ class CipherContextAEAD
   public:
     CipherContextAEAD(const CipherContextAEAD &) = delete;
     CipherContextAEAD &operator=(const CipherContextAEAD &) = delete;
+
+    CipherContextAEAD(CipherContextAEAD &&other) noexcept
+        : ctx(std::exchange(other.ctx, nullptr)), aead_usage_limit_(other.aead_usage_limit_)
+    {
+    }
+
+    CipherContextAEAD &operator=(CipherContextAEAD &&other)
+    {
+        CipherContextAEAD temp(std::move(other));
+        std::swap(ctx, temp.ctx);
+        std::swap(aead_usage_limit_, other.aead_usage_limit_);
+        return *this;
+    }
 
     OPENVPN_EXCEPTION(openssl_gcm_error);
 
@@ -115,6 +129,7 @@ class CipherContextAEAD
             free_cipher_context();
             throw openssl_gcm_error("EVP_CIPHER_CTX_ctrl set IV len");
         }
+        aead_usage_limit_ = {alg};
     }
 
     void encrypt(const unsigned char *input,
@@ -160,7 +175,16 @@ class CipherContextAEAD
             openssl_clear_error_stack();
             throw openssl_gcm_error("EVP_CIPHER_CTX_ctrl get tag");
         }
+        aead_usage_limit_.update(length + ad_len);
     }
+
+
+    /** Returns the AEAD usage limit associated with this AEAD cipher instance to check the limits */
+    [[nodiscard]] const Crypto::AEADUsageLimit &get_usage_limit()
+    {
+        return aead_usage_limit_;
+    }
+
 
     /**
      * Decrypts AEAD encrypted data. Note that if tag is the nullptr the tag is assumed to be
@@ -288,5 +312,6 @@ class CipherContextAEAD
     }
 
     EVP_CIPHER_CTX *ctx = nullptr;
+    Crypto::AEADUsageLimit aead_usage_limit_ = {};
 };
 } // namespace openvpn::OpenSSLCrypto

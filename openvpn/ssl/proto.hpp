@@ -282,7 +282,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         IV_PROTO_CC_EXIT_NOTIFY = (1 << 7),
         IV_PROTO_AUTH_FAIL_TEMP = (1 << 8),
         IV_PROTO_DYN_TLS_CRYPT = (1 << 9),
-        IV_PROTO_DATA_V3 = (1 << 10),
+        IV_PROTO_DATA_EPOCH = (1 << 10),
         IV_PROTO_DNS_OPTION_V2 = (1 << 11),
         IV_PROTO_PUSH_UPDATE = (1 << 12)
     };
@@ -905,13 +905,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                             // Overrides "key-derivation" method set above
                             dc.set_key_derivation(CryptoAlgs::KeyDerivation::TLS_EKM);
                         }
-                        else if (flag == "aead-tag-end")
+                        else if (flag == "aead-epoch")
                         {
-                            dc.set_aead_tag_end(true);
-                        }
-                        else if (flag == "pkt-id-64-bit")
-                        {
-                            dc.set_64_bit_packet_id(true);
+                            dc.set_use_epoch_keys(true);
                         }
                         else
                         {
@@ -987,11 +983,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
             os << ", peer-id " << remote_peer_id;
 
-            if (dc.aeadTagAtTheEnd())
-                os << ", aead-tag-end";
-
-            if (dc.use64bitPktCounter())
-                os << ", pkt-id-64-bit";
+            if (dc.useEpochKeys())
+                os << ", aead-epoch";
 
             os << std::endl;
         }
@@ -1202,12 +1195,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                                     | IV_PROTO_DNS_OPTION_V2
                                     | IV_PROTO_CC_EXIT_NOTIFY
                                     | IV_PROTO_AUTH_FAIL_TEMP
+                                    | IV_PROTO_DATA_EPOCH
                                     | IV_PROTO_PUSH_UPDATE;
-
-            /* Note, this is disabled until OpenVPN3 implements data v3 support
-             * with epoch key rotation */
-            /* if (proto_v3_support)
-                iv_proto |= IV_PROTO_DATA_V3; */
 
             if (CryptoAlgs::lookup("SHA256") != CryptoAlgs::NONE && CryptoAlgs::lookup("AES-256-CTR") != CryptoAlgs::NONE)
                 iv_proto |= IV_PROTO_DYN_TLS_CRYPT;

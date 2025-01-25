@@ -59,18 +59,18 @@ class Crypto : public CryptoDCInstance
          *  (It then gets concatenated with internal 32 bits for block counter to form a 128 bit counter for the
          *  encryption).
          *
-         *  Since we only use 4 bytes (32 bit packet ID) or 8 bytes (64 bit packet ID) on the wire, we
-         *  fill out the rest of the IV with pseudorandom bytes that come from of the negotiated key for the
-         *  HMAC key (this key is not used by AEAD ciphers, so we reuse it for this purpose in AEAD mode).
+         *  Since we only use 4 bytes (32 bit packet ID) on the wire, we fill out the rest of the IV with
+         *  pseudorandom bytes that come from the negotiated key for the HMAC key (this key is not used
+         *  by AEAD ciphers, so we reuse it for this purpose in AEAD mode).
          */
-        void set_tail(const StaticKey &sk, bool use64bitcounter)
+        void set_tail(const StaticKey &sk)
         {
-            size_t implicit_iv_len = use64bitcounter ? 4 : 8;
+            constexpr size_t implicit_iv_len = 8;
             if (sk.size() < implicit_iv_len)
                 throw aead_error("insufficient key material for nonce tail");
 
-            /* 4 bytes opcode + 4-8 bytes on wire IV */
-            size_t implicit_iv_offset = data_offset_pkt_id + (12 - implicit_iv_len);
+            /* 4 bytes opcode + 4 bytes on wire IV */
+            constexpr size_t implicit_iv_offset = data_offset_pkt_id + (12 - implicit_iv_len);
             std::memcpy(data + implicit_iv_offset, sk.data(), implicit_iv_len);
         }
 
@@ -115,11 +115,11 @@ class Crypto : public CryptoDCInstance
         }
 
         // for decrypt
-        bool verify_packet_id(PacketIDDataReceive &pid_recv, const PacketIDControl::time_t now)
+        bool verify_packet_id(PacketIDDataReceive &pid_recv, const PacketIDControl::time_t now, const SessionStats::Ptr &stats_arg)
         {
             Buffer buf(data + data_offset_pkt_id, PacketIDData::long_id_size, true);
             const PacketIDData pid = pid_recv.read_next(buf);
-            return pid_recv.test_add(pid, now); // verify packet ID
+            return pid_recv.test_add(pid, now, stats_arg); // verify packet ID
         }
 
         const unsigned char *iv() const
@@ -158,7 +158,7 @@ class Crypto : public CryptoDCInstance
     {
         typename CRYPTO_API::CipherContextAEAD impl;
         Nonce nonce;
-        PacketIDDataSend pid_send{false};
+        PacketIDDataSend pid_send{};
         BufferAllocated work;
     };
 
@@ -203,23 +203,14 @@ class Crypto : public CryptoDCInstance
 
             unsigned char *work_data = e.work.write_alloc(buf.size());
 
-
-            unsigned char *auth_tag;
             unsigned char *auth_tag_tmp = nullptr;
-
-            // alloc auth tag in buffer where it needs to be
+            // alloc auth tag in buffer at the start of the packet
             // Create a temporary auth tag at the end if the implementation and mode require it
-            if (dc_settings.aeadTagAtTheEnd())
+
+            unsigned char *auth_tag = e.work.prepend_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
+            if (e.impl.requires_authtag_at_end())
             {
-                auth_tag = e.work.write_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
-            }
-            else
-            {
-                auth_tag = e.work.prepend_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
-                if (e.impl.requires_authtag_at_end())
-                {
-                    auth_tag_tmp = e.work.write_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
-                }
+                auth_tag_tmp = e.work.write_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
             }
 
             // encrypt
@@ -238,7 +229,7 @@ class Crypto : public CryptoDCInstance
             // prepend additional data
             nonce.prepend_ad(buf, e.pid_send);
         }
-        return e.pid_send.wrap_warning();
+        return e.pid_send.wrap_warning() || e.impl.get_usage_limit().usage_limit_warn();
     }
 
     Error::Type decrypt(BufferAllocated &buf, const std::time_t now, const unsigned char *op32) override
@@ -253,10 +244,7 @@ class Crypto : public CryptoDCInstance
             // the decrypt function will just treat it as part of the input
             unsigned char *auth_tag = nullptr;
 
-            if (!dc_settings.aeadTagAtTheEnd())
-            {
-                auth_tag = buf.read_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
-            }
+            auth_tag = buf.read_alloc(CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
 
             // initialize work buffer.
             frame->prepare(Frame::DECRYPT_WORK, d.work);
@@ -277,7 +265,7 @@ class Crypto : public CryptoDCInstance
                 return Error::DECRYPT_ERROR;
             }
 
-            if (dc_settings.aeadTagAtTheEnd() || e.impl.requires_authtag_at_end())
+            if (e.impl.requires_authtag_at_end())
             {
                 d.work.set_size(buf.size() - CRYPTO_API::CipherContextAEAD::AUTH_TAG_LEN);
             }
@@ -287,7 +275,7 @@ class Crypto : public CryptoDCInstance
             }
 
             // verify packet ID
-            if (!nonce.verify_packet_id(d.pid_recv, now))
+            if (!nonce.verify_packet_id(d.pid_recv, now, stats))
             {
                 buf.reset_size();
                 return Error::REPLAY_ERROR;
@@ -319,16 +307,17 @@ class Crypto : public CryptoDCInstance
     void init_hmac(StaticKey &&encrypt_key,
                    StaticKey &&decrypt_key) override
     {
-        e.nonce.set_tail(encrypt_key, dc_settings.use64bitPktCounter());
-        d.nonce.set_tail(decrypt_key, dc_settings.use64bitPktCounter());
+        e.nonce.set_tail(encrypt_key);
+        d.nonce.set_tail(decrypt_key);
     }
 
     void init_pid(const char *recv_name,
                   const int recv_unit,
                   const SessionStats::Ptr &recv_stats_arg) override
     {
-        e.pid_send = PacketIDDataSend{dc_settings.use64bitPktCounter()};
-        d.pid_recv.init(recv_name, recv_unit, dc_settings.use64bitPktCounter(), recv_stats_arg);
+        e.pid_send = PacketIDDataSend{};
+        d.pid_recv.init(recv_name, recv_unit, false);
+        stats = recv_stats_arg;
     }
 
     // Indicate whether or not cipher/digest is defined
@@ -350,7 +339,6 @@ class Crypto : public CryptoDCInstance
     }
 
     // Rekeying
-
     void rekey(const typename Base::RekeyType type) override
     {
     }

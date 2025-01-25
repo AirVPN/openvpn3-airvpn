@@ -47,14 +47,18 @@ namespace openvpn {
     // return value of defined()
     enum
     {
-        CIPHER_DEFINED = (1 << 0),               // may call init_cipher method
-        HMAC_DEFINED = (1 << 1),                 // may call init_hmac method
-        CRYPTO_DEFINED = (1 << 2),               // may call encrypt or decrypt methods
-        EXPLICIT_EXIT_NOTIFY_DEFINED = (1 << 3), // may call explicit_exit_notify method
-        LONG_IV_DEFINED = (1 << 4)
+        CIPHER_DEFINED = (1 << 0),              // may call init_cipher method
+        HMAC_DEFINED = (1 << 1),                // may call init_hmac method
+        CRYPTO_DEFINED = (1 << 2),              // may call encrypt or decrypt methods
+        EXPLICIT_EXIT_NOTIFY_DEFINED = (1 << 3) // may call explicit_exit_notify method
     };
     virtual unsigned int defined() const = 0;
 
+
+    /**
+     * Initialised the encryption/decryption cipher of the classs. Note that this is
+     * and init_hmac need to typically called before encrypt/decrypt can be called.
+     */
     virtual void init_cipher(StaticKey &&encrypt_key,
                              StaticKey &&decrypt_key) = 0;
 
@@ -108,14 +112,9 @@ class CryptoDCSettingsData
         digest_ = digest;
     }
 
-    void set_aead_tag_end(bool at_the_end)
+    void set_use_epoch_keys(bool use_epoch)
     {
-        aead_tag_at_the_end = at_the_end;
-    }
-
-    void set_64_bit_packet_id(bool use_64bit_packet_id)
-    {
-        pktcounter_64bit = use_64bit_packet_id;
+        use_epoch_keys = use_epoch;
     }
 
     void set_ncp_enabled(const bool enabled)
@@ -132,7 +131,7 @@ class CryptoDCSettingsData
     {
         return ncp_enabled_;
     }
-    
+
     /**
      *  Retrieve the digest configured for the data channel.
      *  If the configured data channel cipher does not use any
@@ -145,14 +144,9 @@ class CryptoDCSettingsData
       return (CryptoAlgs::use_cipher_digest(cipher_) ? digest_ : CryptoAlgs::NONE);
     }
 
-    bool use64bitPktCounter() const
+    bool useEpochKeys() const
     {
-        return pktcounter_64bit;
-    }
-
-    bool aeadTagAtTheEnd() const
-    {
-        return aead_tag_at_the_end;
+        return use_epoch_keys;
     }
 
     void set_key_derivation(CryptoAlgs::KeyDerivation method)
@@ -169,9 +163,8 @@ class CryptoDCSettingsData
     CryptoAlgs::Type cipher_ = CryptoAlgs::NONE;
     CryptoAlgs::Type digest_ = CryptoAlgs::NONE;
     CryptoAlgs::KeyDerivation key_derivation_ = CryptoAlgs::KeyDerivation::OPENVPN_PRF;
-    bool pktcounter_64bit = false;
-    bool aead_tag_at_the_end = false;
     bool ncp_enabled_ = true;
+    bool use_epoch_keys = false;
 };
 
 // Factory for CryptoDCInstance objects
@@ -239,20 +232,11 @@ class CryptoDCSettings : public CryptoDCSettingsData
         }
     }
 
-    void set_aead_tag_end(bool at_the_end)
+    void set_use_epoch_keys(bool at_the_end)
     {
-        if (at_the_end != aeadTagAtTheEnd())
+        if (at_the_end != useEpochKeys())
         {
-            CryptoDCSettingsData::set_aead_tag_end(at_the_end);
-            dirty = true;
-        }
-    }
-
-    void set_64_bit_packet_id(bool use_64bit_packet_id)
-    {
-        if (use_64bit_packet_id != use64bitPktCounter())
-        {
-            CryptoDCSettingsData::set_64_bit_packet_id(use_64bit_packet_id);
+            CryptoDCSettingsData::set_use_epoch_keys(at_the_end);
             dirty = true;
         }
     }

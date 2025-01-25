@@ -109,22 +109,24 @@ enum
       AEAD_NONCE_TAIL_SIZE = 8
     };
 
-    class Alg
-    {
-    public:
-      constexpr Alg(const char *name,
-	  const unsigned int flags,
-	  const unsigned int size,
-	  const unsigned int iv_length,
-	  const unsigned int block_size)
+class Alg
+{
+  public:
+    constexpr Alg(const char *name,
+                  const unsigned int flags,
+                  const unsigned int size,
+                  const unsigned int iv_length,
+                  const unsigned int block_size,
+                  uint64_t aead_usage_limit)
 
-	: name_(name),
-	  flags_(flags),
-	  size_(size),
-	  iv_length_(iv_length),
-	  block_size_(block_size)
-      {
-      }
+        : name_(name),
+          flags_(flags),
+          size_(size),
+          iv_length_(iv_length),
+          block_size_(block_size),
+          aead_usage_limit_(aead_usage_limit)
+    {
+    }
 
     const char *name() const
     {
@@ -171,35 +173,46 @@ enum
             flags_ &= ~F_ALLOW_DC;
       }
 
-    private:
-      const char *name_;
-      unsigned int flags_;
-      unsigned int size_;
-      unsigned int iv_length_;
-      unsigned int block_size_;
-    };
+    /** Returns the number q + s of total invocations + plain text blocks that should not be
+     *  exceeded */
+    uint64_t aead_usage_limit() const
+    {
+        return aead_usage_limit_;
+    }
 
-    inline std::array<Alg, Type::SIZE> algs = {
+  private:
+    const char *name_;
+    unsigned int flags_;
+    unsigned int size_;
+    unsigned int iv_length_;
+    unsigned int block_size_;
+    uint64_t aead_usage_limit_;
+};
+
+/** The limit for AES-GCM ciphers according to https://datatracker.ietf.org/doc/draft-irtf-cfrg-aead-limits/ */
+static constexpr uint64_t gcm_limit = (1ull << 36) - 1;
+
+inline std::array<Alg, Type::SIZE> algs = {
     // clang-format off
-    Alg{"none",               F_CIPHER|F_DIGEST|CBC_HMAC,   0,  0,  0 },
-    Alg{"AES-128-CBC",        F_CIPHER|CBC_HMAC,           16, 16, 16 },
-    Alg{"AES-192-CBC",        F_CIPHER|CBC_HMAC,           24, 16, 16 },
-    Alg{"AES-256-CBC",        F_CIPHER|CBC_HMAC,           32, 16, 16 },
-    Alg{"DES-CBC",            F_CIPHER|CBC_HMAC,            8,  8,  8 },
-    Alg{"DES-EDE3-CBC",       F_CIPHER|CBC_HMAC,           24,  8,  8 },
-    Alg{"BF-CBC",             F_CIPHER|CBC_HMAC,           16,  8,  8 },
-    Alg{"AES-256-CTR",        F_CIPHER,                    32, 16, 16 },
-    Alg{"AES-128-GCM",        F_CIPHER|AEAD,               16, 12, 16 },
-    Alg{"AES-192-GCM",        F_CIPHER|AEAD,               24, 12, 16 },
-    Alg{"AES-256-GCM",        F_CIPHER|AEAD,               32, 12, 16 },
-    Alg{"CHACHA20-POLY1305",  F_CIPHER|AEAD,               32, 12, 16 },
-    Alg{"MD4",                F_DIGEST,                    16,  0,  0 },
-    Alg{"MD5",                F_DIGEST,                    16,  0,  0 },
-    Alg{"SHA1",               F_DIGEST,                    20,  0,  0 },
-    Alg{"SHA224",             F_DIGEST,                    28,  0,  0 },
-    Alg{"SHA256",             F_DIGEST,                    32,  0,  0 },
-    Alg{"SHA384",             F_DIGEST,                    48,  0,  0 },
-    Alg{"SHA512",             F_DIGEST,                    64,  0,  0 }
+    Alg{"none",               F_CIPHER|F_DIGEST|CBC_HMAC,   0,  0,  0, 0 },
+    Alg{"AES-128-CBC",        F_CIPHER|CBC_HMAC,           16, 16, 16, 0 },
+    Alg{"AES-192-CBC",        F_CIPHER|CBC_HMAC,           24, 16, 16, 0 },
+    Alg{"AES-256-CBC",        F_CIPHER|CBC_HMAC,           32, 16, 16, 0 },
+    Alg{"DES-CBC",            F_CIPHER|CBC_HMAC,            8,  8,  8, 0 },
+    Alg{"DES-EDE3-CBC",       F_CIPHER|CBC_HMAC,           24,  8,  8, 0 },
+    Alg{"BF-CBC",             F_CIPHER|CBC_HMAC,           16,  8,  8, 0 },
+    Alg{"AES-256-CTR",        F_CIPHER,                    32, 16, 16, 0 },
+    Alg{"AES-128-GCM",        F_CIPHER|AEAD,               16, 12, 16, gcm_limit },
+    Alg{"AES-192-GCM",        F_CIPHER|AEAD,               24, 12, 16, gcm_limit },
+    Alg{"AES-256-GCM",        F_CIPHER|AEAD,               32, 12, 16, gcm_limit },
+    Alg{"CHACHA20-POLY1305",  F_CIPHER|AEAD,               32, 12, 16, 0 },
+    Alg{"MD4",                F_DIGEST,                    16,  0,  0, 0 },
+    Alg{"MD5",                F_DIGEST,                    16,  0,  0, 0 },
+    Alg{"SHA1",               F_DIGEST,                    20,  0,  0, 0 },
+    Alg{"SHA224",             F_DIGEST,                    28,  0,  0, 0 },
+    Alg{"SHA256",             F_DIGEST,                    32,  0,  0, 0 },
+    Alg{"SHA384",             F_DIGEST,                    48,  0,  0, 0 },
+    Alg{"SHA512",             F_DIGEST,                    64,  0,  0, 0 }
     // clang-format on
     };
 
@@ -283,6 +296,12 @@ enum
       return alg.mode();
     }
 
+    inline uint64_t aead_usage_limit(const Type type)
+    {
+        const Alg &alg = get(type);
+        return alg.aead_usage_limit();
+    }
+
     inline Type legal_dc_cipher(const Type type)
     {
       const Alg& alg = get(type);
@@ -347,13 +366,12 @@ enum
       return type;
     }
 
-
     inline void allow_dc_algs(const std::list<Type> types)
     {
-      for (auto& alg : algs)
-	alg.allow_dc(false);
-      for (auto& type : types)
-	algs.at(type).allow_dc(true);
+        for (auto &alg : algs)
+            alg.allow_dc(false);
+        for (auto &type : types)
+            algs.at(type).allow_dc(true);
     }
 
 	/**
