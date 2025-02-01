@@ -20,13 +20,6 @@
 #include <vector>
 #include <optional>
 
-#ifndef OPENVPN_LOG
-
-#include <openvpn/log/lognull.hpp>
-
-#endif
-    
-#include <openvpn/common/options.hpp>
 #include <openvpn/tun/builder/base.hpp>
 #include <openvpn/tun/extern/fw.hpp>
 #include <openvpn/pki/epkibase.hpp>
