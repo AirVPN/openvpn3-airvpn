@@ -106,8 +106,9 @@ inline auto IPv4Address(const bool valid = true) -> Gen<std::string>
 /**
  * @brief Generates a random printable ASCII character code.
  * @details This function generates an integer value representing printable ASCII character,
- * ranging from 32 (space) to 126 (tilde).
+ * ranging from 32 (space) to 126 (tilde) without 37 (percent sign)
  * @return A generator producing printable ASCII character code.
+ * @warning It does not generate percent sign (%)
  *
  * Example usage:
  * @code
@@ -116,10 +117,13 @@ inline auto IPv4Address(const bool valid = true) -> Gen<std::string>
  */
 inline auto asciiPrintableCode() -> Gen<int>
 {
-    static constexpr int ASCII_range_start_code = 32; // ASCII code for space character
-    static constexpr int ASCII_range_end_code = 127;  // ASCII code for DEL (not included)
+    static constexpr int ASCII_range_start_code = 32;  // ASCII code for space character
+    static constexpr int ASCII_range_end_code = 127;   // ASCII code for DEL (not included)
+    static constexpr int ASCII_percent_sign_code = 37; // ASCII code for percent sign
 
-    return gen::inRange(ASCII_range_start_code, ASCII_range_end_code);
+    // Due to IPv6 Scoped Address Architecture (RFC 4007) anything after '%' is not part of IPv6 address but zone_id
+    // Therefore generating '% breaks assumption on validity of generated IPv6 addresses
+    return gen::distinctFrom(gen::inRange(ASCII_range_start_code, ASCII_range_end_code), ASCII_percent_sign_code);
 }
 
 /**
@@ -371,6 +375,107 @@ struct Arbitrary<RedirectGatewayFlagsValues>
     }
 };
 
+/**
+ * @brief Specialization of Arbitrary for the RouteBase type.
+ * @details This struct specializes the Arbitrary template for
+ *          the `openvpn::TunBuilderCapture::RouteBase` type. It provides
+ *          an `arbitrary` function that produces a generator for this type.
+ */
+template <>
+struct Arbitrary<openvpn::TunBuilderCapture::RouteBase>
+{
+    /**
+     * @brief Generates a value of type RouteBase.
+     * @details This function uses `gen::just` to generate a default
+     *          instance of `openvpn::TunBuilderCapture::RouteBase`.
+     * @return A generator (`Gen`) that produces a `RouteBase` object.
+     */
+    static auto arbitrary() -> Gen<openvpn::TunBuilderCapture::RouteBase>
+    {
+        return gen::just(openvpn::TunBuilderCapture::RouteBase{});
+    }
+};
+
+/**
+ * @brief Specialization of the Arbitrary template for TunBuilderCapture::Route.
+ * @details Provides a mechanism to generate arbitrary instances of
+ *          TunBuilderCapture::Route using a predefined generator.
+ *          This is useful for testing purposes.
+ * @return A generator that always produces a default instance of
+ *         openvpn::TunBuilderCapture::Route.
+ */
+template <>
+struct Arbitrary<openvpn::TunBuilderCapture::Route>
+{
+    /**
+     * @brief Generates an arbitrary instance of TunBuilderCapture::Route.
+     * @details This method always returns a generator that produces a
+     *          default-constructed TunBuilderCapture::Route.
+     * @return A generator of type Gen<openvpn::TunBuilderCapture::Route>.
+     */
+    static auto arbitrary() -> Gen<openvpn::TunBuilderCapture::Route>
+    {
+        return gen::just(openvpn::TunBuilderCapture::Route{});
+    }
+};
+
+/**
+ * @brief Specialization of the Arbitrary struct for RouteAddress.
+ * @details Provides a generation function for openvpn::TunBuilderCapture::RouteAddress
+ *          objects used in property-based testing.
+ */
+template <>
+struct Arbitrary<openvpn::TunBuilderCapture::RouteAddress>
+{
+    /**
+     * @brief Generates an arbitrary RouteAddress instance.
+     * @details Uses a generator to produce a default-initialized
+     *          openvpn::TunBuilderCapture::RouteAddress object.
+     * @return A generator that returns a default RouteAddress instance.
+     */
+    static auto arbitrary() -> Gen<openvpn::TunBuilderCapture::RouteAddress>
+    {
+        return gen::just(openvpn::TunBuilderCapture::RouteAddress{});
+    }
+};
+
+/**
+ * @brief Alias representing a route-based variant type.
+ * @details This alias holds one of three possible route-related types:
+ * `openvpn::TunBuilderCapture::Route`, `openvpn::TunBuilderCapture::RouteAddress`,
+ * or `openvpn::TunBuilderCapture::RouteBase`.
+ */
+using RouteBased = std::variant<openvpn::TunBuilderCapture::Route,
+                                openvpn::TunBuilderCapture::RouteAddress,
+                                openvpn::TunBuilderCapture::RouteBase>;
+
+/**
+ * @brief Specialization of Arbitrary for creating arbitrary std::variant values.
+ * @details This struct provides a static method to generate an arbitrary instance of a `std::variant`
+ * containing one of the specified types. It leverages the `gen::oneOf` function to select one of the
+ * provided types and creates a `std::variant` containing that type.
+ *
+ * @tparam T The first type in the `std::variant`.
+ * @tparam Ts The remaining types in the `std::variant`.
+ */
+template <typename T, typename... Ts>
+struct Arbitrary<std::variant<T, Ts...>>
+{
+    /**
+     * @brief Generates an arbitrary `std::variant` containing one of the specified types.
+     * @details This function selects one of the types in the `std::variant` and wraps its generated value
+     * in the `std::variant` type using `gen::cast`.
+     *
+     * @return A generator object (`Gen<std::variant<T, Ts...>>`) that produces `std::variant` instances
+     * containing one of the specified types.
+     */
+    static auto arbitrary() -> Gen<std::variant<T, Ts...>>
+    {
+        return gen::oneOf(
+            gen::cast<std::variant<T, Ts...>>(gen::arbitrary<T>()),
+            gen::cast<std::variant<T, Ts...>>(gen::arbitrary<Ts>())...);
+    }
+};
 
 } // namespace rc
 #endif // TEST_GENERATORS_HPP
