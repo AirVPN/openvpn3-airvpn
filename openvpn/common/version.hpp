@@ -15,6 +15,6 @@
 
 #ifndef OPENVPN_VERSION
 
-#define OPENVPN_VERSION "3.11 AirVPN (20250125)"
+#define OPENVPN_VERSION "3.11 AirVPN (20250206)"
 
 #endif
