@@ -328,62 +328,448 @@ RC_GTEST_PROP(RerouteGW, FromInvalidJsonThrows, (bool ipv4, bool ipv6, rc::Redir
 
 RC_GTEST_PROP(RouteBased, EmptyStringRepresentationReturnsUnsetPrefixLength, (rc::RouteBased route_based))
 {
-    std::visit([](auto &&route_base_variant)
-               { RC_ASSERT(route_base_variant.to_string() == "/0"); },
-               route_based);
+    std::visit(
+        [](auto &&route_base_variant)
+        { RC_ASSERT(route_base_variant.to_string() == "/0"); },
+        route_based);
 }
 
 RC_GTEST_PROP(RouteBased, StringRepresentationReturnsSetOptions, (rc::RouteBased route_based, const std::string &address, unsigned char prefix_length, int metric, const std::string &gateway, bool ipv6, bool net30))
 {
-    std::visit([&address, prefix_length, metric, &gateway, ipv6, net30](auto &&route_base_variant)
-               {
-        route_base_variant.address = address;
-        route_base_variant.prefix_length = prefix_length;
-        route_base_variant.metric = metric;
-        route_base_variant.gateway = gateway;
-        route_base_variant.ipv6 = ipv6;
-        route_base_variant.net30 = net30;
-        std::string output;
-        output += address + "/" + std::to_string(prefix_length);
-        if (!gateway.empty())
-            output += " -> " + gateway;
-        if (metric >= 0)
-            output += " [METRIC=" + std::to_string(metric) + "]";
-        if (ipv6)
-            output += " [IPv6]";
-        if (net30)
-            output += " [net30]";
-        RC_ASSERT(route_base_variant.to_string() == output); },
-               route_based);
+    std::visit(
+        [&address, prefix_length, metric, &gateway, ipv6, net30](auto &&route_base_variant)
+        {
+            route_base_variant.address = address;
+            route_base_variant.prefix_length = prefix_length;
+            route_base_variant.metric = metric;
+            route_base_variant.gateway = gateway;
+            route_base_variant.ipv6 = ipv6;
+            route_base_variant.net30 = net30;
+            std::string output;
+            output += address + "/" + std::to_string(prefix_length);
+            if (!gateway.empty())
+                output += " -> " + gateway;
+            if (metric >= 0)
+                output += " [METRIC=" + std::to_string(metric) + "]";
+            if (ipv6)
+                output += " [IPv6]";
+            if (net30)
+                output += " [net30]";
+            RC_ASSERT(route_base_variant.to_string() == output);
+        },
+        route_based);
 }
 
 
 RC_GTEST_PROP(RouteBased, EmptyJsonRoundTripHaveSameStringRepresentation, (rc::RouteBased route_based, const std::string &title))
 {
-    std::visit([&title](auto &&route_base_variant)
-               {
-        const auto route_based_as_json = route_base_variant.to_json();
-        using T = std::decay_t<decltype(route_base_variant)>;
-        T from_json;
-        from_json.from_json(route_based_as_json, title);
-        RC_ASSERT(route_base_variant.to_string() == from_json.to_string()); },
-               route_based);
+    std::visit(
+        [&title](auto &&route_base_variant)
+        {
+            const auto route_based_as_json = route_base_variant.to_json();
+            using T = std::decay_t<decltype(route_base_variant)>;
+            T from_json;
+            from_json.from_json(route_based_as_json, title);
+            RC_ASSERT(route_base_variant.to_string() == from_json.to_string());
+        },
+        route_based);
 }
 
 RC_GTEST_PROP(RouteBased, JsonRoundTripHaveSameStringRepresentation, (rc::RouteBased route_based, const std::string &address, unsigned char prefix_length, int metric, const std::string &gateway, bool ipv6, bool net30, const std::string &title))
 {
-    std::visit([&address, prefix_length, metric, &gateway, ipv6, net30, &title](auto &&route_base_variant)
-               {
-        route_base_variant.address = address;
-        route_base_variant.prefix_length = prefix_length;
-        route_base_variant.metric = metric;
-        route_base_variant.gateway = gateway;
-        route_base_variant.ipv6 = ipv6;
-        route_base_variant.net30 = net30;
-        const auto route_based_as_json = route_base_variant.to_json();
-        using T = std::decay_t<decltype(route_base_variant)>;
-        T from_json;
-        from_json.from_json(route_based_as_json, title);
-        RC_ASSERT(route_base_variant.to_string() == from_json.to_string()); },
-               route_based);
+    std::visit(
+        [&address, prefix_length, metric, &gateway, ipv6, net30, &title](auto &&route_base_variant)
+        {
+            route_base_variant.address = address;
+            route_base_variant.prefix_length = prefix_length;
+            route_base_variant.metric = metric;
+            route_base_variant.gateway = gateway;
+            route_base_variant.ipv6 = ipv6;
+            route_base_variant.net30 = net30;
+            const auto route_based_as_json = route_base_variant.to_json();
+            using T = std::decay_t<decltype(route_base_variant)>;
+            T from_json;
+            from_json.from_json(route_based_as_json, title);
+            RC_ASSERT(route_base_variant.to_string() == from_json.to_string());
+        },
+        route_based);
+}
+
+//  ===============================================================================================
+//  ProxyBypass tests
+//  ===============================================================================================
+
+TEST(ProxyBypass, EmptyIsNotDefined)
+{
+    const TunBuilderCapture::ProxyBypass proxy_bypass;
+    ASSERT_FALSE(proxy_bypass.defined());
+}
+
+RC_GTEST_PROP(ProxyBypass, NonEmptyIsDefined, ())
+{
+    const auto bypass_host = *rc::gen::nonEmpty<std::string>();
+    TunBuilderCapture::ProxyBypass proxy_bypass;
+    proxy_bypass.bypass_host = bypass_host;
+    RC_ASSERT(proxy_bypass.defined());
+}
+
+TEST(ProxyBypass, EmptyStringRepresentation)
+{
+    const TunBuilderCapture::ProxyBypass proxy_bypass;
+    ASSERT_TRUE(proxy_bypass.to_string().empty());
+}
+
+RC_GTEST_PROP(ProxyBypass, StringRepresentationReturnBypassHost, (const std::string &bypass_host))
+{
+    TunBuilderCapture::ProxyBypass proxy_bypass;
+    proxy_bypass.bypass_host = bypass_host;
+    RC_ASSERT(proxy_bypass.to_string() == bypass_host);
+}
+
+RC_GTEST_PROP(ProxyBypass, EmptyValidates, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyBypass proxy_bypass;
+    proxy_bypass.validate(title);
+}
+
+RC_GTEST_PROP(ProxyBypass, EmptyJsonRoundTripHaveSameStringRepresentation, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyBypass proxy_bypass;
+    const auto proxy_bypass_as_json = proxy_bypass.to_json();
+    TunBuilderCapture::ProxyBypass from_json;
+    from_json.from_json(proxy_bypass_as_json, title);
+    RC_ASSERT(proxy_bypass.to_string() == from_json.to_string());
+}
+
+RC_GTEST_PROP(ProxyBypass, EmptyJsonRoundTripHaveSameDefinedStatus, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyBypass proxy_bypass;
+    const auto proxy_bypass_as_json = proxy_bypass.to_json();
+    TunBuilderCapture::ProxyBypass from_json;
+    from_json.from_json(proxy_bypass_as_json, title);
+    RC_ASSERT(proxy_bypass.defined() == from_json.defined());
+}
+
+RC_GTEST_PROP(ProxyBypass, EmptyJsonRoundTripValidates, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyBypass proxy_bypass;
+    proxy_bypass.validate(title);
+    const auto proxy_bypass_as_json = proxy_bypass.to_json();
+    TunBuilderCapture::ProxyBypass from_json;
+    from_json.from_json(proxy_bypass_as_json, title);
+    from_json.validate(title);
+}
+
+RC_GTEST_PROP(ProxyBypass, JsonRoundTripHaveSameStringRepresentation, (const std::string &bypass_host, const std::string &title))
+{
+    TunBuilderCapture::ProxyBypass proxy_bypass;
+    proxy_bypass.bypass_host = bypass_host;
+    const auto proxy_bypass_as_json = proxy_bypass.to_json();
+    TunBuilderCapture::ProxyBypass from_json;
+    from_json.from_json(proxy_bypass_as_json, title);
+    RC_ASSERT(proxy_bypass.to_string() == from_json.to_string());
+}
+
+RC_GTEST_PROP(ProxyBypass, JsonRoundTripHaveSameDefinedStatus, (const std::string &bypass_host, const std::string &title))
+{
+    TunBuilderCapture::ProxyBypass proxy_bypass;
+    proxy_bypass.bypass_host = bypass_host;
+    const auto proxy_bypass_as_json = proxy_bypass.to_json();
+    TunBuilderCapture::ProxyBypass from_json;
+    from_json.from_json(proxy_bypass_as_json, title);
+    RC_ASSERT(proxy_bypass.defined() == from_json.defined());
+}
+
+RC_GTEST_PROP(ProxyBypass, FromInvalidJsonThrows, (const std::string &title))
+{
+    TunBuilderCapture::ProxyBypass from_json;
+    const Json::Value invalid_json;
+    RC_ASSERT_THROWS_AS(from_json.from_json(invalid_json, title), json::json_parse);
+}
+
+//  ===============================================================================================
+//  ProxyAutoConfigURL tests
+//  ===============================================================================================
+
+TEST(ProxyAutoConfigURL, EmptyIsNotDefined)
+{
+    const TunBuilderCapture::ProxyAutoConfigURL proxy_autoconfig_url;
+    ASSERT_FALSE(proxy_autoconfig_url.defined());
+}
+
+RC_GTEST_PROP(ProxyAutoConfigURL, NonEmptyIsDefined, ())
+{
+    const auto url = *rc::gen::nonEmpty<std::string>();
+    TunBuilderCapture::ProxyAutoConfigURL proxy_autoconfig_url;
+    proxy_autoconfig_url.url = url;
+    RC_ASSERT(proxy_autoconfig_url.defined());
+}
+
+TEST(ProxyAutoConfigURL, EmptyStringRepresentation)
+{
+    const TunBuilderCapture::ProxyAutoConfigURL proxy_autoconfig_url;
+    ASSERT_TRUE(proxy_autoconfig_url.to_string().empty());
+}
+
+RC_GTEST_PROP(ProxyAutoConfigURL, StringRepresentationReturnsURL, (const std::string &url))
+{
+    TunBuilderCapture::ProxyAutoConfigURL proxy_autoconfig_url;
+    proxy_autoconfig_url.url = url;
+    RC_ASSERT(proxy_autoconfig_url.to_string() == url);
+}
+
+RC_GTEST_PROP(ProxyAutoConfigURL, EmptyValidates, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyAutoConfigURL proxy_autoconfig_url;
+    proxy_autoconfig_url.validate(title);
+}
+
+RC_GTEST_PROP(ProxyAutoConfigURL, EmptyJsonRoundTripHaveSameStringRepresentation, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyAutoConfigURL proxy_autoconfig_url;
+    const auto proxy_autoconfig_url_as_json = proxy_autoconfig_url.to_json();
+    TunBuilderCapture::ProxyAutoConfigURL from_json;
+    from_json.from_json(proxy_autoconfig_url_as_json, title);
+    RC_ASSERT(proxy_autoconfig_url.to_string() == from_json.to_string());
+}
+
+RC_GTEST_PROP(ProxyAutoConfigURL, EmptyJsonRoundTripHaveSameDefinedStatus, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyAutoConfigURL proxy_autoconfig_url;
+    const auto proxy_autoconfig_url_as_json = proxy_autoconfig_url.to_json();
+    TunBuilderCapture::ProxyAutoConfigURL from_json;
+    from_json.from_json(proxy_autoconfig_url_as_json, title);
+    RC_ASSERT(proxy_autoconfig_url.defined() == from_json.defined());
+}
+
+RC_GTEST_PROP(ProxyAutoConfigURL, EmptyJsonRoundTripValidates, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyAutoConfigURL proxy_autoconfig_url;
+    proxy_autoconfig_url.validate(title);
+    const auto proxy_autoconfig_url_as_json = proxy_autoconfig_url.to_json();
+    TunBuilderCapture::ProxyAutoConfigURL from_json;
+    from_json.from_json(proxy_autoconfig_url_as_json, title);
+    from_json.validate(title);
+}
+
+RC_GTEST_PROP(ProxyAutoConfigURL, JsonRoundTripHaveSameStringRepresentation, (const std::string &url, const std::string &title))
+{
+    TunBuilderCapture::ProxyAutoConfigURL proxy_autoconfig_url;
+    proxy_autoconfig_url.url = url;
+    const auto proxy_autoconfig_url_as_json = proxy_autoconfig_url.to_json();
+    TunBuilderCapture::ProxyAutoConfigURL from_json;
+    from_json.from_json(proxy_autoconfig_url_as_json, title);
+    RC_ASSERT(proxy_autoconfig_url.to_string() == from_json.to_string());
+}
+
+RC_GTEST_PROP(ProxyAutoConfigURL, JsonRoundTripHaveSameDefinedStatus, (const std::string &url, const std::string &title))
+{
+    TunBuilderCapture::ProxyAutoConfigURL proxy_autoconfig_url;
+    proxy_autoconfig_url.url = url;
+    const auto proxy_autoconfig_url_as_json = proxy_autoconfig_url.to_json();
+    TunBuilderCapture::ProxyAutoConfigURL from_json;
+    from_json.from_json(proxy_autoconfig_url_as_json, title);
+    RC_ASSERT(proxy_autoconfig_url.defined() == from_json.defined());
+}
+
+RC_GTEST_PROP(ProxyAutoConfigURL, FromInvalidJsonDoesNotChangeOriginalObject, (const std::string &domain, const std::string &title))
+{
+    TunBuilderCapture::ProxyAutoConfigURL from_json;
+    from_json.url = domain;
+    const Json::Value invalid_json;
+    from_json.from_json(invalid_json, title);
+    RC_ASSERT(from_json.url == domain);
+}
+
+//  ===============================================================================================
+//  ProxyHostPort tests
+//  ===============================================================================================
+
+TEST(ProxyHostPort, EmptyIsNotDefined)
+{
+    const TunBuilderCapture::ProxyHostPort proxy_host_port;
+    ASSERT_FALSE(proxy_host_port.defined());
+}
+
+RC_GTEST_PROP(ProxyHostPort, NonEmptyIsDefined, ())
+{
+    const auto host = *rc::gen::nonEmpty<std::string>();
+    TunBuilderCapture::ProxyHostPort proxy_host_port;
+    proxy_host_port.host = host;
+    RC_ASSERT(proxy_host_port.defined());
+}
+
+TEST(ProxyHostPort, EmptyStringRepresentationReturnsDefaultPort)
+{
+    const TunBuilderCapture::ProxyHostPort proxy_host_port;
+    ASSERT_EQ(proxy_host_port.to_string(), std::string{" "} + std::to_string(proxy_host_port.port));
+}
+
+RC_GTEST_PROP(ProxyHostPort, StringRepresentationReturnsHostPort, (const std::string &host, const int port))
+{
+    TunBuilderCapture::ProxyHostPort proxy_host_port;
+    proxy_host_port.host = host;
+    proxy_host_port.port = port;
+    RC_ASSERT(proxy_host_port.to_string() == host + std::string{" "} + std::to_string(port));
+}
+
+RC_GTEST_PROP(ProxyHostPort, EmptyValidates, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyHostPort proxy_host_port;
+    proxy_host_port.validate(title);
+}
+
+RC_GTEST_PROP(ProxyHostPort, EmptyJsonRoundTripHaveSameStringRepresentation, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyHostPort proxy_host_port;
+    const auto proxy_host_port_as_json = proxy_host_port.to_json();
+    TunBuilderCapture::ProxyHostPort from_json;
+    from_json.from_json(proxy_host_port_as_json, title);
+    RC_ASSERT(proxy_host_port.to_string() == from_json.to_string());
+}
+
+RC_GTEST_PROP(ProxyHostPort, EmptyJsonRoundTripHaveSameDefinedStatus, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyHostPort proxy_host_port;
+    const auto proxy_host_port_as_json = proxy_host_port.to_json();
+    TunBuilderCapture::ProxyHostPort from_json;
+    from_json.from_json(proxy_host_port_as_json, title);
+    RC_ASSERT(proxy_host_port.defined() == from_json.defined());
+}
+
+RC_GTEST_PROP(ProxyHostPort, EmptyJsonRoundTripValidates, (const std::string &title))
+{
+    const TunBuilderCapture::ProxyHostPort proxy_host_port;
+    proxy_host_port.validate(title);
+    const auto proxy_host_port_as_json = proxy_host_port.to_json();
+    TunBuilderCapture::ProxyHostPort from_json;
+    from_json.from_json(proxy_host_port_as_json, title);
+    from_json.validate(title);
+}
+
+RC_GTEST_PROP(ProxyHostPort, JsonRoundTripHaveSameStringRepresentation, (const std::string &host, const int port, const std::string &title))
+{
+    TunBuilderCapture::ProxyHostPort proxy_host_port;
+    proxy_host_port.host = host;
+    proxy_host_port.port = port;
+    const auto proxy_host_port_as_json = proxy_host_port.to_json();
+    TunBuilderCapture::ProxyHostPort from_json;
+    from_json.from_json(proxy_host_port_as_json, title);
+    RC_ASSERT(proxy_host_port.to_string() == from_json.to_string());
+}
+
+RC_GTEST_PROP(ProxyHostPort, JsonRoundTripHaveSameDefinedStatus, (const std::string &host, const std::string &title))
+{
+    TunBuilderCapture::ProxyHostPort proxy_host_port;
+    proxy_host_port.host = host;
+    const auto proxy_host_port_as_json = proxy_host_port.to_json();
+    TunBuilderCapture::ProxyHostPort from_json;
+    from_json.from_json(proxy_host_port_as_json, title);
+    RC_ASSERT(proxy_host_port.defined() == from_json.defined());
+}
+
+RC_GTEST_PROP(ProxyHostPort, FromInvalidJsonDoesNotChangeOriginalObject, (const std::string &host, const int port, const std::string &title))
+{
+    TunBuilderCapture::ProxyHostPort from_json;
+    from_json.host = host;
+    from_json.port = port;
+    const Json::Value invalid_json;
+    from_json.from_json(invalid_json, title);
+    RC_ASSERT(from_json.host == host);
+    RC_ASSERT(from_json.port == port);
+}
+
+//  ===============================================================================================
+//  WINSServer tests
+//  ===============================================================================================
+
+TEST(WINSServer, EmptyStringRepresentation)
+{
+    const TunBuilderCapture::WINSServer wins_server;
+    ASSERT_TRUE(wins_server.to_string().empty());
+}
+
+RC_GTEST_PROP(WINSServer, StringRepresentationReturnsAddress, (const std::string &address))
+{
+    TunBuilderCapture::WINSServer wins_server;
+    wins_server.address = address;
+    RC_ASSERT(wins_server.to_string() == address);
+}
+
+RC_GTEST_PROP(WINSServer, EmptyThrowsOnValidation, (const std::string &title))
+{
+    const TunBuilderCapture::WINSServer wins_server;
+    RC_ASSERT_THROWS_AS(wins_server.validate(title), openvpn::IP::ip_exception);
+}
+
+RC_GTEST_PROP(WINSServer, ValidatesAddress, (const std::string &title))
+{
+    TunBuilderCapture::WINSServer wins_server;
+    wins_server.address = *rc::IPv4Address().as("Valid IPv4 address");
+    wins_server.validate(title);
+}
+
+RC_GTEST_PROP(WINSServer, ThrowsValidatingInvalidAddress, (const std::string &title))
+{
+    TunBuilderCapture::WINSServer wins_server;
+    wins_server.address = *rc::IPv4Address(false).as("Invalid IPv4 address");
+    RC_ASSERT_THROWS_AS(wins_server.validate(title), openvpn::IP::ip_exception);
+}
+
+RC_GTEST_PROP(WINSServer, EmptyJsonRoundTripHaveSameStringRepresentation, (const std::string &title))
+{
+    const TunBuilderCapture::WINSServer wins_server;
+    const auto wins_server_as_json = wins_server.to_json();
+    TunBuilderCapture::WINSServer from_json;
+    from_json.from_json(wins_server_as_json, title);
+    RC_ASSERT(wins_server.to_string() == from_json.to_string());
+}
+
+RC_GTEST_PROP(WINSServer, EmptyJsonRoundTripThrowsOnValidation, (const std::string &title))
+{
+    const TunBuilderCapture::WINSServer wins_server;
+    RC_ASSERT_THROWS_AS(wins_server.validate(title), openvpn::IP::ip_exception);
+    const auto wins_server_as_json = wins_server.to_json();
+    TunBuilderCapture::WINSServer from_json;
+    from_json.from_json(wins_server_as_json, title);
+    RC_ASSERT_THROWS_AS(from_json.validate(title), openvpn::IP::ip_exception);
+}
+
+RC_GTEST_PROP(WINSServer, JsonRoundTripHaveSameStringRepresentation, (const std::string &address, const std::string &title))
+{
+    TunBuilderCapture::WINSServer wins_server;
+    wins_server.address = address;
+    const auto wins_server_as_json = wins_server.to_json();
+    TunBuilderCapture::WINSServer from_json;
+    from_json.from_json(wins_server_as_json, title);
+    RC_ASSERT(wins_server.to_string() == from_json.to_string());
+}
+
+RC_GTEST_PROP(WINSServer, JsonRoundTripValidatesAddress, (const std::string &title))
+{
+    TunBuilderCapture::WINSServer wins_server;
+    wins_server.address = *rc::IPv4Address().as("Valid IPv4 address");
+    wins_server.validate(title);
+    const auto wins_server_as_json = wins_server.to_json();
+    TunBuilderCapture::WINSServer from_json;
+    from_json.from_json(wins_server_as_json, title);
+    from_json.validate(title);
+}
+
+RC_GTEST_PROP(WINSServer, JsonRoundTripThrowsValidatingInvalidIP, (const std::string &title))
+{
+    TunBuilderCapture::WINSServer wins_server;
+    wins_server.address = *rc::IPv4Address(false).as("Invalid IPv4 address");
+    RC_ASSERT_THROWS_AS(wins_server.validate(title), openvpn::IP::ip_exception);
+    const auto wins_server_as_json = wins_server.to_json();
+    TunBuilderCapture::WINSServer from_json;
+    from_json.from_json(wins_server_as_json, title);
+    RC_ASSERT_THROWS_AS(from_json.validate(title), openvpn::IP::ip_exception);
+}
+
+RC_GTEST_PROP(WINSServer, FromInvalidJsonThrows, (const std::string &title))
+{
+    TunBuilderCapture::WINSServer from_json;
+    const Json::Value invalid_json;
+    RC_ASSERT_THROWS_AS(from_json.from_json(invalid_json, title), json::json_parse);
 }
