@@ -1593,11 +1593,11 @@ const int ciphersuites[] = // CONST GLOBAL
                     return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
                 }
 
-	    /* concatenate digest prefix with hash */
-	    BufferAllocated from_buf(digest_prefix_len + hashlen, 0);
-	    if (digest_prefix_len)
-	      from_buf.write(digest_prefix, digest_prefix_len);
-	    from_buf.write(hash, hashlen);
+                /* concatenate digest prefix with hash */
+                BufferAllocated from_buf(digest_prefix_len + hashlen);
+                if (digest_prefix_len)
+                    from_buf.write(digest_prefix, digest_prefix_len);
+                from_buf.write(hash, hashlen);
 
 	    /* convert from_buf to base64 */
 	    const std::string from_b64 = base64->encode(from_buf);

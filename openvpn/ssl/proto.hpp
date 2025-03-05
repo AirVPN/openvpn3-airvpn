@@ -1703,7 +1703,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     void write_control_string(const S& str)
     {
         const size_t len = str.length();
-        auto bp = BufferAllocatedRc::Create(len + 1, 0);
+        auto bp = BufferAllocatedRc::Create(len + 1);
         write_control_string(str, *bp);
         control_send(std::move(bp));
     }
@@ -2981,7 +2981,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             if (!proto.is_server())
             {
                 OVPN_LOG_INFO("Tunnel Options:" << options);
-                buf->or_flags(BufAllocFlags::DESTRUCT_ZERO);
+                buf->add_flags(BufAllocFlags::DESTRUCT_ZERO);
                 if (proto.config->xmit_creds)
                     proto.client_auth(*buf);
                 else
