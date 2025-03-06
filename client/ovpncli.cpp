@@ -86,9 +86,11 @@
 #include <openvpn/client/cliconnect.hpp>
 #include <openvpn/client/cliopthelper.hpp>
 #include <openvpn/options/merge.hpp>
+#include <openvpn/error/error.hpp>
 #include <openvpn/error/excode.hpp>
 #include <openvpn/crypto/selftest.hpp>
 #include <openvpn/client/clievent.hpp>
+#include <openvpn/log/sessionstats.hpp>
 
 // copyright
 #include <openvpn/legal/copyright.hpp>
@@ -112,36 +114,36 @@ namespace openvpn {
 #endif
       }
 
-      static size_t combined_n()
-      {
-	return N_STATS + Error::N_ERRORS;
-      }
+    static constexpr size_t combined_n()
+    {
+        return static_cast<size_t>(N_STATS) + static_cast<size_t>(Error::N_ERRORS);
+    }
 
-      static std::string combined_name(const size_t index)
-      {
-	if (index < N_STATS + Error::N_ERRORS)
-	  {
-	    if (index < N_STATS)
-	      return stat_name(index);
-	    else
-	      return Error::name(index - N_STATS);
-	  }
-	else
-	  return "";
-      }
+    static std::string combined_name(const size_t index)
+    {
+        if (index < combined_n())
+        {
+            if (index < N_STATS)
+                return stat_name(index);
+            else
+                return Error::name(index - N_STATS);
+        }
+        else
+            return "";
+    }
 
-      count_t combined_value(const size_t index) const
-      {
-	if (index < N_STATS + Error::N_ERRORS)
-	  {
-	    if (index < N_STATS)
-	      return get_stat(index);
-	    else
-	      return errors[index - N_STATS];
-	  }
-	else
-	  return 0;
-      }
+    count_t combined_value(const size_t index) const
+    {
+        if (index < combined_n())
+        {
+            if (index < N_STATS)
+                return get_stat(index);
+            else
+                return errors[index - N_STATS];
+        }
+        else
+            return 0;
+    }
 
       count_t stat_count(const size_t index) const
       {
@@ -1165,9 +1167,9 @@ class MySocketProtect : public SocketProtect
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::connect_attach()
     {
-      state->attach<MySessionStats, MyClientEvents>(this,
-						    nullptr,
-						    get_async_stop());
+        state->attach<MySessionStats, MyClientEvents>(this,
+                                                      nullptr,
+                                                      get_async_stop());
     }
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::connect_pre_run()
@@ -1176,91 +1178,91 @@ class MySocketProtect : public SocketProtect
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::connect_run()
     {
-      state->io_context()->run();
+        state->io_context()->run();
     }
 
     OPENVPN_CLIENT_EXPORT void OpenVPNClient::connect_session_stop()
     {
-      state->session->stop();     // On exception, stop client...
-      state->io_context()->poll();  //   and execute completion handlers.
+        state->session->stop();      // On exception, stop client...
+        state->io_context()->poll(); //   and execute completion handlers.
     }
 
     OPENVPN_CLIENT_EXPORT ConnectionInfo OpenVPNClient::connection_info()
     {
-      ConnectionInfo ci;
-      if (state->is_foreign_thread_access())
-	{
-	  MyClientEvents* events = state->events.get();
-	  if (events)
-	    events->get_connection_info(ci);
-	}
-      return ci;
+        ConnectionInfo ci;
+        if (state->is_foreign_thread_access())
+        {
+            MyClientEvents *events = state->events.get();
+            if (events)
+                events->get_connection_info(ci);
+        }
+        return ci;
     }
 
-    OPENVPN_CLIENT_EXPORT bool OpenVPNClient::session_token(SessionToken& tok)
+    OPENVPN_CLIENT_EXPORT bool OpenVPNClient::session_token(SessionToken &tok)
     {
-      if (state->is_foreign_thread_access())
-	{
-	  ClientCreds* cc = state->creds.get();
-	  if (cc && cc->session_id_defined())
-	    {
-	      tok.username = cc->get_username();
-	      tok.session_id = cc->get_password();
-	      return true;
-	    }
-	}
-      return false;
+        if (state->is_foreign_thread_access())
+        {
+            ClientCreds *cc = state->creds.get();
+            if (cc && cc->session_id_defined())
+            {
+                tok.username = cc->get_username();
+                tok.session_id = cc->get_password();
+                return true;
+            }
+        }
+        return false;
     }
 
-    OPENVPN_CLIENT_EXPORT Stop* OpenVPNClient::get_async_stop()
+    OPENVPN_CLIENT_EXPORT Stop *OpenVPNClient::get_async_stop()
     {
-      return nullptr;
+        return nullptr;
     }
 
-    OPENVPN_CLIENT_EXPORT void OpenVPNClient::external_pki_error(const ExternalPKIRequestBase& req, const size_t err_type)
+    OPENVPN_CLIENT_EXPORT void OpenVPNClient::external_pki_error(const ExternalPKIRequestBase &req, const Error::Type err_type)
     {
-      if (req.error)
-	{
-	  if (req.invalidAlias)
-	    {
-	      ClientEvent::Base::Ptr ev = new ClientEvent::EpkiInvalidAlias(req.alias);
-	      state->events->add_event(std::move(ev));
-	    }
+        if (req.error)
+        {
+            if (req.invalidAlias)
+            {
+                ClientEvent::Base::Ptr ev = new ClientEvent::EpkiInvalidAlias(req.alias);
+                state->events->add_event(std::move(ev));
+            }
 
-	  ClientEvent::Base::Ptr ev = new ClientEvent::EpkiError(req.errorText);
-	  state->events->add_event(std::move(ev));
+            ClientEvent::Base::Ptr ev = new ClientEvent::EpkiError(req.errorText);
+            state->events->add_event(std::move(ev));
 
-	  state->stats->error(err_type);
-	  if (state->session)
-	    state->session->dont_restart();
-	}
+            state->stats->error(err_type);
+            if (state->session)
+                state->session->dont_restart();
+        }
     }
 
-OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &alias,
-                                               const std::string &data,
-                                               std::string &sig,
-                                               const std::string &algorithm,
-                                               const std::string &hashalg,
-                                               const std::string &saltlen)
-{
-    ExternalPKISignRequest req;
-    req.alias = alias;
-    req.data = data;
-    req.algorithm = algorithm;
-    req.hashalg = hashalg;
-    req.saltlen = saltlen;
-    external_pki_sign_request(req); // call out to derived class for RSA signature
-    if (!req.error)
+    OPENVPN_CLIENT_EXPORT bool OpenVPNClient::sign(const std::string &alias,
+                                                   const std::string &data,
+                                                   std::string &sig,
+                                                   const std::string &algorithm,
+                                                   const std::string &hashalg,
+                                                   const std::string &saltlen)
     {
-      sig = req.sig;
-      return true;
-    }
-    else
-    {
-      external_pki_error(req, Error::EPKI_SIGN_ERROR);
-      return false;
-    }
- }
+        ExternalPKISignRequest req;
+        req.alias = alias;
+        req.data = data;
+        req.algorithm = algorithm;
+        req.hashalg = hashalg;
+        req.saltlen = saltlen;
+        external_pki_sign_request(req); // call out to derived class for RSA signature
+        if (!req.error)
+        {
+          sig = req.sig;
+          return true;
+        }
+        else
+        {
+          external_pki_error(req, Error::EPKI_SIGN_ERROR);
+          return false;
+        }
+     }
 
     OPENVPN_CLIENT_EXPORT bool OpenVPNClient::remote_override_enabled()
     {
