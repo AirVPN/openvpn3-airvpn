@@ -491,6 +491,7 @@ struct Connected : public Base
       std::string cipher;
       int ping;
       int ping_restart;
+      std::uint32_t vpn_interface_index = static_cast<uint32_t>(-1);
 
     std::string render() const override
     {
