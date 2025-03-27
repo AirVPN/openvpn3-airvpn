@@ -27,15 +27,16 @@ and in Eddie for Android 2.4 and above
 OpenVPN 3 is a C++ class library that implements the functionality of an
 OpenVPN client, and is protocol-compatible with the OpenVPN 2.x branch.
 
+Please also refer to our Doxygen-generated [API documentation](https://openvpn.github.io/openvpn3/).
+
 OpenVPN 3 includes a minimal client wrapper (`cli`) that links in with
 the library and provides basic command line functionality.
 
 OpenVPN 3 is currently used in production as the core of the OpenVPN
 Connect clients for iOS, Android, Linux, Windows, and Mac OS X.
 
-NOTE: OpenVPN 3 does not currently implement server functionality.
-
-[TOC]
+> [!NOTE]
+> OpenVPN 3 does not currently implement server functionality.
 
 OpenVPN 3 Client API
 --------------------
