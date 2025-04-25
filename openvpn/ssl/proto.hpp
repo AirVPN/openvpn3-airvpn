@@ -3035,7 +3035,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         void active()
         {
-            OVPN_LOG_INFO("SSL Handshake: " << Base::ssl_handshake_details());
+            OVPN_LOG_INFO("TLS Handshake: " << Base::ssl_handshake_details());
 
 	/* Our internal state machine only decides after push request what protocol
 	 * options we want to use. Therefore we also have to postpone data key
@@ -4342,24 +4342,24 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     }
 
     // pass received control channel network packets (ciphertext) into protocol object
-
-    bool control_net_recv(const PacketType& type, BufferAllocated&& net_buf)
-    {
-        Packet pkt(BufferAllocatedRc::Create(std::move(net_buf)), type.opcode);
-        if (type.is_soft_reset() && !renegotiate_request(pkt))
-            return false;
-        return select_key_context(type, true).net_recv(std::move(pkt));
-    }
-
-    // this version only appears to support test_proto.cpp; suggest creating a
-    // local BufferAllocatedRc and move the BufferPtr contents into it; then use
-    // the version above
     bool control_net_recv(const PacketType &type, BufferPtr &&net_bp)
     {
       Packet pkt(std::move(net_bp), type.opcode);
       if (type.is_soft_reset() && !renegotiate_request(pkt))
-	return false;
+	    return false;
       return select_key_context(type, true).net_recv(std::move(pkt));
+    }
+
+    /**
+        @brief pass received control channel network packets (ciphertext) into protocol object
+        @param type Packet type discriminator
+        @param net_buf Buffer containing the network packet
+        @return @c true if successfully processed, @c false if not
+        @note Implemented in terms of control_net_recv(const PacketType &type, BufferPtr &&net_bp)
+    */
+    bool control_net_recv(const PacketType &type, BufferAllocated &&net_buf)
+    {
+        return control_net_recv(type, BufferAllocatedRc::Create(std::move(net_buf)));
     }
 
     // encrypt a data channel packet using primary KeyContext
