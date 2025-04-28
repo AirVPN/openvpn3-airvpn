@@ -178,10 +178,35 @@ const int ciphersuites[] = // CONST GLOBAL
 } // namespace
 } // namespace mbedtls_ctx_private
 
-  // Represents an SSL configuration that can be used
-  // to instantiate actual SSL sessions.
-  class MbedTLSContext : public SSLFactoryAPI
-  {
+// Handle different APIs regarding curves
+#if MBEDTLS_VERSION_NUMBER >= 0x03000000
+using mbedtls_compat_group_id = uint16_t;
+#else
+using mbedtls_compat_group_id = mbedtls_ecp_group_id;
+#endif
+
+static inline mbedtls_compat_group_id
+mbedtls_compat_get_group_id(const mbedtls_ecp_curve_info *curve_info)
+{
+#if MBEDTLS_VERSION_NUMBER >= 0x03000000
+    return curve_info->tls_id;
+#else
+    return curve_info->grp_id;
+#endif
+}
+
+#if MBEDTLS_VERSION_NUMBER < 0x03000000
+static inline void
+mbedtls_ssl_conf_groups(mbedtls_ssl_config *conf, mbedtls_compat_group_id *groups)
+{
+    mbedtls_ssl_conf_curves(conf, groups);
+}
+#endif
+
+// Represents an SSL configuration that can be used
+// to instantiate actual SSL sessions.
+class MbedTLSContext : public SSLFactoryAPI
+{
   public:
     typedef RCPtr<MbedTLSContext> Ptr;
 
@@ -940,15 +965,12 @@ const int ciphersuites[] = // CONST GLOBAL
 	  else if (!(c.flags & SSLConst::NO_VERIFY_PEER))
 	    throw MbedTLSException("CA chain not defined");
 
-	  // Set hostname for SNI or if a CA chain is configured
-	  // In pre-mbedtls-2.x the hostname for the CA chain was set in ssl_set_ca_chain().
-	  // From mbedtls-2.x, the hostname must be set via mbedtls_ssl_set_hostname()
-	  // https://tls.mbed.org/kb/how-to/upgrade-2.0
-	  if (hostname && ((c.flags & SSLConst::ENABLE_CLIENT_SNI) || c.ca_chain))
-	    {
-	      if (mbedtls_ssl_set_hostname(ssl, hostname))
-		throw MbedTLSException("mbedtls_ssl_set_hostname failed");
-	    }
+                // Set hostname for SNI or if a CA chain is configured
+                // Otherwise set the hostname explicitly to null to avoid
+                // MBEDTLS_ERR_SSL_CERTIFICATE_VERIFICATION_WITHOUT_HOSTNAME
+                bool use_hostname = hostname && ((c.flags & SSLConst::ENABLE_CLIENT_SNI) || c.ca_chain);
+                if (mbedtls_ssl_set_hostname(ssl, use_hostname ? hostname : nullptr))
+                    throw MbedTLSException("mbedtls_ssl_set_hostname failed");
 
 	  // client cert+key
 	  if (c.local_cert_enabled)
@@ -1074,10 +1096,10 @@ const int ciphersuites[] = // CONST GLOBAL
             }
         }
 
-        // Last element needs to be null
-        allowed_ciphers[i] = 0;
-        mbedtls_ssl_conf_ciphersuites(sslconf, allowed_ciphers.get());
-    }
+        mbedtls_ssl_config *sslconf;                       // SSL configuration parameters for SSL connection object
+        std::unique_ptr<int[]> allowed_ciphers;            //! Hold the array that is used for setting the allowed ciphers
+                                                           // must have the same lifetime as sslconf
+        std::unique_ptr<mbedtls_compat_group_id[]> groups; //! Hold the array that is used for setting the curves
 
       void set_mbedtls_groups(const std::string& tls_groups)
       {
@@ -1089,14 +1111,61 @@ const int ciphersuites[] = // CONST GLOBAL
 	std::stringstream groups_ss(tls_groups);
 	std::string group;
 
-	int i=0;
-	while(std::getline(groups_ss, group, ':'))
-	  {
+            allowed_ciphers.reset(new int[num_ciphers + 1]);
+
+            std::stringstream cipher_list_ss(cipher_list);
+            std::string ciphersuite;
+
+            int i = 0;
+            while (std::getline(cipher_list_ss, ciphersuite, ':'))
+            {
+                const tls_cipher_name_pair *pair = tls_get_cipher_name_pair(ciphersuite);
+
+                if (pair && pair->iana_name != ciphersuite)
+                {
+                    OVPN_LOG_INFO("mbed TLS -- Deprecated cipher suite name '"
+                                  << pair->openssl_name << "' please use IANA name ' "
+                                  << pair->iana_name << "'");
+                }
+
+                auto cipher_id = mbedtls_ssl_get_ciphersuite_id(ciphersuite.c_str());
+                if (cipher_id != 0)
+                {
+                    allowed_ciphers[i] = cipher_id;
+                    i++;
+                }
+                else
+                {
+                    /* OpenVPN 2.x ignores silently ignores unknown cipher suites with
+                     * mbed TLS. We warn about them in OpenVPN 3.x */
+                    OVPN_LOG_INFO("mbed TLS -- warning ignoring unknown cipher suite '"
+                                  << ciphersuite << "' in tls-cipher");
+                }
+            }
+
+            // Last element needs to be null
+            allowed_ciphers[i] = 0;
+            mbedtls_ssl_conf_ciphersuites(sslconf, allowed_ciphers.get());
+        }
+
+        void set_mbedtls_groups(const std::string &tls_groups)
+        {
+            auto num_groups = std::count(tls_groups.begin(), tls_groups.end(), ':') + 1;
+
+            /* add extra space for sentinel at the end */
+            groups.reset(new mbedtls_compat_group_id[num_groups + 1]);
+
+            std::stringstream groups_ss(tls_groups);
+            std::string group;
+
+            int i = 0;
+            while (std::getline(groups_ss, group, ':'))
+            {
                 const mbedtls_ecp_curve_info *ci = mbedtls_ecp_curve_info_from_name(group.c_str());
 
                 if (ci)
                 {
-                    groups[i] = ci->grp_id;
+                    groups[i] = mbedtls_compat_get_group_id(ci);
                     i++;
                 }
                 else
@@ -1106,9 +1175,9 @@ const int ciphersuites[] = // CONST GLOBAL
                 }
             }
 
-	groups[i] = MBEDTLS_ECP_DP_NONE;
-	mbedtls_ssl_conf_curves(sslconf, groups.get());
-      }
+            groups[i] = mbedtls_compat_group_id(0);
+            mbedtls_ssl_conf_groups(sslconf, groups.get());
+        }
 
       // cleartext read callback
       static int ct_read_func(void *arg, unsigned char *data, size_t length)
