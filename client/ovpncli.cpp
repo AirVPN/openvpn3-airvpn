@@ -506,9 +506,7 @@ class MySocketProtect : public SocketProtect
 	  remote_override.set_parent(parent);
 	}
 
-    ClientState()
-    {
-    }
+    ClientState() = default;
 
 	~ClientState()
 	{

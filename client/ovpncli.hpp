@@ -137,72 +137,57 @@ namespace openvpn {
       std::string dcoIncompatibilityReason;
     };
 
-    // used to pass credentials to VPN core
-    // (client writes)
-    struct ProvideCreds
-    {
-      std::string username;
-      std::string password;
+// used to pass credentials to VPN core
+// (client writes)
+struct ProvideCreds
+{
+    std::string username;
+    std::string password;
 
-      std::string http_proxy_user;
-      std::string http_proxy_pass;
+    std::string http_proxy_user;
+    std::string http_proxy_pass;
 
-      // response to challenge
-      std::string response;
+    // response to challenge
+    std::string response;
 
-      // Dynamic challenge/response cookie
-      std::string dynamicChallengeCookie;
+    // Dynamic challenge/response cookie
+    std::string dynamicChallengeCookie;
+};
 
-      // If true, on successful connect, we will replace the password
-      // with the session ID we receive from the server (if provided).
-      // If false, the password will be cached for future reconnects
-      // and will not be replaced with a session ID, even if the
-      // server provides one.
-      bool replacePasswordWithSessionID = false;
+// used to get session token from VPN core
+// (client reads)
+struct SessionToken
+{
+    std::string username;
+    std::string session_id; // an OpenVPN Session ID, used as a proxy for password
+};
 
-      // If true, and if replacePasswordWithSessionID is true, and if
-      // we actually receive a session ID from the server, cache
-      // the user-provided password for future use before replacing
-      // the active password with the session ID.
-      bool cachePassword = false;
-    };
+// used to query challenge/response from user
+// (client reads)
+struct DynamicChallenge
+{
+    std::string challenge;
+    bool echo = false;
+    bool responseRequired = false;
 
-    // used to get session token from VPN core
-    // (client reads)
-    struct SessionToken
-    {
-      std::string username;
-      std::string session_id; // an OpenVPN Session ID, used as a proxy for password
-    };
+    std::string stateID;
+};
 
-    // used to query challenge/response from user
-    // (client reads)
-    struct DynamicChallenge
-    {
-      std::string challenge;
-      bool echo = false;
-      bool responseRequired = false;
+// a basic key/value pair, used in Config below when OpenVPN profile is
+// passed as a dictionary
+struct KeyValue
+{
+    KeyValue() = default;
 
-      std::string stateID;
-    };
-
-    // a basic key/value pair, used in Config below when OpenVPN profile is
-    // passed as a dictionary
-    struct KeyValue
-    {
-    KeyValue()
-    {
-    }
-
-      KeyValue(std::string key_arg, std::string value_arg)
-	: key(std::move(key_arg)),
+    KeyValue(std::string key_arg, std::string value_arg)
+        : key(std::move(key_arg)),
           value(std::move(value_arg))
     {
     }
 
-      std::string key;
-      std::string value;
-    };
+    std::string key;
+    std::string value;
+};
 
 /* Settings in this struct do not need to be parsed, so we can share them
  * between the parsed and unparsed client settings */
@@ -487,9 +472,8 @@ struct Status
 // (client reads)
 struct LogInfo
 {
-    LogInfo()
-    {
-    }
+    LogInfo() = default;
+
     LogInfo(std::string str)
       : text(std::move(str))
     {
