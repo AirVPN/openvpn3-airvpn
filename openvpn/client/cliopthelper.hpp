@@ -89,62 +89,62 @@ class ParseClientConfig
 	// setenv UV_x
 	PeerInfo::Set::Ptr peer_info_uv(new PeerInfo::Set);
 
-	// process setenv directives
-	{
-	  const OptionList::IndexList* se = options.get_index_ptr("setenv");
-	  if (se)
-	    {
-	      for (OptionList::IndexList::const_iterator i = se->begin(); i != se->end(); ++i)
-		{
-		  const Option& o = options[*i];
-		  o.touch();
-		  const std::string arg1 = o.get_optional(1, 256);
-
-		  // server-locked profiles not supported
-		  if (arg1 == "GENERIC_CONFIG")
-		    {
-		      error_ = true;
-		      message_ = "ERR_PROFILE_SERVER_LOCKED_UNSUPPORTED: server locked profiles are currently unsupported";
-		      return;
-		    }
-		  else if (arg1 == "ALLOW_PASSWORD_SAVE")
-		    allowPasswordSave_ = parse_bool(o, "setenv ALLOW_PASSWORD_SAVE", 2);
-		  else if (arg1 == "CLIENT_CERT")
-		    clientCertEnabled_ = parse_bool(o, "setenv CLIENT_CERT", 2);
-		  else if (arg1 == "USERNAME")
-		    userlockedUsername_ = o.get(2, 256);
-		  else if (arg1 == "FRIENDLY_NAME")
-		    friendlyName_ = o.get(2, 256);
-		  else if (arg1 == "SERVER")
-		    {
-		      const std::string& serv = o.get(2, 256);
-		      std::vector<std::string> slist = Split::by_char<std::vector<std::string>, NullLex, Split::NullLimit>(serv, '/', 0, 1);
-		      ServerEntry se;
-		      if (slist.size() == 1)
-			{
-			  se.server = slist[0];
-			  se.friendlyName = slist[0];
-			}
-		      else if (slist.size() == 2)
-			{
-			  se.server = slist[0];
-			  se.friendlyName = slist[1];
-			}
-		      if (!se.server.empty() && !se.friendlyName.empty() && serverList_.size() < max_server_list_size)
-			serverList_.push_back(std::move(se));
-		    }
-		  else if (arg1 == "PUSH_PEER_INFO")
-		    pushPeerInfo_ = true;
-		  else if (string::starts_with(arg1, "UV_") && arg1.length() >= 4 && string::is_word(arg1))
-		    {
-		      const std::string value = o.get_optional(2, 256);
-		      if (string::is_printable(value))
-			peer_info_uv->emplace_back(arg1, value);
-		    }
-		}
-	    }
-	}
-
+        // process setenv directives
+        {
+          const OptionList::IndexList* se = options.get_index_ptr("setenv");
+          if (se)
+          {
+            for (OptionList::IndexList::const_iterator i = se->begin(); i != se->end(); ++i)
+            {
+              const Option& o = options[*i];
+              o.touch();
+              const std::string arg1 = o.get_optional(1, 256);
+              
+              // server-locked profiles not supported
+              if (arg1 == "GENERIC_CONFIG")
+              {
+                error_ = true;
+                message_ = "ERR_PROFILE_SERVER_LOCKED_UNSUPPORTED: server locked profiles are currently unsupported";
+                return;
+              }
+              else if (arg1 == "ALLOW_PASSWORD_SAVE")
+                allowPasswordSave_ = parse_bool(o, "setenv ALLOW_PASSWORD_SAVE", 2);
+              else if (arg1 == "CLIENT_CERT")
+                clientCertEnabled_ = parse_bool(o, "setenv CLIENT_CERT", 2);
+              else if (arg1 == "USERNAME")
+                userlockedUsername_ = o.get(2, 256);
+              else if (arg1 == "FRIENDLY_NAME")
+                friendlyName_ = o.get(2, 256);
+              else if (arg1 == "SERVER")
+              {
+                const std::string &serv = o.get(2, 256);
+                std::vector<std::string> slist = Split::by_char<std::vector<std::string>, NullLex, Split::NullLimit>(serv, '/', 0, 1);
+                ServerEntry se;
+                if (slist.size() == 1)
+                {
+                  se.server = slist[0];
+                  se.friendlyName = slist[0];
+                }
+                else if (slist.size() == 2)
+                {
+                  se.server = slist[0];
+                  se.friendlyName = slist[1];
+                }
+                if (!se.server.empty() && !se.friendlyName.empty() && serverList_.size() < max_server_list_size)
+                  serverList_.push_back(std::move(se));
+              }
+              else if (arg1 == "PUSH_PEER_INFO")
+                pushPeerInfo_ = true;
+              else if (arg1.starts_with("UV_") && arg1.length() >= 4 && string::is_word(arg1))
+              {
+                const std::string value = o.get_optional(2, 256);
+                if (string::is_printable(value))
+                  peer_info_uv->emplace_back(arg1, value);
+              }
+            }
+          }
+        }
+        
 	// Alternative to "setenv CLIENT_CERT 0".  Note that as of OpenVPN 2.3, this option
 	// is only supported server-side, so this extends its meaning into the client realm.
 	if (options.exists("client-cert-not-required"))
