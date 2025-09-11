@@ -18,6 +18,9 @@ LOCAL_CXXFLAGS += -std=c++20 -include openvpn/log/logbasesimple.hpp
 
 LOCAL_CPP_FEATURES += exceptions rtti
 
+LOCAL_LDFLAGS += "-Wl,-z,max-page-size=16384"
+LOCAL_LDFLAGS += "-Wl,-z,common-page-size=16384"
+
 LOCAL_MODULE := openvpn3
 
 LOCAL_SRC_FILES := client/ovpncli.cpp openvpn/crypto/data_epoch.cpp

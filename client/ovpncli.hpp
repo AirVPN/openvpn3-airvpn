@@ -396,9 +396,6 @@ struct Config : public ConfigCommon
     // TCP queue limit in packets, or 0 for default 64 packets
     unsigned int tcpQueueLimit = 64;
 
-    // If true, disable negotiable crypto parameters
-    bool disableNCP = false;
-
     // Compression mode, one of:
     // yes -- allow compression on both uplink and downlink
     // asym -- allow compression on downlink only (i.e. server -> client)

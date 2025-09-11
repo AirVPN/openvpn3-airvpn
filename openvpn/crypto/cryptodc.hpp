@@ -117,19 +117,9 @@ class CryptoDCSettingsData
         use_epoch_keys = use_epoch;
     }
 
-    void set_ncp_enabled(const bool enabled)
-    {
-        ncp_enabled_ = enabled;
-    }
-
     CryptoAlgs::Type cipher() const
     {
         return cipher_;
-    }
-
-    bool ncp_enabled() const
-    {
-        return ncp_enabled_;
     }
 
     /**
@@ -163,7 +153,6 @@ class CryptoDCSettingsData
     CryptoAlgs::Type cipher_ = CryptoAlgs::NONE;
     CryptoAlgs::Type digest_ = CryptoAlgs::NONE;
     CryptoAlgs::KeyDerivation key_derivation_ = CryptoAlgs::KeyDerivation::OPENVPN_PRF;
-    bool ncp_enabled_ = true;
     bool use_epoch_keys = false;
 };
 

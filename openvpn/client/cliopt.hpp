@@ -165,7 +165,6 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         HTTPProxyTransport::Options::Ptr http_proxy_options;
         bool alt_proxy = false;
 
-        bool ncp_disable = false;
         bool dco_compatible = false;
 
         bool synchronous_dns_lookup = false;
@@ -212,7 +211,6 @@ class ClientOptions : public RC<thread_unsafe_refcount>
           tcp_queue_limit(config.tcp_queue_limit),
           proto_context_options(config.proto_context_options),
           http_proxy_options(config.http_proxy_options),
-          ncp_disable(config.ncp_disable),
           autologin(false),
           autologin_sessions(false),
           creds_locked(false),
@@ -1184,7 +1182,6 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         cli_config->creds = creds;
         cli_config->pushed_options_filter = pushed_options_filter;
         cli_config->tcp_queue_limit = tcp_queue_limit;
-        cli_config->ncp_disable = ncp_disable;
         cli_config->echo = clientconf.echo;
         cli_config->info = clientconf.info;
         cli_config->autologin_sessions = autologin_sessions;
@@ -1505,7 +1502,6 @@ class ClientOptions : public RC<thread_unsafe_refcount>
     Gremlin::Config::Ptr gremlin_config;
 #endif
     std::string userlocked_username;
-    bool ncp_disable;
     bool autologin;
     bool autologin_sessions;
     bool creds_locked;

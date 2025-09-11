@@ -137,7 +137,6 @@ class Session : ProtoContextCallbackInterface,
         OptionList::Limits pushed_options_limit;
         OptionList::FilterBase::Ptr pushed_options_filter;
         unsigned int tcp_queue_limit = 64;
-        bool ncp_disable = false;
         bool echo = false;
         bool info = false;
         bool autologin_sessions = false;
@@ -559,7 +558,6 @@ class Session : ProtoContextCallbackInterface,
             proto_context.set_protocol(transport->transport_protocol());
             proto_context.set_cipher(cipher);
             proto_context.set_cipher_override(cipher_override);
-            proto_context.set_ncp_disable(ncp_disable);
             proto_context.start();
             proto_context.flush(true);
             set_housekeeping_timer();
@@ -1742,7 +1740,6 @@ class Session : ProtoContextCallbackInterface,
 
     ClientEvent::Connected::Ptr connected_;
 
-    bool ncp_disable;
     bool echo;
     bool info;
 

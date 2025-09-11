@@ -451,7 +451,6 @@ class MySocketProtect : public SocketProtect
 	// extra settings submitted by API client
     CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
 	unsigned int tcp_queue_limit = 64;
-	bool ncp_disable = false;
 
     // extra settings submitted by API client
     ClientConfigParsed clientconf;
@@ -778,8 +777,6 @@ class MySocketProtect : public SocketProtect
             if(config.tcpQueueLimit > 0)
                 state->tcp_queue_limit = config.tcpQueueLimit;
 
-            state->ncp_disable = config.disableNCP;
-
             if (!config.compressionMode.empty())
                 state->proto_context_options->parse_compression_mode(config.compressionMode);
 
@@ -1057,7 +1054,6 @@ class MySocketProtect : public SocketProtect
 
     cc.cipher_override = state->cipher_override;
     cc.tcp_queue_limit = state->tcp_queue_limit;
-    cc.ncp_disable = state->ncp_disable;
 
     cc.proto_context_options = state->proto_context_options;
     cc.http_proxy_options = state->http_proxy_options;

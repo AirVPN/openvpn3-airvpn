@@ -423,7 +423,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
       OvpnHMACContext::Ptr tls_auth_context;
       int key_direction = -1;        // 0, 1, or -1 for bidirectional
 
-      bool ncp_disable = false;
       std::string negotiable_data_ciphers;
 
       TLSCryptFactory::Ptr tls_crypt_factory;
@@ -1044,18 +1043,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	      proto_option_error("set_cipher_override: illegal cipher type");
       }
 
-      void set_ncp_disable(const bool disabled)
-      {
-	    if(dc.ncp_enabled() && disabled == true)
-	    {
-	      // ncp disable override
-	    
-	      ncp_disable = disabled;
-
-	      dc.set_ncp_enabled(false);
-	    }
-      }
-
         void set_protocol(const Protocol &p)
         {
             // adjust options for new transport protocol
@@ -1210,12 +1197,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
             out << "IV_VER=" << OPENVPN_VERSION << '\n';
             out << "IV_PLAT=" << platform_name() << '\n';
-
-            if(dc.ncp_enabled())
-            {
-                out << "IV_NCP=2\n"; // negotiable crypto parameters V2
-            }
-
+            out << "IV_NCP=2\n"; // negotiable crypto parameters V2
             out << "IV_TCPNL=1\n"; // supports TCP non-linear packet ID
             out << "IV_PROTO=" << iv_proto << '\n';
             out << "IV_MTU=" << tun_mtu_max << "\n";
@@ -4264,11 +4246,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     void set_cipher_override(const CryptoAlgs::Type c)
     {
         config->set_cipher_override(c);
-    }
-
-    void set_ncp_disable(const bool n)
-    {
-        config->set_ncp_disable(n);
     }
 
     // Free up space when parent object has been halted but
