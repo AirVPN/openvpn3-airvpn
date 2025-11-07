@@ -129,10 +129,10 @@ namespace openvpn {
       // Time when the item's resolved addresses are considered outdated
       std::time_t decay_time = std::numeric_limits<std::time_t>::max();
 
-      bool res_addr_list_defined() const
-      {
-	return res_addr_list && res_addr_list->size() > 0;
-      }
+        bool res_addr_list_defined() const
+        {
+            return res_addr_list && !res_addr_list->empty();
+        }
 
       std::string actual_host() const
       {
@@ -230,8 +230,8 @@ namespace openvpn {
     // Directive names that we search for in options
     struct Directives
     {
-      explicit Directives(const std::string& conn_tag = "")
-	: connection(conn_tag.length() ? conn_tag : "connection")
+        explicit Directives(const std::string &conn_tag = "")
+            : connection(!conn_tag.empty() ? conn_tag : "connection")
         {
         }
 
@@ -718,7 +718,7 @@ namespace openvpn {
     // return true if object has at least one connection entry
     bool defined() const
     {
-      return list.size() > 0;
+        return !list.empty();
     }
 
     // return remote list size

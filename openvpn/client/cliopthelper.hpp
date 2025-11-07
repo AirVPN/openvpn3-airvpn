@@ -80,14 +80,14 @@ class ParseClientConfig
     {
         try
         {
-	// reset POD types
-	reset_pod();
+	    // reset POD types
+	    reset_pod();
 
-	// limits
-	const size_t max_server_list_size = ProfileParseLimits::MAX_SERVER_LIST_SIZE;
+	    // limits
+	    const size_t max_server_list_size = ProfileParseLimits::MAX_SERVER_LIST_SIZE;
 
-	// setenv UV_x
-	PeerInfo::Set::Ptr peer_info_uv(new PeerInfo::Set);
+	    // setenv UV_x
+	    PeerInfo::Set::Ptr peer_info_uv(new PeerInfo::Set);
 
         // process setenv directives
         {
@@ -127,48 +127,48 @@ class ParseClientConfig
                 }
                 else if (slist.size() == 2)
                 {
-                  se.server = slist[0];
-                  se.friendlyName = slist[1];
+                    se.server = slist[0];
+                    se.friendlyName = slist[1];
                 }
-                if (!se.server.empty() && !se.friendlyName.empty() && serverList_.size() < max_server_list_size)
-                  serverList_.push_back(std::move(se));
-              }
-              else if (arg1 == "PUSH_PEER_INFO")
-                pushPeerInfo_ = true;
-              else if (arg1.starts_with("UV_") && arg1.length() >= 4 && string::is_word(arg1))
-              {
-                const std::string value = o.get_optional(2, 256);
-                if (string::is_printable(value))
-                  peer_info_uv->emplace_back(arg1, value);
-              }
+                        if (!se.server.empty() && !se.friendlyName.empty() && serverList_.size() < max_server_list_size)
+                            serverList_.push_back(std::move(se));
+                        }
+                        else if (arg1 == "PUSH_PEER_INFO")
+                            pushPeerInfo_ = true;
+                        else if (arg1.starts_with("UV_") && arg1.length() >= 4 && string::is_word(arg1))
+                        {
+                            const std::string value = o.get_optional(2, 256);
+                            if (string::is_printable(value))
+                                peer_info_uv->emplace_back(arg1, value);
+                        }
+                    }
+                }
             }
-          }
-        }
-        
-	// Alternative to "setenv CLIENT_CERT 0".  Note that as of OpenVPN 2.3, this option
-	// is only supported server-side, so this extends its meaning into the client realm.
-	if (options.exists("client-cert-not-required"))
-	  clientCertEnabled_ = false;
 
-	// userlocked username
-	{
-	  const Option* o = options.get_ptr("USERNAME");
-	  if (o)
-	    userlockedUsername_ = o->get(1, 256);
-	}
+            // Alternative to "setenv CLIENT_CERT 0".  Note that as of OpenVPN 2.3, this option
+            // is only supported server-side, so this extends its meaning into the client realm.
+            if (options.exists("client-cert-not-required"))
+                clientCertEnabled_ = false;
 
-	// userlocked username/password via <auth-user-pass>
-	std::vector<std::string> user_pass;
-	const bool auth_user_pass = parse_auth_user_pass(options, &user_pass);
-	if (auth_user_pass && user_pass.size() >= 1)
-	  {
-	    userlockedUsername_ = user_pass[0];
-	    if (user_pass.size() >= 2)
-	      {
-		hasEmbeddedPassword_ = true;
-		embeddedPassword_ = user_pass[1];
-	      }
-	  }
+            // userlocked username
+            {
+                const Option *o = options.get_ptr("USERNAME");
+                if (o)
+                    userlockedUsername_ = o->get(1, 256);
+            }
+
+            // userlocked username/password via <auth-user-pass>
+            std::vector<std::string> user_pass;
+            const bool auth_user_pass = parse_auth_user_pass(options, &user_pass);
+            if (auth_user_pass && !user_pass.empty())
+            {
+                userlockedUsername_ = user_pass[0];
+                if (user_pass.size() >= 2)
+	            {
+		            hasEmbeddedPassword_ = true;
+		            embeddedPassword_ = user_pass[1];
+	            }
+	        }
 
 	// External PKI
 	externalPki_ = (clientCertEnabled_ && is_external_pki(options));
@@ -599,7 +599,7 @@ class ParseClientConfig
             print_pem(os, "cert", sslConfig->extract_cert());
 
             std::vector<std::string> extra_certs = sslConfig->extract_extra_certs();
-            if (extra_certs.size() > 0)
+            if (!extra_certs.empty())
             {
                 os << "<extra-certs>" << std::endl;
                 for (auto &cert : extra_certs)

@@ -1617,14 +1617,14 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
     static uint16_t read_uint16_length(Buffer &buf)
     {
-      if (buf.size())
-	{
-	  std::uint16_t net_size;
-	  buf.read((unsigned char *)&net_size, sizeof(net_size));
-	  return ntohs(net_size);
-	}
-      else
-	return 0;
+        if (!buf.empty())
+        {
+            std::uint16_t net_size;
+            buf.read((unsigned char *)&net_size, sizeof(net_size));
+            return ntohs(net_size);
+        }
+        else
+            return 0;
     }
 
     template <typename S>
@@ -3868,10 +3868,10 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
       bool validate(const BufferAllocated& net_buf)
       {
-	try
-	{
-	    if (!net_buf.size())
-	      return false;
+            try
+            {
+                if (net_buf.empty())
+                    return false;
 
 	    const unsigned int op = net_buf[0];
 	    if (opcode_extract(op) != reset_op || key_id_extract(op) != 0)
@@ -3944,7 +3944,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
             try
             {
-                if (!net_buf.size())
+                if (net_buf.empty())
                     return false;
 
 	    const unsigned int op = net_buf[0];
@@ -4413,12 +4413,12 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
       select_key_context(type, false).decrypt(in_out);
 
-      // update time of most recent packet received
-      if (in_out.size())
-	{
-	  update_last_received();
-	  ret = true;
-	}
+        // update time of most recent packet received
+        if (!in_out.empty())
+        {
+            update_last_received();
+            ret = true;
+        }
 
       // discard keepalive packets
       if (proto_context_private::is_keepalive(in_out))
