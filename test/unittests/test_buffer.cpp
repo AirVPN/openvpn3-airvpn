@@ -32,7 +32,7 @@ void realign_test(BufferAllocated &buf, std::size_t headroom)
     EXPECT_EQ(ptr->i, 42);
     EXPECT_EQ(buf.offset(), at_align_ex); // Nearest aligned offset
 
-    std::cout << "Aligning buffer: " << at_misalign << " -> " << at_align_ex << std::endl;
+    std::cout << "Aligning buffer: " << at_misalign << " -> " << at_align_ex << '\n';
 }
 
 TEST(buffer, buffer_alignas)
@@ -68,7 +68,7 @@ TEST(buffer, const_buffer_ref_2)
 // test ConstBufferType with an explicitly const type
 TEST(buffer, my_const_buffer_1)
 {
-    typedef ConstBufferType<const char> MyConstBuffer;
+    using MyConstBuffer = ConstBufferType<const char>;
     static const char hello[] = "hello world";
     MyConstBuffer cbuf(hello, sizeof(hello) - 1, true);
     EXPECT_EQ(cbuf.size(), 11U);

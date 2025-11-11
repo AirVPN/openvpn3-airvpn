@@ -65,7 +65,7 @@ Frame::Ptr frame_init(const size_t payload)
 class MySessionStats : public SessionStats
 {
   public:
-    typedef RCPtr<MySessionStats> Ptr;
+    using Ptr = RCPtr<MySessionStats>;
 
     MySessionStats()
     {
@@ -237,7 +237,7 @@ void runTest(comppair alg, bool verbose = false)
                   << " bytes=" << bytes
                   << " comp-bytes=" << compress_bytes
                   << " comp-ratio=" << (bytes ? static_cast<float>(compress_bytes) / static_cast<float>(bytes) : 0.0)
-                  << std::endl;
+                  << '\n';
 }
 
 namespace unittests {

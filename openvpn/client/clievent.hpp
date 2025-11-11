@@ -179,7 +179,7 @@ inline const char *event_name(const Type type)
 class Base : public RC<thread_safe_refcount>
 {
   public:
-    typedef RCPtr<Base> Ptr;
+    using Ptr = RCPtr<Base>;
     virtual ~Base() = default;
     Base(Type id)
         : id_(id)
@@ -416,7 +416,7 @@ struct TLSAlertProtocolUnknownCA : public Base
 
 struct InfoJSON : public Base
 {
-    typedef RCPtr<InfoJSON> Ptr;
+    using Ptr = RCPtr<InfoJSON>;
 
     InfoJSON(std::string msg_type_arg,
              Json::Value jdata_arg)
@@ -442,9 +442,9 @@ struct InfoJSON : public Base
 
 #endif
 
-    struct UnsupportedFeature : public Base
-    {
-      typedef RCPtr<UnsupportedFeature> Ptr;
+struct UnsupportedFeature : public Base
+{
+    using Ptr = RCPtr<UnsupportedFeature>;
 
       UnsupportedFeature(const std::string& name_arg, const std::string& reason_arg, bool critical_arg)
 	: Base(UNSUPPORTED_FEATURE),
@@ -468,7 +468,7 @@ struct InfoJSON : public Base
 
 struct Connected : public Base
 {
-      typedef RCPtr<Connected> Ptr;
+    using Ptr = RCPtr<Connected>;
 
     Connected()
         : Base(CONNECTED)
@@ -791,7 +791,7 @@ struct AuthPending : public ReasonBase
     class Queue : public RC<thread_unsafe_refcount>
     {
       public:
-        typedef RCPtr<Queue> Ptr;
+        using Ptr = RCPtr<Queue>;
 
         virtual void add_event(Base::Ptr event) = 0;
     };

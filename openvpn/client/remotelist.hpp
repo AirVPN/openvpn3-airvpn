@@ -54,8 +54,8 @@ namespace openvpn {
     // associated with a "remote" item.
     struct ResolvedAddr : public RC<thread_unsafe_refcount>
     {
-      typedef RCPtr<ResolvedAddr> Ptr;
-      IP::Addr addr;
+        using Ptr = RCPtr<ResolvedAddr>;
+        IP::Addr addr;
 
       std::string to_string() const
       {
@@ -66,7 +66,7 @@ namespace openvpn {
     // The IP address list associated with a single "remote" item.
     struct ResolvedAddrList : public std::vector<ResolvedAddr::Ptr>, public RC<thread_unsafe_refcount>
     {
-      typedef RCPtr<ResolvedAddrList> Ptr;
+        using Ptr = RCPtr<ResolvedAddrList>;
 
       std::string to_string() const
       {
@@ -93,14 +93,14 @@ namespace openvpn {
 
     struct ConnBlock : public RC<thread_unsafe_refcount>
     {
-      typedef RCPtr<ConnBlock> Ptr;
+        using Ptr = RCPtr<ConnBlock>;
 
       virtual void new_item(const Item& item) = 0;
     };
 
     struct ConnBlockFactory
     {
-      typedef RCPtr<ConnBlockFactory> Ptr;
+        using Ptr = RCPtr<ConnBlockFactory>;
 
         virtual ~ConnBlockFactory() = default;
 
@@ -110,7 +110,7 @@ namespace openvpn {
     // A single "remote" item
     struct Item : public RC<thread_unsafe_refcount>
     {
-      typedef RCPtr<Item> Ptr;
+        using Ptr = RCPtr<Item>;
 
       // "remote" item parameters from config file
       std::string server_host;
@@ -291,7 +291,7 @@ namespace openvpn {
     // (option_error used during initial options processing).
     OPENVPN_EXCEPTION(remote_list_error);
 
-    typedef RCPtr<RemoteList> Ptr;
+    using Ptr = RCPtr<RemoteList>;
 
     // Helper class used to resolve all items in remote list.
     // This is useful in tun_persist mode, where it may be necessary
@@ -300,8 +300,8 @@ namespace openvpn {
     // re-resolve items which had too many failed attempts.
     class BulkResolve : public virtual RC<thread_unsafe_refcount>, protected AsyncResolvableTCP
     {
-    public:
-      typedef RCPtr<BulkResolve> Ptr;
+      public:
+        using Ptr = RCPtr<BulkResolve>;
 
         struct NotifyCallback
         {
@@ -765,13 +765,13 @@ namespace openvpn {
 
     std::string to_string() const
     {
-      std::ostringstream out;
-      for (size_t i = 0; i < list.size(); ++i)
-	{
-	  const Item& e = *list[i];
-	  out << '[' << i << "] " << e.to_string() << std::endl;
-	}
-      return out.str();
+        std::ostringstream out;
+        for (size_t i = 0; i < list.size(); ++i)
+        {
+            const Item &e = *list[i];
+            out << '[' << i << "] " << e.to_string() << '\n';
+        }
+        return out.str();
     }
 
     // return a list of unique, cached IP addresses

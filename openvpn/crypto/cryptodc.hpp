@@ -33,7 +33,7 @@ namespace openvpn {
   class CryptoDCInstance : public RC<thread_unsafe_refcount>
   {
   public:
-    typedef RCPtr<CryptoDCInstance> Ptr;
+    using Ptr = RCPtr<CryptoDCInstance>;
 
     // Encrypt/Decrypt
 
@@ -163,7 +163,7 @@ class CryptoDCContext : public RC<thread_unsafe_refcount>
     {
     }
 
-    typedef RCPtr<CryptoDCContext> Ptr;
+    using Ptr = RCPtr<CryptoDCContext>;
 
     virtual CryptoDCInstance::Ptr new_obj(const unsigned int key_id) = 0;
 
@@ -180,7 +180,7 @@ class CryptoDCContext : public RC<thread_unsafe_refcount>
 class CryptoDCFactory : public RC<thread_unsafe_refcount>
 {
   public:
-    typedef RCPtr<CryptoDCFactory> Ptr;
+    using Ptr = RCPtr<CryptoDCFactory>;
 
     virtual CryptoDCContext::Ptr new_obj(const CryptoDCSettingsData) = 0;
 };

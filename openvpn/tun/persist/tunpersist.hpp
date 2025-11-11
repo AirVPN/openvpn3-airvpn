@@ -25,7 +25,7 @@ template <typename SCOPED_OBJ, typename STATE = TunProp::State::Ptr>
 class TunPersistTemplate : public TunWrapTemplate<SCOPED_OBJ>
 {
   public:
-    typedef RCPtr<TunPersistTemplate> Ptr;
+    using Ptr = RCPtr<TunPersistTemplate>;
 
     TunPersistTemplate(const bool enable_persistence, const TunWrapObjRetain retain_obj, TunBuilderBase *tb)
         : TunWrapTemplate<SCOPED_OBJ>(retain_obj),
@@ -81,8 +81,8 @@ class TunPersistTemplate : public TunWrapTemplate<SCOPED_OBJ>
             try
             {
                 TunProp::configure_builder(capture.get(), nullptr, nullptr, server_addr, tun_prop, opt, nullptr, true);
-                OPENVPN_LOG("*** TUN BUILDER CAPTURE" << std::endl
-                                                      << capture->to_string());
+                OPENVPN_LOG("*** TUN BUILDER CAPTURE\n"
+                            << capture->to_string());
             }
             catch (const std::exception &e)
             {

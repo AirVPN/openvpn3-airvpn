@@ -61,7 +61,7 @@ class Options : public RC<thread_safe_refcount>
   public:
     struct CustomHeader : public RC<thread_unsafe_refcount>
     {
-        typedef RCPtr<CustomHeader> Ptr;
+        using Ptr = RCPtr<CustomHeader>;
 
         std::string p1;
         std::string p2;
@@ -71,7 +71,7 @@ class Options : public RC<thread_safe_refcount>
     {
     };
 
-    typedef RCPtr<Options> Ptr;
+    using Ptr = RCPtr<Options>;
 
     RemoteList::Ptr proxy_server;
     std::string username;
@@ -199,7 +199,7 @@ class Options : public RC<thread_safe_refcount>
 class ClientConfig : public TransportClientFactory
 {
   public:
-    typedef RCPtr<ClientConfig> Ptr;
+    using Ptr = RCPtr<ClientConfig>;
 
     RemoteList::Ptr remote_list;
     size_t free_list_max_size;
@@ -235,9 +235,9 @@ class ClientConfig : public TransportClientFactory
 
 class Client : public TransportClient, AsyncResolvableTCP
 {
-    typedef RCPtr<Client> Ptr;
+    using Ptr = RCPtr<Client>;
 
-    typedef TCPTransport::TCPLink<openvpn_io::ip::tcp, Client *, false> LinkImpl;
+    using LinkImpl = TCPTransport::TCPLink<openvpn_io::ip::tcp, Client *, false>;
 
     friend class ClientConfig; // calls constructor
     friend LinkImpl::Base;     // calls tcp_read_handler
@@ -689,8 +689,8 @@ class Client : public TransportClient, AsyncResolvableTCP
 
     void basic_auth(HTTPProxy::ProxyAuthenticate &pa)
     {
-        OPENVPN_LOG("Proxy method: Basic" << std::endl
-                                          << pa.to_string());
+        OPENVPN_LOG("Proxy method: Basic\n"
+                    << pa.to_string());
 
         std::ostringstream os;
         gen_headers(os);
@@ -706,8 +706,8 @@ class Client : public TransportClient, AsyncResolvableTCP
     {
         try
         {
-            OPENVPN_LOG("Proxy method: Digest" << std::endl
-                                               << pa.to_string());
+            OPENVPN_LOG("Proxy method: Digest\n"
+                        << pa.to_string());
 
             // constants
             const std::string http_method = "CONNECT";
@@ -785,8 +785,8 @@ class Client : public TransportClient, AsyncResolvableTCP
 
     void ntlm_auth_phase_1(HTTPProxy::ProxyAuthenticate &pa)
     {
-        OPENVPN_LOG("Proxy method: NTLM" << std::endl
-                                         << pa.to_string());
+        OPENVPN_LOG("Proxy method: NTLM\n"
+                    << pa.to_string());
 
         const std::string phase_1_reply = HTTPProxy::NTLM::phase_1();
 

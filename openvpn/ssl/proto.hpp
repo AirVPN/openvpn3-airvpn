@@ -336,7 +336,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     class ProtoConfig : public RCCopyable<thread_unsafe_refcount>
     {
       public:
-        typedef RCPtr<ProtoConfig> Ptr;
+        using Ptr = RCPtr<ProtoConfig>;
 
       // master SSL context factory
       SSLFactoryAPI::Ptr ssl_factory;
@@ -985,43 +985,43 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             if (dc.useEpochKeys())
                 os << ", aead-epoch";
 
-            os << std::endl;
+            os << '\n';
         }
 
         void show_cc_enc_option(std::ostringstream &os) const
         {
             if (tls_auth_enabled())
             {
-                os << "  control channel: tls-auth enabled" << std::endl;
+                os << "  control channel: tls-auth enabled\n";
             }
             if (tls_crypt_v2_enabled())
-	  {
-	    os << "  control channel: tls-crypt v2 enabled" << std::endl;
-	  }
-	else if (tls_crypt_enabled())
-	  {
-	    os << "  control channel: tls-crypt enabled" << std::endl;
-	  }
+            {
+                os << "  control channel: tls-crypt v2 enabled\n";
+            }
+            else if (tls_crypt_enabled())
+            {
+                os << "  control channel: tls-crypt enabled\n";
+            }
             else if (dynamic_tls_crypt_enabled())
             {
-                os << "  control channel: dynamic tls-crypt enabled" << std::endl;
+                os << "  control channel: dynamic tls-crypt enabled\n";
             }
         }
 
         std::string show_options() const
         {
             std::ostringstream os;
-            os << "PROTOCOL OPTIONS:" << std::endl;
-            os << "  key-derivation: " << CryptoAlgs::name(dc.key_derivation()) << std::endl;
+            os << "PROTOCOL OPTIONS:\n";
+            os << "  key-derivation: " << CryptoAlgs::name(dc.key_derivation()) << '\n';
             if (comp_ctx.type() != CompressContext::NONE)
-                os << "  compress: " << comp_ctx.str() << std::endl;
+                os << "  compress: " << comp_ctx.str() << '\n';
 
             show_cc_enc_option(os);
             get_data_channel_options(os);
 
             if (!app_control_config.supported_protocols.empty())
             {
-                os << "  app custom control channel: " << app_control_config.str() << std::endl;
+                os << "  app custom control channel: " << app_control_config.str() << '\n';
             }
 
             return os.str();
@@ -1269,8 +1269,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
 
             const std::string ret = out.str();
-            OVPN_LOG_INFO("Sending Peer Info:" << std::endl
-                                               << ret);
+            OVPN_LOG_INFO("Sending Peer Info:\n"
+                          << ret);
             return ret;
     }
 
@@ -1771,10 +1771,10 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     // ProtoStackBase uses CRTP-based static polymorphism for method callbacks.
     class KeyContext : ProtoStackBase<Packet, KeyContext>, public RC<thread_unsafe_refcount>
     {
-      typedef ProtoStackBase<Packet, KeyContext> Base;
-      friend Base;
-      typedef Base::ReliableSend ReliableSend;
-      typedef Base::ReliableRecv ReliableRecv;
+        using Base = ProtoStackBase<Packet, KeyContext>;
+        friend Base;
+        using ReliableSend = Base::ReliableSend;
+        using ReliableRecv = Base::ReliableRecv;
 
       // ProtoStackBase protected vars
       using Base::now;
@@ -1795,8 +1795,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             std::optional<CryptoDCInstance::RekeyType> rekey_type;
         };
 
-    public:
-      typedef RCPtr<KeyContext> Ptr;
+      public:
+        using Ptr = RCPtr<KeyContext>;
 
         // ProtoStackBase member functions
         using Base::export_key_material;
@@ -3827,8 +3827,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
     class TLSWrapPreValidate : public RC<thread_unsafe_refcount>
     {
-    public:
-      typedef RCPtr<TLSWrapPreValidate> Ptr;
+      public:
+        using Ptr = RCPtr<TLSWrapPreValidate>;
 
       virtual bool validate(const BufferAllocated& net_buf) = 0;
     };

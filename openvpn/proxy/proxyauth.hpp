@@ -24,7 +24,7 @@ namespace openvpn::HTTPProxy {
 class ProxyAuthenticate : public RC<thread_unsafe_refcount>
 {
   public:
-    typedef RCPtr<ProxyAuthenticate> Ptr;
+    using Ptr = RCPtr<ProxyAuthenticate>;
 
     ProxyAuthenticate()
     {
@@ -45,8 +45,8 @@ class ProxyAuthenticate : public RC<thread_unsafe_refcount>
     std::string to_string() const
     {
         std::ostringstream out;
-        out << "Proxy-Authenticate header" << std::endl;
-        out << "method=" << method << std::endl;
+        out << "Proxy-Authenticate header\n";
+        out << "method=" << method << '\n';
         out << parms.to_string();
         return out.str();
     }

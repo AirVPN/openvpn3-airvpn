@@ -115,9 +115,9 @@ class TLSPRF
     std::string dump(const char *title)
     {
         std::ostringstream out;
-        out << "*** TLSPRF " << title << " pre_master: " << render_hex(pre_master, sizeof(pre_master)) << std::endl;
-        out << "*** TLSPRF " << title << " random1: " << render_hex(random1, sizeof(random1)) << std::endl;
-        out << "*** TLSPRF " << title << " random2: " << render_hex(random2, sizeof(random2)) << std::endl;
+        out << "*** TLSPRF " << title << " pre_master: " << render_hex(pre_master, sizeof(pre_master)) << '\n';
+        out << "*** TLSPRF " << title << " random1: " << render_hex(random1, sizeof(random1)) << "\n";
+        out << "*** TLSPRF " << title << " random2: " << render_hex(random2, sizeof(random2)) << "\n";
         return out.str();
     }
 
@@ -229,7 +229,7 @@ class TLSPRF
 class TLSPRFInstance : public RC<thread_unsafe_refcount>
 {
   public:
-    typedef RCPtr<TLSPRFInstance> Ptr;
+    using Ptr = RCPtr<TLSPRFInstance>;
 
     virtual void self_randomize(StrongRandomAPI &rng) = 0;
     virtual void self_write(Buffer &buf) = 0;
@@ -247,7 +247,7 @@ class TLSPRFInstance : public RC<thread_unsafe_refcount>
 class TLSPRFFactory : public RC<thread_unsafe_refcount>
 {
   public:
-    typedef RCPtr<TLSPRFFactory> Ptr;
+    using Ptr = RCPtr<TLSPRFFactory>;
 
     virtual TLSPRFInstance::Ptr new_obj(const bool self_is_server) = 0;
 };

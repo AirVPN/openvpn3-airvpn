@@ -102,11 +102,11 @@ namespace openvpn {
 
     class MySessionStats : public SessionStats
     {
-    public:
-      typedef RCPtr<MySessionStats> Ptr;
+      public:
+        using Ptr = RCPtr<MySessionStats>;
 
-      MySessionStats(OpenVPNClient* parent_arg)
-	: parent(parent_arg)
+        MySessionStats(OpenVPNClient *parent_arg)
+            : parent(parent_arg)
       {
 	std::memset(errors, 0, sizeof(errors));
 #ifdef OPENVPN_DEBUG_VERBOSE_ERRORS
@@ -181,8 +181,8 @@ namespace openvpn {
 
     class MyClientEvents : public ClientEvent::Queue
     {
-    public:
-      typedef RCPtr<MyClientEvents> Ptr;
+      public:
+        using Ptr = RCPtr<MyClientEvents>;
 
     MyClientEvents(OpenVPNClient *parent_arg)
         : parent(parent_arg)
@@ -647,10 +647,10 @@ class MySocketProtect : public SocketProtect
             std::tie(eval.dcoCompatible, eval.dcoIncompatibilityReason) = ClientOptions::check_dco_compatibility(config, options);
 
     #ifdef OPENVPN_DUMP_CONFIG
-        std::cout << "---------- ARGS ----------" << std::endl;
-        std::cout << options.render(Option::RENDER_PASS_FMT|Option::RENDER_NUMBER|Option::RENDER_BRACKET) << std::endl;
-        std::cout << "---------- MAP ----------" << std::endl;
-        std::cout << options.render_map() << std::endl;
+            std::cout << "---------- ARGS ----------\n";
+            std::cout << options.render(Option::RENDER_PASS_FMT | Option::RENDER_NUMBER | Option::RENDER_BRACKET) << "\n";
+            std::cout << "---------- MAP ----------\n";
+            std::cout << options.render_map() << "\n";
     #endif
         eval.error = cc.error();
         eval.message = cc.message();

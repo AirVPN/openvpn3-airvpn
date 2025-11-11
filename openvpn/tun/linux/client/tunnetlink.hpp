@@ -32,7 +32,7 @@ using namespace openvpn::TunLinuxSetup;
 
 struct NetlinkLinkSet : public Action
 {
-    typedef RCPtr<NetlinkLinkSet> Ptr;
+    using Ptr = RCPtr<NetlinkLinkSet>;
 
     NetlinkLinkSet()
     {
@@ -58,7 +58,7 @@ struct NetlinkLinkSet : public Action
     {
         if (dev.empty())
         {
-            os << "Error: can't call NetlinkLinkSet with no interface" << std::endl;
+            os << "Error: can't call NetlinkLinkSet with no interface\n";
             return;
         }
 
@@ -66,14 +66,14 @@ struct NetlinkLinkSet : public Action
         if (ret)
         {
             os << "Error while executing NetlinkLinkSet " << dev << " mtu " << mtu
-               << ": " << ret << std::endl;
+               << ": " << ret << "\n";
         }
 
         ret = SITNL::net_iface_up(dev, up);
         if (ret)
         {
             os << "Error while executing NetlinkLinkSet " << dev << " up " << up
-               << ": " << ret << std::endl;
+               << ": " << ret << "\n";
         }
     }
 
@@ -91,7 +91,7 @@ struct NetlinkLinkSet : public Action
 
 struct NetlinkAddr4 : public Action
 {
-    typedef RCPtr<NetlinkAddr4> Ptr;
+    using Ptr = RCPtr<NetlinkAddr4>;
 
     NetlinkAddr4()
     {
@@ -125,7 +125,7 @@ struct NetlinkAddr4 : public Action
     {
         if (dev.empty())
         {
-            os << "Error: can't call NetlinkAddr4 with no interface" << std::endl;
+            os << "Error: can't call NetlinkAddr4 with no interface\n";
             return;
         }
 
@@ -142,7 +142,7 @@ struct NetlinkAddr4 : public Action
         if (ret)
         {
             os << "Error while executing NetlinkAddr4(add: " << add << ") "
-               << dev << ": " << ret << std::endl;
+               << dev << ": " << ret << "\n";
         }
     }
 
@@ -164,7 +164,7 @@ struct NetlinkAddr4 : public Action
 
 struct NetlinkAddr6 : public Action
 {
-    typedef RCPtr<NetlinkAddr6> Ptr;
+    using Ptr = RCPtr<NetlinkAddr6>;
 
     NetlinkAddr6()
     {
@@ -195,7 +195,7 @@ struct NetlinkAddr6 : public Action
     {
         if (dev.empty())
         {
-            os << "Error: can't call NetlinkAddr6 with no interface" << std::endl;
+            os << "Error: can't call NetlinkAddr6 with no interface\n";
             return;
         }
 
@@ -212,7 +212,7 @@ struct NetlinkAddr6 : public Action
         if (ret)
         {
             os << "Error while executing NetlinkAddr6(add: " << add << ") "
-               << dev << ": " << ret << std::endl;
+               << dev << ": " << ret << "\n";
         }
     }
 
@@ -232,7 +232,7 @@ struct NetlinkAddr6 : public Action
 
 struct NetlinkAddr4PtP : public Action
 {
-    typedef RCPtr<NetlinkAddr4PtP> Ptr;
+    using Ptr = RCPtr<NetlinkAddr4PtP>;
 
     NetlinkAddr4PtP()
     {
@@ -263,7 +263,7 @@ struct NetlinkAddr4PtP : public Action
     {
         if (dev.empty())
         {
-            os << "Error: can't call NetlinkAddr4PtP with no interface" << std::endl;
+            os << "Error: can't call NetlinkAddr4PtP with no interface\n";
             return;
         }
 
@@ -280,7 +280,7 @@ struct NetlinkAddr4PtP : public Action
         if (ret)
         {
             os << "Error while executing NetlinkAddr4PtP(add: " << add << ") "
-               << dev << ": " << ret << std::endl;
+               << dev << ": " << ret << "\n";
         }
     }
 
@@ -298,7 +298,7 @@ struct NetlinkAddr4PtP : public Action
 
 struct NetlinkRoute4 : public Action
 {
-    typedef RCPtr<NetlinkRoute4> Ptr;
+    using Ptr = RCPtr<NetlinkRoute4>;
 
     NetlinkRoute4()
     {
@@ -332,7 +332,7 @@ struct NetlinkRoute4 : public Action
     {
         if (dev.empty())
         {
-            os << "Error: can't call NetlinkRoute4 with no interface" << std::endl;
+            os << "Error: can't call NetlinkRoute4 with no interface\n";
             return;
         }
 
@@ -349,7 +349,7 @@ struct NetlinkRoute4 : public Action
         if (ret)
         {
             os << "Error while executing NetlinkRoute4(add: " << add << ") "
-               << dev << ": " << ret << std::endl;
+               << dev << ": " << ret << "\n";
         }
     }
 
@@ -370,7 +370,7 @@ struct NetlinkRoute4 : public Action
 
 struct NetlinkRoute6 : public Action
 {
-    typedef RCPtr<NetlinkRoute6> Ptr;
+    using Ptr = RCPtr<NetlinkRoute6>;
 
     NetlinkRoute6()
     {
@@ -404,7 +404,7 @@ struct NetlinkRoute6 : public Action
     {
         if (dev.empty())
         {
-            os << "Error: can't call NetlinkRoute6 with no interface" << std::endl;
+            os << "Error: can't call NetlinkRoute6 with no interface\n";
             return;
         }
 
@@ -421,7 +421,7 @@ struct NetlinkRoute6 : public Action
         if (ret)
         {
             os << "Error while executing NetlinkRoute6(add: " << add << ") "
-               << dev << ": " << ret << std::endl;
+               << dev << ": " << ret << "\n";
         }
     }
 
@@ -462,20 +462,20 @@ inline int iface_new(std::ostringstream &os, const std::string &dev, const std::
 
     if (dev.empty())
     {
-        os << "Error: can't call NetlinkLinkNew with no interface" << std::endl;
+        os << "Error: can't call NetlinkLinkNew with no interface\n";
         return ret;
     }
 
     if (type.empty())
     {
-        os << "Error: can't call NetlinkLinkNew with no interfacei type" << std::endl;
+        os << "Error: can't call NetlinkLinkNew with no interfacei type\n";
         return ret;
     }
 
     ret = SITNL::net_iface_new(dev, type);
     if (ret)
     {
-        os << "Error while executing NetlinkLinkNew " << dev << ": " << ret << std::endl;
+        os << "Error while executing NetlinkLinkNew " << dev << ": " << ret << "\n";
     }
 
     return ret;
@@ -487,14 +487,14 @@ inline int iface_del(std::ostringstream &os, const std::string &dev)
 
     if (dev.empty())
     {
-        os << "Error: can't call NetlinkLinkDel with no interface" << std::endl;
+        os << "Error: can't call NetlinkLinkDel with no interface\n";
         return ret;
     }
 
     ret = SITNL::net_iface_del(dev);
     if (ret)
     {
-        os << "Error while executing NetlinkLinkDel " << dev << ": " << ret << std::endl;
+        os << "Error while executing NetlinkLinkDel " << dev << ": " << ret << "\n";
     }
 
     return ret;

@@ -1406,14 +1406,14 @@ class MbedTLSContext : public SSLFactoryAPI
 
     static std::string status_string(const mbedtls_x509_crt *cert, const int depth, const uint32_t *flags)
     {
-      std::ostringstream os;
-      std::string status_str = "OK";
-      if (*flags)
-	status_str = "FAIL -- " + MbedTLSException::mbedtls_verify_flags_errtext(*flags);
-      os << "VERIFY "
-	 << status_str
-	 << " : depth=" << depth
-           << std::endl
+        std::ostringstream os;
+        std::string status_str = "OK";
+        if (*flags)
+            status_str = "FAIL -- " + MbedTLSException::mbedtls_verify_flags_errtext(*flags);
+        os << "VERIFY "
+           << status_str
+           << " : depth=" << depth
+           << "\n"
            << cert_info(cert);
       return os.str();
     }

@@ -39,7 +39,7 @@ TEST(IPAddr, routeSet)
 
     std::stringstream out;
     for (const auto &r : routes)
-        out << r.to_string() << std::endl;
+        out << r.to_string() << '\n';
 
     ASSERT_EQ("128.0.0.0/1\n"
               "1.2.3.0/24\n"
@@ -54,14 +54,14 @@ TEST(IPAddr, routeSet)
 template <typename LIST>
 void test_split(const LIST &rtlist, const std::string &expected)
 {
-    typedef typename LIST::value_type RT;
+    using RT = typename LIST::value_type;
     std::stringstream out;
     for (const auto &r : rtlist)
     {
         RT r1, r2;
         if (r.is_canonical() && r.split(r1, r2))
         {
-            out << r << ' ' << r1 << ' ' << r2 << std::endl;
+            out << r << ' ' << r1 << ' ' << r2 << "\n";
         }
     }
     ASSERT_EQ(expected, out.str());

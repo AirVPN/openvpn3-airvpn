@@ -145,9 +145,9 @@ struct ClientConfigParsed : public ClientAPI::ConfigCommon
 class ClientOptions : public RC<thread_unsafe_refcount>
 {
   public:
-    typedef RCPtr<ClientOptions> Ptr;
+    using Ptr = RCPtr<ClientOptions>;
 
-    typedef ClientProto::Session Client;
+    using Client = ClientProto::Session;
 
     struct Config
     {
@@ -927,7 +927,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
                         opts.push_back(o.get(0, 64));
                     }
 
-                    os << string::join(opts, ",") << std::endl;
+                    os << string::join(opts, ",") << '\n';
                 }
             }
 
@@ -1001,7 +1001,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         if (opt.n_unused() == 0)
             return;
 
-        OPENVPN_LOG_NTNL("NOTE: This configuration contains options that were not used:" << std::endl);
+        OPENVPN_LOG_NTNL("NOTE: This configuration contains options that were not used:\n");
 
         OptionErrors errors{};
 

@@ -51,8 +51,8 @@ namespace openvpn::TunLinuxSetup {
     template <class TUNMETHODS>
     class Setup : public TunBuilderSetup::Base
     {
-    public:
-      typedef RCPtr<Setup> Ptr;
+      public:
+        using Ptr = RCPtr<Setup>;
 
       // This empty constructor shouldn't be needed, but due to a
       // plausible compiler bug in GCC 4.8.5 (RHEL 7), this empty

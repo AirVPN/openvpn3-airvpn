@@ -96,7 +96,7 @@ class Session : ProtoContextCallbackInterface,
     static inline const std::string certcheckProto = "cck1";
 
   public:
-    typedef RCPtr<Session> Ptr;
+    using Ptr = RCPtr<Session>;
 
     OPENVPN_EXCEPTION(client_exception);
     OPENVPN_EXCEPTION(client_halt_restart);
@@ -110,9 +110,9 @@ class Session : ProtoContextCallbackInterface,
 
     OPENVPN_EXCEPTION(proxy_exception);
 
-      struct Config : public RC<thread_unsafe_refcount>
-      {
-	typedef RCPtr<Config> Ptr;
+    struct Config : public RC<thread_unsafe_refcount>
+    {
+        using Ptr = RCPtr<Config>;
 
 	Config()
 	  : pushed_options_limit("server-pushed options data too large",
@@ -1079,8 +1079,8 @@ class Session : ProtoContextCallbackInterface,
             if (received_options.complete())
             {
                 // show options
-                OPENVPN_LOG("OPTIONS:" << std::endl
-                                       << render_options_sanitized(received_options, Option::RENDER_PASS_FMT | Option::RENDER_NUMBER | Option::RENDER_BRACKET));
+                OPENVPN_LOG("OPTIONS:\n"
+                            << render_options_sanitized(received_options, Option::RENDER_PASS_FMT | Option::RENDER_NUMBER | Option::RENDER_BRACKET));
 
                 // relay servers are not allowed to establish a tunnel with us
                 if (proto_context.conf().relay_mode)
