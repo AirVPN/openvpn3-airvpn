@@ -58,16 +58,16 @@
 #include <openvpn/transport/gremlin.hpp>
 #endif
 
-#if defined(OPENVPN_PLATFORM_ANDROID)
+#ifdef OPENVPN_PLATFORM_ANDROID
 #include <openvpn/client/cliemuexr.hpp>
 #endif
 
-#if defined(OPENVPN_EXTERNAL_TRANSPORT_FACTORY)
+#ifdef OPENVPN_EXTERNAL_TRANSPORT_FACTORY
 #include <openvpn/transport/client/extern/config.hpp>
 #include <openvpn/transport/client/extern/fw.hpp>
 #endif
 
-#if defined(OPENVPN_EXTERNAL_TUN_FACTORY)
+#ifdef OPENVPN_EXTERNAL_TUN_FACTORY
 // requires that client implements ExternalTun::Factory::new_tun_factory
 #include <openvpn/tun/extern/config.hpp>
 #elif defined(USE_TUN_BUILDER)
@@ -185,16 +185,16 @@ class ClientOptions : public RC<thread_unsafe_refcount>
       ReconnectNotify* reconnect_notify = nullptr;
       RemoteList::RemoteOverride* remote_override = nullptr;
 
-#if defined(USE_TUN_BUILDER)
-      TunBuilderBase* builder = nullptr;
+#ifdef USE_TUN_BUILDER
+        TunBuilderBase *builder = nullptr;
 #endif
 
-#if defined(OPENVPN_EXTERNAL_TUN_FACTORY)
-      ExternalTun::Factory* extern_tun_factory = nullptr;
+#ifdef OPENVPN_EXTERNAL_TUN_FACTORY
+        ExternalTun::Factory *extern_tun_factory = nullptr;
 #endif
 
-#if defined(OPENVPN_EXTERNAL_TRANSPORT_FACTORY)
-      ExternalTransport::Factory* extern_transport_factory = nullptr;
+#ifdef OPENVPN_EXTERNAL_TRANSPORT_FACTORY
+        ExternalTransport::Factory *extern_transport_factory = nullptr;
 #endif
         CryptoAlgs::Type cipher_override = CryptoAlgs::Type::NONE;
     };
@@ -377,15 +377,15 @@ class ClientOptions : public RC<thread_unsafe_refcount>
             tunconf.tun_prop.remote_list = remote_list;
             tunconf.stop = config.stop;
             tunconf.allow_local_dns_resolvers = config.clientconf.allowLocalDnsResolvers;
-#if defined(OPENVPN_PLATFORM_WIN)
+#ifdef OPENVPN_PLATFORM_WIN
             if (config.clientconf.tunPersist)
                 tunconf.tun_persist.reset(new TunWin::DcoTunPersist(true, TunWrapObjRetain::NO_RETAIN_NO_REPLACE, nullptr));
 #endif
-	  tun_factory = dco->new_tun_factory(tunconf, opt);
-	}
-      else
-	{
-#if defined(OPENVPN_EXTERNAL_TUN_FACTORY)
+            tun_factory = dco->new_tun_factory(tunconf, opt);
+        }
+        else
+        {
+#ifdef OPENVPN_EXTERNAL_TUN_FACTORY
             {
                 ExternalTun::Config tunconf;
                 tunconf.tun_prop.layer = layer;
@@ -615,7 +615,7 @@ class ClientOptions : public RC<thread_unsafe_refcount>
      * string property (if applicable)  */
     static std::tuple<bool, std::string> check_dco_compatibility(const ClientAPI::ConfigCommon &config, const OptionList &opt)
     {
-#if defined(ENABLE_KOVPN)
+#ifdef ENABLE_KOVPN
         // only care about dco/dco-win
         return std::make_tuple(true, "");
 #else

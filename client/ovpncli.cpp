@@ -22,7 +22,7 @@
 
 // Set up export of our public interface unless
 // OPENVPN_CORE_API_VISIBILITY_HIDDEN is defined
-#if defined(__GNUC__)
+#ifdef __GNUC__
 #define OPENVPN_CLIENT_EXPORT
 #ifndef OPENVPN_CORE_API_VISIBILITY_HIDDEN
 #pragma GCC visibility push(default)
@@ -931,44 +931,44 @@ class MySocketProtect : public SocketProtect
 	}
     }
 
-    OPENVPN_CLIENT_EXPORT void OpenVPNClient::process_epki_cert_chain(const ExternalPKICertRequest& req)
+    OPENVPN_CLIENT_EXPORT void OpenVPNClient::process_epki_cert_chain(const ExternalPKICertRequest &req)
     {
-      // Get cert and add to options list
-      if (!req.cert.empty())
-	{
-	  Option o;
-	  o.push_back("cert");
-	  o.push_back(req.cert);
-	  state->options.add_item(o);
-	}
+        // Get cert and add to options list
+        if (!req.cert.empty())
+        {
+            Option o;
+            o.push_back("cert");
+            o.push_back(req.cert);
+            state->options.add_item(o);
+        }
 
-      // Get the supporting chain, if it exists, and use
-      // it for ca (if ca isn't defined), or otherwise use
-      // it for extra-certs (if ca is defined but extra-certs
-      // is not).
-      if (!req.supportingChain.empty())
-	{
-	  if (!state->options.exists("ca"))
-	    {
-	      Option o;
-	      o.push_back("ca");
-	      o.push_back(req.supportingChain);
-	      state->options.add_item(o);
-	    }
-	  else if (!state->options.exists("extra-certs"))
-	    {
-	      Option o;
-	      o.push_back("extra-certs");
-	      o.push_back(req.supportingChain);
-	      state->options.add_item(o);
-	    }
-	}
+        // Get the supporting chain, if it exists, and use
+        // it for ca (if ca isn't defined), or otherwise use
+        // it for extra-certs (if ca is defined but extra-certs
+        // is not).
+        if (!req.supportingChain.empty())
+        {
+            if (!state->options.exists("ca"))
+            {
+                Option o;
+                o.push_back("ca");
+                o.push_back(req.supportingChain);
+                state->options.add_item(o);
+            }
+            else if (!state->options.exists("extra-certs"))
+            {
+                Option o;
+                o.push_back("extra-certs");
+                o.push_back(req.supportingChain);
+                state->options.add_item(o);
+            }
+        }
     }
 
     OPENVPN_CLIENT_EXPORT Status OpenVPNClient::connect()
     {
-#if !defined(OPENVPN_OVPNCLI_SINGLE_THREAD)
-      openvpn_io::detail::signal_blocker signal_blocker; // signals should be handled by parent thread
+#ifndef OPENVPN_OVPNCLI_SINGLE_THREAD
+        openvpn_io::detail::signal_blocker signal_blocker; // signals should be handled by parent thread
 #endif
 #if defined(OPENVPN_LOG_LOGTHREAD_H) && !defined(OPENVPN_LOG_LOGBASE_H)
 #ifdef OPENVPN_LOG_GLOBAL
@@ -988,8 +988,8 @@ class MySocketProtect : public SocketProtect
       bool session_started = false;
     try
     {
-	connect_attach();
-#if defined(OPENVPN_OVPNCLI_ASYNC_SETUP)
+        connect_attach();
+#ifdef OPENVPN_OVPNCLI_ASYNC_SETUP
         openvpn_io::post(*state->io_context(), [this]()
                          { do_connect_async(); });
 #else
@@ -1063,18 +1063,18 @@ class MySocketProtect : public SocketProtect
     cc.extra_peer_info = state->extra_peer_info;
     cc.stop = state->async_stop_local();
     cc.socket_protect = &state->socket_protect;
-#if defined(USE_TUN_BUILDER)
-      cc.builder = this;
+#ifdef USE_TUN_BUILDER
+    cc.builder = this;
 #endif
-#if defined(OPENVPN_EXTERNAL_TUN_FACTORY)
-      cc.extern_tun_factory = this;
+#ifdef OPENVPN_EXTERNAL_TUN_FACTORY
+    cc.extern_tun_factory = this;
 #endif
-#if defined(OPENVPN_EXTERNAL_TRANSPORT_FACTORY)
-      cc.extern_transport_factory = this;
+#ifdef OPENVPN_EXTERNAL_TRANSPORT_FACTORY
+    cc.extern_transport_factory = this;
 #endif
 
-      // external PKI
-#if !defined(USE_APPLE_SSL)
+    // external PKI
+#ifndef USE_APPLE_SSL
     if (state->eval.externalPki && !state->clientconf.disableClientCert)
     {
         if (!state->clientconf.external_pki_alias.empty())
