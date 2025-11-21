@@ -54,14 +54,12 @@ namespace openvpn::TunLinuxSetup {
       public:
         using Ptr = RCPtr<Setup>;
 
-      // This empty constructor shouldn't be needed, but due to a
-      // plausible compiler bug in GCC 4.8.5 (RHEL 7), this empty
-      // constructor is required to be able to build.  This is
-      // related to the member initialization of the private
-      // remove_cmds_bypass_gw and remove_cmds class members.
-    Setup()
-    {
-    }
+    // This empty constructor shouldn't be needed, but due to a
+    // plausible compiler bug in GCC 4.8.5 (RHEL 7), this empty
+    // constructor is required to be able to build.  This is
+    // related to the member initialization of the private
+    // remove_cmds_bypass_gw and remove_cmds class members.
+    Setup() = default;
 
     struct Config : public TunBuilderSetup::Config
     {
@@ -117,7 +115,7 @@ namespace openvpn::TunLinuxSetup {
         remove_cmds_bypass_gw->execute(os);
         remove_cmds_bypass_gw->clear();
 
-        ActionList::Ptr add_cmds = new ActionList();
+        const ActionList::Ptr add_cmds = new ActionList();
         TUNMETHODS::add_bypass_route(tun_iface_name, address, ipv6, nullptr, *add_cmds, *remove_cmds_bypass_gw);
 
         // add gateway bypass route
@@ -146,7 +144,7 @@ namespace openvpn::TunLinuxSetup {
             tun_iface_name = conf->iface_name;
         }
 
-        ActionList::Ptr add_cmds = new ActionList();
+        const ActionList::Ptr add_cmds = new ActionList();
         ActionList::Ptr remove_cmds_new = new ActionListReversed();
 
         // configure tun properties
@@ -197,7 +195,7 @@ namespace openvpn::TunLinuxSetup {
         if (conf->txqueuelen)
         {
             struct ifreq netifr;
-            ScopedFD ctl_fd(socket(AF_INET, SOCK_DGRAM, 0));
+            const ScopedFD ctl_fd(socket(AF_INET, SOCK_DGRAM, 0));
 
             if (ctl_fd.defined())
             {

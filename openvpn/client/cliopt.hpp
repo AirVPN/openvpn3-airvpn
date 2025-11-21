@@ -1090,22 +1090,22 @@ class ClientOptions : public RC<thread_unsafe_refcount>
           /* ensure that we use only one variable with the same name */
           std::unordered_map<std::string, std::string> extra_values;
 
-          if (pcc.peerInfoUV())
-          {
-              for (auto const &kv : *pcc.peerInfoUV())
-              {
-                  extra_values[kv.key] = kv.value;
-              }
-          }
+            if (pcc.peerInfoUV())
+            {
+                for (const auto &kv : *pcc.peerInfoUV())
+                {
+                    extra_values[kv.key] = kv.value;
+                }
+            }
 
-          /* Config::peerInfo takes precedence */
-          if (config.extra_peer_info.get())
-          {
-              for (auto const &kv : *config.extra_peer_info.get())
-              {
-                  extra_values[kv.key] = kv.value;
-              }
-          }
+            /* Config::peerInfo takes precedence */
+            if (config.extra_peer_info.get())
+            {
+                for (const auto &kv : *config.extra_peer_info.get())
+                {
+                    extra_values[kv.key] = kv.value;
+                }
+            }
 
           for (auto kv : extra_values)
           {
