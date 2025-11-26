@@ -761,7 +761,7 @@ class OpenVPNClientHelper
 
     // Callback for logging.
     // Will be called from the thread executing connect().
-    virtual void log(const LogInfo &) override = 0;
+    void log(const LogInfo &) override = 0;
 
       // External PKI callbacks
       // Will be called from the thread executing connect().
