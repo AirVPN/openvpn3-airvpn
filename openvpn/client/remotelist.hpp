@@ -198,8 +198,7 @@ namespace openvpn {
                 OPENVPN_LOG_REMOTELIST("*** RemoteList::Item endpoint GET[" << index << "] " << endpoint << ' ' << to_string());
                 return true;
             }
-            else
-                return false;
+            return false;
         }
 
       bool need_resolve()
@@ -266,19 +265,18 @@ namespace openvpn {
             return item_addr_;
         }
 
-      // return true if item index was incremented
-      bool increment(const Advance type, const size_t item_len, const size_t addr_len)
-      {
-	if (type == Advance::Remote || ++item_addr_ >= addr_len)
-	  {
-	    item_addr_ = 0;
-	    if (++item_ >= item_len)
-	      item_ = 0;
-	    return true;
-	  }
-	else
-	  return false;
-      }
+        // return true if item index was incremented
+        bool increment(const Advance type, const size_t item_len, const size_t addr_len)
+        {
+            if (type == Advance::Remote || ++item_addr_ >= addr_len)
+            {
+                item_addr_ = 0;
+                if (++item_ >= item_len)
+                    item_ = 0;
+                return true;
+            }
+            return false;
+        }
 
     private:
       size_t item_ = 0;
@@ -845,11 +843,10 @@ namespace openvpn {
     // if it is undefined
     size_t item_index() const
     {
-      const size_t pri = index.item();
-      if (pri < list.size())
-	return pri;
-      else
-	throw remote_list_error("current remote server item is undefined");
+        const size_t pri = index.item();
+        if (pri < list.size())
+            return pri;
+        throw remote_list_error("current remote server item is undefined");
     }
 
     // return the number of cached IP addresses associated with a given item

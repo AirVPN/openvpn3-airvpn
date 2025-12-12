@@ -1623,8 +1623,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             buf.read((unsigned char *)&net_size, sizeof(net_size));
             return ntohs(net_size);
         }
-        else
-            return 0;
+        return 0;
     }
 
     template <typename S>
@@ -1978,15 +1977,14 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	Base::retransmit();
       }
 
-      // when should we next call retransmit method
-      Time next_retransmit() const
-      {
-	const Time t = Base::next_retransmit();
-	if (t <= next_event_time)
-	  return t;
-	else
-	  return next_event_time;
-      }
+        // when should we next call retransmit method
+        Time next_retransmit() const
+        {
+            const Time t = Base::next_retransmit();
+            if (t <= next_event_time)
+                return t;
+            return next_event_time;
+        }
 
       void app_send_validate(BufferPtr&& bp)
       {
@@ -2108,14 +2106,13 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	  set_event(KEV_NONE, ev, t + Time::Duration::seconds(proto.is_server() ? 2 : 1));
       }
 
-      // return time of upcoming KEV_BECOME_PRIMARY event
-      Time become_primary_time()
-      {
-	if (next_event == KEV_BECOME_PRIMARY)
-	  return next_event_time;
-	else
-	  return Time();
-      }
+        // return time of upcoming KEV_BECOME_PRIMARY event
+        Time become_primary_time()
+        {
+            if (next_event == KEV_BECOME_PRIMARY)
+                return next_event_time;
+            return Time();
+        }
 
       // is an KEV_x event pending?
       bool event_pending()
@@ -2945,23 +2942,20 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	set_event(ev);
       }
 
-      unsigned int initial_op(const bool sender, const bool tls_crypt_v2) const
-      {
-	if (key_id_)
-	  {
-	    return CONTROL_SOFT_RESET_V1;
-	  }
-	else
-	  {
-	    if (proto.is_server() == sender)
-	      return CONTROL_HARD_RESET_SERVER_V2;
+        unsigned int initial_op(const bool sender, const bool tls_crypt_v2) const
+        {
+            if (key_id_)
+            {
+                return CONTROL_SOFT_RESET_V1;
+            }
 
-	    if (!tls_crypt_v2)
-	      return CONTROL_HARD_RESET_CLIENT_V2;
-	    else
-	      return CONTROL_HARD_RESET_CLIENT_V3;
-	  }
-      }
+            if (proto.is_server() == sender)
+                return CONTROL_HARD_RESET_SERVER_V2;
+
+            if (!tls_crypt_v2)
+                return CONTROL_HARD_RESET_CLIENT_V2;
+            return CONTROL_HARD_RESET_CLIENT_V3;
+        }
 
       void send_reset()
       {
@@ -3675,8 +3669,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             Time::Duration d = next_time - *now;
             if (d.is_infinite())
                 return -1;
-            else
-                return numeric_cast<int>(d.to_seconds());
+            return numeric_cast<int>(d.to_seconds());
         }
 
       // BEGIN KeyContext data members
@@ -4340,19 +4333,18 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     // if session has been invalidated.
     Time next_housekeeping() const
     {
-      if (!invalidated())
-	{
-	  Time ret = Time::infinite();
-	  if (primary)
-	    ret.min(primary->next_retransmit());
-	  if (secondary)
-	    ret.min(secondary->next_retransmit());
-	  ret.min(keepalive_xmit);
-	  ret.min(keepalive_expire);
-	  return ret;
-	}
-      else
-	return Time();
+        if (!invalidated())
+        {
+            Time ret = Time::infinite();
+            if (primary)
+                ret.min(primary->next_retransmit());
+            if (secondary)
+                ret.min(secondary->next_retransmit());
+            ret.min(keepalive_xmit);
+            ret.min(keepalive_expire);
+            return ret;
+        }
+        return Time();
     }
 
     // send app-level cleartext to remote peer
@@ -4653,10 +4645,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
   protected:
     int primary_state() const
     {
-      if (primary)
-	return primary->get_state();
-      else
-	return STATE_UNDEF;
+        if (primary)
+            return primary->get_state();
+        return STATE_UNDEF;
     }
 
   private:
@@ -4710,34 +4701,33 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         if (conf().dynamic_tls_crypt_enabled() && primary && primary->key_id() == 0)
             set_dynamic_tls_crypt(conf(), primary);
 
-      if (KeyContext::validate(pkt.buffer(), *this, now_))
-	{
-	  new_secondary_key(false);
-	  return true;
-	}
-      else
-	return false;
+        if (KeyContext::validate(pkt.buffer(), *this, now_))
+        {
+            new_secondary_key(false);
+            return true;
+        }
+        return false;
     }
 
     // select a KeyContext (primary or secondary) for received network packets
     KeyContext& select_key_context(const PacketType& type, const bool control)
     {
-      const unsigned int flags = type.flags & (PacketType::DEFINED|PacketType::SECONDARY|PacketType::CONTROL);
-      if (!control)
-	{
-	  if (flags == (PacketType::DEFINED) && primary)
-	    return *primary;
-	  else if (flags == (PacketType::DEFINED|PacketType::SECONDARY) && secondary)
-	    return *secondary;
-	}
-      else
-	{
-	  if (flags == (PacketType::DEFINED|PacketType::CONTROL) && primary)
+        const unsigned int flags = type.flags & (PacketType::DEFINED | PacketType::SECONDARY | PacketType::CONTROL);
+        if (!control)
+        {
+            if (flags == (PacketType::DEFINED) && primary)
+                return *primary;
+            if (flags == (PacketType::DEFINED | PacketType::SECONDARY) && secondary)
+                return *secondary;
+        }
+        else
+        {
+            if (flags == (PacketType::DEFINED | PacketType::CONTROL) && primary)
             {
 	    return *primary;
             }
-            else if (flags == (PacketType::DEFINED | PacketType::SECONDARY | PacketType::CONTROL)
-                     && secondary)
+            if (flags == (PacketType::DEFINED | PacketType::SECONDARY | PacketType::CONTROL)
+                && secondary)
             {
 	    return *secondary;
 	}

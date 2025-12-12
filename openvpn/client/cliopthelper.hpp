@@ -90,48 +90,48 @@ class ParseClientConfig
 	    PeerInfo::Set::Ptr peer_info_uv(new PeerInfo::Set);
 
         // process setenv directives
-        {
-          const OptionList::IndexList* se = options.get_index_ptr("setenv");
-          if (se)
-          {
-            for (OptionList::IndexList::const_iterator i = se->begin(); i != se->end(); ++i)
             {
-              const Option& o = options[*i];
-              o.touch();
-              const std::string arg1 = o.get_optional(1, 256);
-              
-              // server-locked profiles not supported
-              if (arg1 == "GENERIC_CONFIG")
-              {
-                error_ = true;
-                message_ = "ERR_PROFILE_SERVER_LOCKED_UNSUPPORTED: server locked profiles are currently unsupported";
-                return;
-              }
-              else if (arg1 == "ALLOW_PASSWORD_SAVE")
-                allowPasswordSave_ = parse_bool(o, "setenv ALLOW_PASSWORD_SAVE", 2);
-              else if (arg1 == "CLIENT_CERT")
-                clientCertEnabled_ = parse_bool(o, "setenv CLIENT_CERT", 2);
-              else if (arg1 == "USERNAME")
-                userlockedUsername_ = o.get(2, 256);
-              else if (arg1 == "FRIENDLY_NAME")
-                friendlyName_ = o.get(2, 256);
-              else if (arg1 == "SERVER")
-              {
-                const std::string &serv = o.get(2, 256);
-                std::vector<std::string> slist = Split::by_char<std::vector<std::string>, NullLex, Split::NullLimit>(serv, '/', 0, 1);
-                ServerEntry se;
-                if (slist.size() == 1)
+                const OptionList::IndexList *se = options.get_index_ptr("setenv");
+                if (se)
                 {
-                  se.server = slist[0];
-                  se.friendlyName = slist[0];
-                }
-                else if (slist.size() == 2)
-                {
-                    se.server = slist[0];
-                    se.friendlyName = slist[1];
-                }
-                        if (!se.server.empty() && !se.friendlyName.empty() && serverList_.size() < max_server_list_size)
-                            serverList_.push_back(std::move(se));
+                    for (OptionList::IndexList::const_iterator i = se->begin(); i != se->end(); ++i)
+                    {
+                        const Option &o = options[*i];
+                        o.touch();
+                        const std::string arg1 = o.get_optional(1, 256);
+
+                        // server-locked profiles not supported
+                        if (arg1 == "GENERIC_CONFIG")
+                        {
+                            error_ = true;
+                            message_ = "ERR_PROFILE_SERVER_LOCKED_UNSUPPORTED: server locked profiles are currently unsupported";
+                            return;
+                        }
+                        if (arg1 == "ALLOW_PASSWORD_SAVE")
+                            allowPasswordSave_ = parse_bool(o, "setenv ALLOW_PASSWORD_SAVE", 2);
+                        else if (arg1 == "CLIENT_CERT")
+                            clientCertEnabled_ = parse_bool(o, "setenv CLIENT_CERT", 2);
+                        else if (arg1 == "USERNAME")
+                            userlockedUsername_ = o.get(2, 256);
+                        else if (arg1 == "FRIENDLY_NAME")
+                            friendlyName_ = o.get(2, 256);
+                        else if (arg1 == "SERVER")
+                        {
+                            const std::string &serv = o.get(2, 256);
+                            std::vector<std::string> slist = Split::by_char<std::vector<std::string>, NullLex, Split::NullLimit>(serv, '/', 0, 1);
+                            ServerEntry se;
+                            if (slist.size() == 1)
+                            {
+                                se.server = slist[0];
+                                se.friendlyName = slist[0];
+                            }
+                            else if (slist.size() == 2)
+                            {
+                                se.server = slist[0];
+                                se.friendlyName = slist[1];
+                            }
+                            if (!se.server.empty() && !se.friendlyName.empty() && serverList_.size() < max_server_list_size)
+                                serverList_.push_back(std::move(se));
                         }
                         else if (arg1 == "PUSH_PEER_INFO")
                             pushPeerInfo_ = true;
@@ -750,43 +750,37 @@ class ParseClientConfig
 			     const bool auth_user_pass,
 			     const std::vector<std::string>& user_pass)
     {
-      if (auth_user_pass && user_pass.size() >= 2) // embedded password?
-	return true;
-      else
-	{
-	  const Option* autologin = options.get_ptr("AUTOLOGIN");
-	  if (autologin)
-	    return string::is_true(autologin->get_optional(1, 16));
-	  else
-	    {
-	      bool ret = !auth_user_pass;
-	      if (ret)
-		{
-		  // External PKI profiles from AS don't declare auth-user-pass,
-		  // and we have no way of knowing if they are autologin unless
-		  // we examine their cert, which requires accessing the system-level
-		  // cert store on the client.  For now, we are going to assume
-		  // that External PKI profiles from the AS are always userlogin,
-		  // unless explicitly overriden by AUTOLOGIN above.
-		  if (options.exists("EXTERNAL_PKI"))
-		    return false;
-		}
-	      return ret;
-	    }
-	}
+        if (auth_user_pass && user_pass.size() >= 2) // embedded password?
+            return true;
+
+        const Option *autologin = options.get_ptr("AUTOLOGIN");
+        if (autologin)
+            return string::is_true(autologin->get_optional(1, 16));
+
+        bool ret = !auth_user_pass;
+        if (ret)
+        {
+            // External PKI profiles from AS don't declare auth-user-pass,
+            // and we have no way of knowing if they are autologin unless
+            // we examine their cert, which requires accessing the system-level
+            // cert store on the client.  For now, we are going to assume
+            // that External PKI profiles from the AS are always userlogin,
+            // unless explicitly overriden by AUTOLOGIN above.
+            if (options.exists("EXTERNAL_PKI"))
+                return false;
+        }
+        return ret;
     }
 
     static bool is_external_pki(const OptionList& options)
     {
-      const Option* epki = options.get_ptr("EXTERNAL_PKI");
-      if (epki)
-	return string::is_true(epki->get_optional(1, 16));
-      else
-	{
-	  const Option* cert = options.get_ptr("cert");
-	  const Option* key = options.get_ptr("key");
-	  return !cert || !key;
-	}
+        const Option *epki = options.get_ptr("EXTERNAL_PKI");
+        if (epki)
+            return string::is_true(epki->get_optional(1, 16));
+
+        const Option *cert = options.get_ptr("cert");
+        const Option *key = options.get_ptr("key");
+        return !cert || !key;
     }
 
     void reset_pod()

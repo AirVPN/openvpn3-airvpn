@@ -649,10 +649,9 @@ class ClientOptions : public RC<thread_unsafe_refcount>
         {
             return std::make_tuple(true, "");
         }
-        else
-        {
-            return std::make_tuple(false, string::join(reasons, "\n"));
-        }
+
+        return std::make_tuple(false, string::join(reasons, "\n"));
+
 #endif
     }
 
@@ -1145,10 +1144,9 @@ class ClientOptions : public RC<thread_unsafe_refcount>
 
     bool pause_on_connection_timeout()
     {
-      if (reconnect_notify)
-	return reconnect_notify->pause_on_connection_timeout();
-      else
-	return false;
+        if (reconnect_notify)
+            return reconnect_notify->pause_on_connection_timeout();
+        return false;
     }
 
     bool retry_on_auth_failed() const
@@ -1299,10 +1297,9 @@ class ClientOptions : public RC<thread_unsafe_refcount>
   private:
     ProtoContext::ProtoConfig &proto_config_cached(const bool relay_mode)
     {
-      if (relay_mode && cp_relay)
-	return *cp_relay;
-      else
-	return *cp_main;
+        if (relay_mode && cp_relay)
+            return *cp_relay;
+        return *cp_main;
     }
 
     ProtoContext::ProtoConfig::Ptr proto_config(const OptionList &opt,

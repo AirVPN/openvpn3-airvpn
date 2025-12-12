@@ -262,10 +262,9 @@ inline std::array<Alg, Type::SIZE> algs = {
 
     inline const char *name(const Type type, const char *default_name = nullptr)
     {
-      if (type == NONE && default_name)
-	return default_name;
-      else
-	return get(type).name();
+        if (type == NONE && default_name)
+            return default_name;
+        return get(type).name();
     }
 
     inline size_t size(const Type type)

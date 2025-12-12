@@ -166,12 +166,11 @@ inline const char *event_name(const Type type)
         "SESSION_EXPIRED",
         "NEED_CREDS"};
 
-      static_assert(N_TYPES == array_size(names), "event names array inconsistency");
-      if (type < N_TYPES)
-	return names[type];
-      else
-	return "UNKNOWN_EVENT_TYPE";
-    }
+    static_assert(N_TYPES == array_size(names), "event names array inconsistency");
+    if (type < N_TYPES)
+        return names[type];
+    return "UNKNOWN_EVENT_TYPE";
+}
 
     struct Connected;
 

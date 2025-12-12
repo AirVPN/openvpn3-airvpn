@@ -421,18 +421,16 @@ class TunProp
     // Return true if route should be added or false if route should be excluded.
     static bool route_target(const Option& o, const size_t target_index)
     {
-      if (o.size() >= (target_index+1))
-	{
-	  const std::string& target = o.ref(target_index);
-	  if (target == "vpn_gateway")
-	    return true;
-	  else if (target == "net_gateway")
-	    return false;
-	  else
-	    throw tun_prop_route_error("route destinations other than vpn_gateway or net_gateway are not supported");
-	}
-      else
-	return true;
+        if (o.size() >= (target_index + 1))
+        {
+            const std::string &target = o.ref(target_index);
+            if (target == "vpn_gateway")
+                return true;
+            if (target == "net_gateway")
+                return false;
+            throw tun_prop_route_error("route destinations other than vpn_gateway or net_gateway are not supported");
+        }
+        return true;
     }
 
     static void add_routes(TunBuilderBase* tb,
@@ -597,7 +595,7 @@ class TunProp
                         // Ignore DNS related options here
                         continue;
                     }
-                    else if (type == "PROXY_BYPASS")
+                    if (type == "PROXY_BYPASS")
                     {
                         o.min_args(3);
                         for (size_t j = 2; j < o.size(); ++j)
