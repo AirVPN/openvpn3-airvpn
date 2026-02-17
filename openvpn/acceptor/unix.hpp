@@ -18,11 +18,11 @@
 
 namespace openvpn::Acceptor {
 
-struct Unix : public Base
+struct Unix : Base
 {
     OPENVPN_EXCEPTION(unix_acceptor_error);
 
-    typedef RCPtr<Unix> Ptr;
+    using Ptr = RCPtr<Unix>;
 
     Unix(openvpn_io::io_context &io_context)
         : acceptor(io_context)
@@ -56,7 +56,7 @@ struct Unix : public Base
     {
         if (unix_mode)
         {
-            if (::chmod(socket_path.c_str(), unix_mode) < 0)
+            if (chmod(socket_path.c_str(), unix_mode) < 0)
                 throw unix_acceptor_error("chmod failed on unix socket");
         }
     }

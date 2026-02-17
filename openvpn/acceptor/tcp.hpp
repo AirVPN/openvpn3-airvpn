@@ -16,9 +16,9 @@
 
 namespace openvpn::Acceptor {
 
-struct TCP : public Base
+struct TCP : Base
 {
-    typedef RCPtr<TCP> Ptr;
+    using Ptr = RCPtr<TCP>;
 
     TCP(openvpn_io::io_context &io_context)
         : acceptor(io_context)
@@ -53,9 +53,9 @@ struct TCP : public Base
     };
     void set_socket_options(unsigned int flags)
     {
-        static_assert(int(FIRST) > int(SSLConst::LAST), "TCP flags in conflict with SSL flags");
+        static_assert(static_cast<int>(FIRST) > static_cast<int>(SSLConst::LAST), "TCP flags in conflict with SSL flags");
 
-#if defined(OPENVPN_PLATFORM_WIN)
+#ifdef OPENVPN_PLATFORM_WIN
         // set Windows socket flags
         if (!(flags & DISABLE_REUSE_ADDR))
             acceptor.set_option(openvpn_io::ip::tcp::acceptor::reuse_address(true));
