@@ -16,6 +16,7 @@
 
 #include <vector>
 #include <utility>
+#include <algorithm>
 
 #include <openvpn/io/io.hpp>
 
@@ -31,16 +32,16 @@
 
 namespace openvpn::Acceptor {
 
-struct ListenerBase : public OPENVPN_ACCEPTOR_LISTENER_BASE_RC
+struct ListenerBase : OPENVPN_ACCEPTOR_LISTENER_BASE_RC
 {
-    typedef RCPtr<ListenerBase> Ptr;
+    using Ptr = RCPtr<ListenerBase>;
 
     virtual void handle_accept(AsioPolySock::Base::Ptr sock, const openvpn_io::error_code &error) = 0;
 };
 
-struct Base : public RC<thread_unsafe_refcount>
+struct Base : RC<thread_unsafe_refcount>
 {
-    typedef RCPtr<Base> Ptr;
+    using Ptr = RCPtr<Base>;
 
     virtual void async_accept(ListenerBase *listener,
                               const size_t acceptor_index,
@@ -70,12 +71,12 @@ struct Item
     SSLMode ssl_mode;
 };
 
-struct Set : public std::vector<Item>
+struct Set : std::vector<Item>
 {
     void close()
     {
-        for (auto &i : *this)
-            i.acceptor->close();
+        std::ranges::for_each(*this, [](const auto &i)
+                              { i.acceptor->close(); });
     }
 };
 

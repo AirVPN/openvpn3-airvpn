@@ -12,26 +12,28 @@
 #ifndef OPENVPN_ADDR_ADDRLIST_H
 #define OPENVPN_ADDR_ADDRLIST_H
 
+#include <algorithm>
+
 #include <openvpn/common/rc.hpp>
 #include <openvpn/addr/ip.hpp>
 
 namespace openvpn::IP {
 
 // A list of unique IP addresses
-class AddrList : public std::vector<IP::Addr>, public RC<thread_unsafe_refcount>
+class AddrList : public std::vector<Addr>, public RC<thread_unsafe_refcount>
 {
   public:
     using Ptr = RCPtr<AddrList>;
 
-    void add(const IP::Addr &a)
+    void add(const Addr &a)
     {
         if (!exists(a))
             push_back(a);
     }
 
-    bool exists(const IP::Addr &a) const
+    bool exists(const Addr &a) const
     {
-        return std::find(begin(), end(), a) != end();
+        return std::ranges::find(*this, a) != end();
     }
 
 #if 0

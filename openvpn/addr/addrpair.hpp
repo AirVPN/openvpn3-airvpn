@@ -102,7 +102,7 @@ struct AddrMaskPair
         {
             if (s2.empty())
             {
-                const StringPair pair = Split::by_char<StringPair, NullLex, Split::NullLimit>(s1, '/');
+                const auto pair = Split::by_char<StringPair, NullLex, Split::NullLimit>(s1, '/');
                 return from_string_impl(pair, title);
             }
 
@@ -114,21 +114,21 @@ struct AddrMaskPair
             const StringPair pair(s1, s2);
             error(e, pair.render(), title);
         }
-        return AddrMaskPair(); // NOTREACHED
+        return {}; // NOTREACHED
     }
 
     static AddrMaskPair from_string(const std::string &s, const char *title = nullptr)
     {
         try
         {
-            const StringPair pair = Split::by_char<StringPair, NullLex, Split::NullLimit>(s, '/');
+            const auto pair = Split::by_char<StringPair, NullLex, Split::NullLimit>(s, '/');
             return from_string_impl(pair, title);
         }
         catch (const std::exception &e)
         {
             error(e, s, title);
         }
-        return AddrMaskPair(); // NOTREACHED
+        return {}; // NOTREACHED
     }
 
     static AddrMaskPair from_string(const StringPair &pair, const char *title = nullptr)
@@ -141,17 +141,13 @@ struct AddrMaskPair
         {
             error(e, pair.render(), title);
         }
-        return AddrMaskPair(); // NOTREACHED
+        return {}; // NOTREACHED
     }
 
     std::string to_string(const bool netmask_form = false) const
     {
-        std::ostringstream os;
-        if (netmask_form)
-            os << addr.to_string() << '/' << netmask.to_string();
-        else
-            os << addr.to_string() << '/' << netmask.prefix_len();
-        return os.str();
+        return netmask_form ? addr.to_string() + '/' + netmask.to_string()
+                            : addr.to_string() + '/' + std::to_string(netmask.prefix_len());
     }
 
     bool is_canonical() const
@@ -161,11 +157,7 @@ struct AddrMaskPair
 
     Addr::Version version() const
     {
-        const Addr::Version v1 = addr.version();
-        const Addr::Version v2 = netmask.version();
-        if (v1 == v2)
-            return v1;
-        return Addr::UNSPEC;
+        return addr.version() == netmask.version() ? addr.version() : Addr::UNSPEC;
     }
 
     Addr addr;
