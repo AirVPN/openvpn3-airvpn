@@ -1824,16 +1824,17 @@ class OpenSSLContext : public SSLFactoryAPI
         const ASN1_INTEGER *ai = X509_get_serialNumber(cert);
         if (!ai)
             return;
-        if (ai->type == V_ASN1_NEG_INTEGER) // negative serial number is considered to be undefined
-            return;
-        if (!is_safe_conversion<int>(authcert.serial.size()))
-            return;
-        BIGNUM *bn = ASN1_INTEGER_to_BN(ai, NULL);
+
+        OpenSSLPKI::BIGNUM_ptr bn(ASN1_INTEGER_to_BN(ai, nullptr), BN_free);
         if (!bn)
             return;
+        if (BN_is_negative(bn.get())) // negative serial number is considered to be undefined
+            return;
 
-        BN_bn2binpad(bn, authcert.serial.number(), static_cast<int>(authcert.serial.size()));
-        BN_free(bn);
+        if (!is_safe_conversion<int>(authcert.serial.size()))
+            return;
+
+        BN_bn2binpad(bn.get(), authcert.serial.number(), static_cast<int>(authcert.serial.size()));
     }
 
     static std::string cert_status_line(int preverify_ok,
