@@ -1,3 +1,11 @@
+Changelog 3.12 AirVPN (20260514) - Release date: 14 May 2026 by ProMIND
+
+- [ProMIND] 2026/05/14 fixed data-cipher's override caused by master commits
+
+
+*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
+
+
 Changelog 3.12 AirVPN (20250911) - Release date: 11 September 2025 by ProMIND
 
 - [ProMIND] 2025/09/10 removed obsoleted ncp-disable option

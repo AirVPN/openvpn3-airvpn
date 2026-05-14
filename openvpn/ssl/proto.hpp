@@ -512,6 +512,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         // negotiable data ciphers (openvpn 2.5) ProMIND
         {
+            CryptoAlgs::Type ncipher = CryptoAlgs::NONE;
+            size_t pos = 0;
+            std::string alg, cconf;
             const Option *o = opt.get_ptr("data-ciphers");
 
             if(o)
@@ -522,32 +525,51 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 {
                     if(negotiable_data_ciphers.find(":") != std::string::npos)
                     {
-                        size_t pos = 0;
-                        std::string alg, cconf;
-
                         cconf = negotiable_data_ciphers;
 
                         while((pos = cconf.find(":")) != std::string::npos)
                         {
                             alg = cconf.substr(0, pos);
 
-                            cipher = CryptoAlgs::lookup(alg);
+                            ncipher = CryptoAlgs::lookup(alg);
 
                             cconf.erase(0, pos + 1);
+
+                            if(cipher == CryptoAlgs::NONE)
+                              cipher = ncipher;
                         }
                           
                         if(cconf.length() > 0)
-                            cipher = CryptoAlgs::lookup(cconf);
+                            ncipher = CryptoAlgs::lookup(cconf);
                     }
                     else
                         cipher = CryptoAlgs::lookup(negotiable_data_ciphers);
                 }
+                else
+                    cipher = CryptoAlgs::lookup("BF-CBC");
             }
             else
+            {
                 negotiable_data_ciphers = "";
+
+                o = opt.get_ptr("cipher");
+            
+                if(o)
+                {
+                    alg = o->get(1, 128);
+
+                    if (alg != "none")
+                        cipher = CryptoAlgs::lookup(alg);
+                }
+                else
+                    cipher = CryptoAlgs::lookup("BF-CBC");
+            }
         }
 
+        /* disabled by ProMIND (master)
+
         // data channel cipher
+        if(negotiable_data_ciphers == "")
         {
             const Option *o = opt.get_ptr("cipher");
             if (o)
@@ -559,6 +581,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             else
                 cipher = CryptoAlgs::lookup("BF-CBC");
         }
+        */
 
         // data channel HMAC
         {
@@ -1238,7 +1261,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	 *
 	 */
 
-	/* disabled (master)
+	/* disabled by ProMIND (master)
 
     out << "IV_CIPHERS=";
     CryptoAlgs::for_each(
