@@ -211,6 +211,9 @@ class ClientOptions : public RC<thread_unsafe_refcount>
           tcp_queue_limit(config.tcp_queue_limit),
           proto_context_options(config.proto_context_options),
           http_proxy_options(config.http_proxy_options),
+#ifdef OPENVPN_GREMLIN
+          gremlin_config(config.gremlin_config),
+#endif
           autologin(false),
           autologin_sessions(false),
           creds_locked(false),

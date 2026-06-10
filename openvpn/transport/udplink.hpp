@@ -75,10 +75,11 @@ class UDPLink : public RC<thread_unsafe_refcount>
     }
 
 #ifdef OPENVPN_GREMLIN
-    void gremlin_config(const Gremlin::Config::Ptr &config)
+    void gremlin_config(openvpn_io::io_context &io_context,
+                        const Gremlin::Config::Ptr &config)
     {
         if (config)
-            gremlin.reset(new Gremlin::SendRecvQueue(socket.get_executor().context(), config, false));
+            gremlin.reset(new Gremlin::SendRecvQueue(io_context, config, false));
     }
 #endif
 
@@ -210,7 +211,10 @@ class UDPLink : public RC<thread_unsafe_refcount>
         gremlin->send_queue([self = Ptr(this), buf = BufferAllocated(buf), ep = std::move(ep)]() mutable
                             {
 	    if (!self->halt)
-	      self->do_send(buf, ep.get()); });
+	      {
+	        self->gremlin->maybe_corrupt_data(buf, 0);
+	        self->do_send(buf, ep.get());
+	      } });
     }
 
     void gremlin_recv(PacketFrom::SPtr &pfp)
