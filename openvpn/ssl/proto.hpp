@@ -227,6 +227,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         CONTROL_SOFT_RESET_V1 = 3, // new key, graceful transition from old to new key
         CONTROL_V1 = 4,            // control channel packet (usually TLS ciphertext)
         CONTROL_WKC_V1 = 11,       // control channel packet with wrapped client key appended
+        CONTROL_OOB_V1 = 12,       // out-of-band control message (belongs to no session)
+        CONTROL_OOB_WKC_V1 = 13,   // out-of-band control message + wrapped client key appended
         ACK_V1 = 5,                // acknowledgement for packets received
         DATA_V1 = 6,               // data channel packet with 1-byte header
         DATA_V2 = 9,               // data channel packet with 4-byte header
