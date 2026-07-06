@@ -1708,6 +1708,192 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         BufferPtr buf;
     };
 
+    // ---- standalone control-channel wrapping -----------------------------------
+    // The framing/protection of an outgoing control packet, factored out of
+    // KeyContext so it can also wrap packets that belong to no established session
+    // (e.g. an out-of-band SERVER_PROBE). These are pure functions of the crypto
+    // context + the caller's session id / packet-id / key-id; KeyContext::gen_head_*
+    // delegate here with their own state, so on-wire behaviour is unchanged.
+
+    /**
+     * @brief Does a packet with this opcode carry a WKc?
+     *
+     * On a server such a packet is what keys the session, so it cannot be validated
+     * with a key yet.
+     */
+    static bool opcode_carries_wkc(const unsigned int opcode)
+    {
+        return opcode == CONTROL_HARD_RESET_CLIENT_V3 || opcode == CONTROL_WKC_V1;
+    }
+
+    //! tls-auth: [op][psid][hmac][pid][payload]
+    static void wrap_tls_auth(const unsigned int opcode,
+                              Buffer &buf,
+                              PacketIDControlSend &pid_send,
+                              const PacketIDControl::time_t now_secs,
+                              const size_t hmac_size,
+                              const ProtoSessionID &psid_self,
+                              const unsigned int key_id,
+                              OvpnHMACInstance &ta_hmac_send)
+    {
+        pid_send.write_next(buf, true, now_secs);
+        buf.prepend_alloc(hmac_size);
+        psid_self.prepend(buf);
+        buf.push_front(op_compose(opcode, key_id));
+        ta_hmac_send.ovpn_hmac_gen(buf.data(),
+                                   buf.size(),
+                                   OPCODE_SIZE + ProtoSessionID::SIZE,
+                                   hmac_size,
+                                   PacketIDControl::size());
+    }
+
+    /**
+     * tls-crypt / tls-crypt-v2: [op][psid][pid][hmac][encrypted payload](+WKc). The
+     * plaintext payload is in @p buf; @p work is scratch. Pass @p wkc (the wrapped
+     * client key) non-null for tls-crypt-v2 so it is appended on the WKc-bearing
+     * opcodes; pass nullptr otherwise.
+     */
+    static void wrap_tls_crypt(const unsigned int opcode,
+                               BufferAllocated &buf,
+                               BufferAllocated &work,
+                               Frame &frame,
+                               PacketIDControlSend &pid_send,
+                               const PacketIDControl::time_t now_secs,
+                               const size_t hmac_size,
+                               const ProtoSessionID &psid_self,
+                               const unsigned int key_id,
+                               TLSCryptInstance &tls_crypt_send,
+                               const Buffer *wkc)
+    {
+        // header fields that are not encrypted go into 'work'
+        frame.prepare(Frame::ENCRYPT_WORK, work);
+        work.prepend_alloc(hmac_size);
+        pid_send.write_next(work, true, now_secs);
+        psid_self.prepend(work);
+        work.push_front(op_compose(opcode, key_id));
+
+        // HMAC over header fields (from 'work') and plaintext payload (from 'buf')
+        tls_crypt_send.hmac_gen(work.data(), TLSCryptContext::hmac_offset, buf.c_data(), buf.size());
+
+        const size_t data_offset = TLSCryptContext::hmac_offset + hmac_size;
+        const size_t encrypt_bytes = tls_crypt_send.encrypt(work.c_data() + TLSCryptContext::hmac_offset,
+                                                            work.data() + data_offset,
+                                                            work.max_size() - data_offset,
+                                                            buf.c_data(),
+                                                            buf.size());
+        if (!encrypt_bytes)
+        {
+            buf.reset_size();
+            return;
+        }
+        work.inc_size(encrypt_bytes);
+
+        // append WKc to the packets that carry it (tls-crypt-v2)
+        if (opcode_carries_wkc(opcode) && wkc)
+        {
+            if (!wkc->defined())
+                throw proto_error("Client Key Wrapper undefined");
+            work.append(*wkc);
+        }
+
+        // 'work' now holds the complete packet; swap it into 'buf'
+        buf.swap(work);
+    }
+
+    //! plaintext control channel: [op][psid][payload]
+    static void wrap_tls_plain(const unsigned int opcode,
+                               Buffer &buf,
+                               const ProtoSessionID &psid_self,
+                               const unsigned int key_id)
+    {
+        psid_self.prepend(buf);
+        buf.push_front(op_compose(opcode, key_id));
+    }
+
+    // Result of the crypto/framing half of decapsulating a control packet. The
+    // caller maps the error cases to stats/invalidate and OK to further session
+    // processing; DROP is a silent, non-error discard (malformed/too-short).
+    enum class UnwrapStatus
+    {
+        OK,
+        DROP,
+        HMAC_ERROR,
+        DECRYPT_ERROR,
+    };
+
+    /**
+     * tls-auth: verify the HMAC, extract the source PSID and packet id, and leave
+     * @p recv positioned at the (authenticated) payload. Counterpart of
+     * wrap_tls_auth(); usable without a session (e.g. an OOB probe reply).
+     */
+    static UnwrapStatus unwrap_tls_auth(Buffer &recv,
+                                        const size_t hmac_size,
+                                        OvpnHMACInstance &ta_hmac_recv,
+                                        const PacketIDControlReceive &pid_recv,
+                                        ProtoSessionID &src_psid,
+                                        PacketIDControl &pid)
+    {
+        const unsigned char *orig_data = recv.data();
+        const size_t orig_size = recv.size();
+
+        recv.advance(1); // past initial op byte
+        src_psid.read(recv);
+        recv.advance(hmac_size);
+        if (!ta_hmac_recv.ovpn_hmac_cmp(orig_data,
+                                        orig_size,
+                                        OPCODE_SIZE + ProtoSessionID::SIZE,
+                                        hmac_size,
+                                        PacketIDControl::size()))
+            return UnwrapStatus::HMAC_ERROR;
+
+        pid = pid_recv.read_next(recv);
+        return UnwrapStatus::OK;
+    }
+
+    /**
+     * tls-crypt / tls-crypt-v2: extract source PSID + packet id, decrypt the
+     * payload into @p work, verify the HMAC, and swap the plaintext into @p recv.
+     * Counterpart of wrap_tls_crypt(); usable without a session.
+     */
+    static UnwrapStatus unwrap_tls_crypt(BufferAllocated &recv,
+                                         BufferAllocated &work,
+                                         Frame &frame,
+                                         const size_t hmac_size,
+                                         TLSCryptInstance &tls_crypt_recv,
+                                         const PacketIDControlReceive &pid_recv,
+                                         ProtoSessionID &src_psid,
+                                         PacketIDControl &pid)
+    {
+        const unsigned char *orig_data = recv.data();
+        const size_t orig_size = recv.size();
+
+        recv.advance(1); // past initial op byte
+        src_psid.read(recv);
+        pid = pid_recv.read_next(recv);
+        recv.advance(hmac_size); // skip the hmac
+
+        const size_t data_offset = TLSCryptContext::hmac_offset + hmac_size;
+        if (orig_size < data_offset)
+            return UnwrapStatus::DROP;
+
+        frame.prepare(Frame::DECRYPT_WORK, work);
+        const size_t decrypt_bytes = tls_crypt_recv.decrypt(orig_data + TLSCryptContext::hmac_offset,
+                                                            work.data(),
+                                                            work.max_size(),
+                                                            recv.c_data(),
+                                                            recv.size());
+        if (!decrypt_bytes)
+            return UnwrapStatus::DECRYPT_ERROR;
+        work.inc_size(decrypt_bytes);
+
+        if (!tls_crypt_recv.hmac_cmp(orig_data, TLSCryptContext::hmac_offset, work.c_data(), work.size()))
+            return UnwrapStatus::HMAC_ERROR;
+
+        // plaintext is now in 'work'; swap it into 'recv' for further processing
+        recv.swap(work);
+        return UnwrapStatus::OK;
+    }
+
     // KeyContext encapsulates a single SSL/TLS session.
     // ProtoStackBase uses CRTP-based static polymorphism for method callbacks.
     class KeyContext : ProtoStackBase<Packet, KeyContext>, public RC<thread_unsafe_refcount>
@@ -2165,17 +2351,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 // send it
                 proto.net_send(key_id_, pkt);
             }
-        }
-
-        /**
-         * @brief Does a packet with this opcode carry a WKc?
-         *
-         * On a server such a packet is what keys the session, so it cannot be validated
-         * with a key yet.
-         */
-        static bool opcode_carries_wkc(const unsigned int opcode)
-        {
-            return opcode == CONTROL_HARD_RESET_CLIENT_V3 || opcode == CONTROL_WKC_V1;
         }
 
         /**
@@ -3369,24 +3544,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         void gen_head_tls_auth(const unsigned int opcode, Buffer &buf)
         {
-            // write tls-auth packet ID
-            proto.ta_pid_send.write_next(buf, true, now->seconds_since_epoch());
-
-            // make space for tls-auth HMAC
-            buf.prepend_alloc(proto.hmac_size);
-
-            // write source PSID
-            proto.psid_self.prepend(buf);
-
-            // write opcode
-            buf.push_front(op_compose(opcode, key_id_));
-
-            // write hmac
-            proto.ta_hmac_send->ovpn_hmac_gen(buf.data(),
-                                              buf.size(),
-                                              OPCODE_SIZE + ProtoSessionID::SIZE,
-                                              proto.hmac_size,
-                                              PacketIDControl::size());
+            wrap_tls_auth(opcode, buf, proto.ta_pid_send, now->seconds_since_epoch(), proto.hmac_size, proto.psid_self, key_id_, *proto.ta_hmac_send);
         }
 
         void gen_head_tls_crypt(const unsigned int opcode, BufferAllocated &buf)
@@ -3397,53 +3555,12 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             if (!proto.tls_crypt_send)
                 throw proto_error("gen_head_tls_crypt: no tls-crypt send context");
 
-            // in 'work' we store all the fields that are not supposed to be encrypted
-            proto.config->frame->prepare(Frame::ENCRYPT_WORK, work);
-            // make space for HMAC
-            work.prepend_alloc(proto.hmac_size);
-            // write tls-crypt packet ID
-            proto.ta_pid_send.write_next(work, true, now->seconds_since_epoch());
-            // write source PSID
-            proto.psid_self.prepend(work);
-            // write opcode
-            work.push_front(op_compose(opcode, key_id_));
-
-            // compute HMAC using header fields (from 'work') and plaintext
-            // payload (from 'buf')
-            proto.tls_crypt_send->hmac_gen(work.data(),
-                                           TLSCryptContext::hmac_offset,
-                                           buf.c_data(),
-                                           buf.size());
-
-            const size_t data_offset = TLSCryptContext::hmac_offset + proto.hmac_size;
-
-            // encrypt the content of 'buf' (packet payload) into 'work'
-            const size_t encrypt_bytes = proto.tls_crypt_send->encrypt(work.c_data() + TLSCryptContext::hmac_offset,
-                                                                       work.data() + data_offset,
-                                                                       work.max_size() - data_offset,
-                                                                       buf.c_data(),
-                                                                       buf.size());
-            if (!encrypt_bytes)
-            {
-                buf.reset_size();
-                return;
-            }
-            work.inc_size(encrypt_bytes);
-
-            // append WKc to wrapped packet for tls-crypt-v2
-            if (opcode_carries_wkc(opcode) && (proto.tls_wrap_mode == TLS_CRYPT_V2))
-                proto.tls_crypt_append_wkc(work);
-
-            // 'work' now contains the complete packet ready to go. swap it with 'buf'
-            buf.swap(work);
+            wrap_tls_crypt(opcode, buf, work, *proto.config->frame, proto.ta_pid_send, now->seconds_since_epoch(), proto.hmac_size, proto.psid_self, key_id_, *proto.tls_crypt_send, proto.tls_wrap_mode == TLS_CRYPT_V2 ? &proto.config->wkc : nullptr);
         }
 
         void gen_head_tls_plain(const unsigned int opcode, Buffer &buf)
         {
-            // write source PSID
-            proto.psid_self.prepend(buf);
-            // write opcode
-            buf.push_front(op_compose(opcode, key_id_));
+            wrap_tls_plain(opcode, buf, proto.psid_self, key_id_);
         }
 
         void gen_head(const unsigned int opcode, BufferAllocated &buf)
@@ -3619,36 +3736,22 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         bool decapsulate_tls_auth(Packet &pkt)
         {
-            Buffer &recv = *pkt.buf;
-            const unsigned char *orig_data = recv.data();
-            const size_t orig_size = recv.size();
-
-            // advance buffer past initial op byte
-            recv.advance(1);
-
-            // get source PSID
-            ProtoSessionID src_psid(recv);
-
-            // verify HMAC
+            ProtoSessionID src_psid;
+            PacketIDControl pid;
+            switch (unwrap_tls_auth(*pkt.buf, proto.hmac_size, *proto.ta_hmac_recv, proto.ta_pid_recv, src_psid, pid))
             {
-                recv.advance(proto.hmac_size);
-                if (!proto.ta_hmac_recv->ovpn_hmac_cmp(orig_data,
-                                                       orig_size,
-                                                       OPCODE_SIZE + ProtoSessionID::SIZE,
-                                                       proto.hmac_size,
-                                                       PacketIDControl::size()))
-                {
-                    proto.stats->error(Error::HMAC_ERROR);
-                    if (proto.is_tcp())
-                        invalidate(Error::HMAC_ERROR);
-                    return false;
-                }
+            case UnwrapStatus::OK:
+                return decapsulate_post_process(pkt, src_psid, pid);
+
+            case UnwrapStatus::HMAC_ERROR:
+                proto.stats->error(Error::HMAC_ERROR);
+                if (proto.is_tcp())
+                    invalidate(Error::HMAC_ERROR);
+                return false;
+
+            default:
+                return false;
             }
-
-            // read tls_auth packet ID
-            const PacketIDControl pid = proto.ta_pid_recv.read_next(recv);
-
-            return decapsulate_post_process(pkt, src_psid, pid);
         }
 
         bool decapsulate_tls_crypt(Packet &pkt)
@@ -3664,58 +3767,28 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 return false;
             }
 
-            auto &recv = *pkt.buf;
-            const unsigned char *orig_data = recv.data();
-            const size_t orig_size = recv.size();
-
-            // advance buffer past initial op byte
-            recv.advance(1);
-            // get source PSID
-            ProtoSessionID src_psid(recv);
-            // get tls-crypt packet ID
-            const PacketIDControl pid = proto.ta_pid_recv.read_next(recv);
-            // skip the hmac
-            recv.advance(proto.hmac_size);
-
-            const size_t data_offset = TLSCryptContext::hmac_offset + proto.hmac_size;
-            if (orig_size < data_offset)
-                return false;
-
-            // decrypt payload
-            proto.config->frame->prepare(Frame::DECRYPT_WORK, work);
-
-            const size_t decrypt_bytes = proto.tls_crypt_recv->decrypt(orig_data + TLSCryptContext::hmac_offset,
-                                                                       work.data(),
-                                                                       work.max_size(),
-                                                                       recv.c_data(),
-                                                                       recv.size());
-            if (!decrypt_bytes)
+            ProtoSessionID src_psid;
+            PacketIDControl pid;
+            switch (unwrap_tls_crypt(*pkt.buf, work, *proto.config->frame, proto.hmac_size, *proto.tls_crypt_recv, proto.ta_pid_recv, src_psid, pid))
             {
+            case UnwrapStatus::OK:
+                return decapsulate_post_process(pkt, src_psid, pid);
+
+            case UnwrapStatus::DECRYPT_ERROR:
                 proto.stats->error(Error::DECRYPT_ERROR);
                 if (proto.is_tcp())
                     invalidate(Error::DECRYPT_ERROR);
                 return false;
-            }
 
-            work.inc_size(decrypt_bytes);
-
-            // verify HMAC
-            if (!proto.tls_crypt_recv->hmac_cmp(orig_data,
-                                                TLSCryptContext::hmac_offset,
-                                                work.c_data(),
-                                                work.size()))
-            {
+            case UnwrapStatus::HMAC_ERROR:
                 proto.stats->error(Error::HMAC_ERROR);
                 if (proto.is_tcp())
                     invalidate(Error::HMAC_ERROR);
                 return false;
+
+            default: // DROP: malformed / too short
+                return false;
             }
-
-            // move the decrypted payload to 'recv', so that the processing of the
-            // packet can continue
-            recv.swap(work);
-
-            return decapsulate_post_process(pkt, src_psid, pid);
         }
 
         bool decapsulate_tls_plain(Packet &pkt)
@@ -5295,13 +5368,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         const Time kx = *now_ + config->keepalive_ping;
         if (kx < keepalive_xmit)
             keepalive_xmit = kx;
-    }
-
-    void tls_crypt_append_wkc(BufferAllocated &dst)
-    {
-        if (!config->wkc.defined())
-            throw proto_error("Client Key Wrapper undefined");
-        dst.append(config->wkc);
     }
 
     // BEGIN ProtoContext data members
