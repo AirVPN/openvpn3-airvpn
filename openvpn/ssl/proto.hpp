@@ -1788,8 +1788,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         }
         work.inc_size(encrypt_bytes);
 
-        // append WKc to the packets that carry it (tls-crypt-v2)
-        if (opcode_carries_wkc(opcode) && wkc)
+        // append the WKc: opcode_carries_wkc() covers the in-session handshake
+        // packets, and an OOB probe carries one too (it has no session to key)
+        if ((opcode_carries_wkc(opcode) || opcode == CONTROL_OOB_WKC_V1) && wkc)
         {
             if (!wkc->defined())
                 throw proto_error("Client Key Wrapper undefined");
@@ -1893,6 +1894,229 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         recv.swap(work);
         return UnwrapStatus::OK;
     }
+
+    // ---- standalone construction of the control-channel protection contexts -----
+    // The crypto instances a control packet is wrapped/unwrapped with, factored out
+    // of reset()/reset_tls_crypt() so they can be built directly from a ProtoConfig
+    // for a packet that belongs to no session (e.g. an out-of-band probe). Behaviour
+    // is identical to the in-session setup; the session path delegates here.
+
+    /**
+     * tls-auth: build the send + recv HMAC instances. Direction follows the
+     * configured key-direction (not the client/server role), as in reset().
+     */
+    static void build_tls_auth(const ProtoConfig &c,
+                               OvpnHMACInstance::Ptr &send,
+                               OvpnHMACInstance::Ptr &recv)
+    {
+        send = c.tls_auth_context->new_obj();
+        recv = c.tls_auth_context->new_obj();
+        if (c.key_direction >= 0)
+        {
+            // key-direction is 0 or 1
+            const unsigned int key_dir = c.key_direction ? OpenVPNStaticKey::INVERSE : OpenVPNStaticKey::NORMAL;
+            send->init(c.tls_auth_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | key_dir));
+            recv->init(c.tls_auth_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::DECRYPT | key_dir));
+        }
+        else
+        {
+            // key-direction bidirectional mode
+            send->init(c.tls_auth_key.slice(OpenVPNStaticKey::HMAC));
+            recv->init(c.tls_auth_key.slice(OpenVPNStaticKey::HMAC));
+        }
+    }
+
+    /**
+     * tls-crypt / tls-crypt-v2: build the send + recv instances from @p key. The
+     * encrypt/decrypt slices are selected by the caller's role (@p server).
+     */
+    static void build_tls_crypt(const ProtoConfig &c,
+                                const bool server,
+                                const OpenVPNStaticKey &key,
+                                TLSCryptInstance::Ptr &send,
+                                TLSCryptInstance::Ptr &recv)
+    {
+        send = c.tls_crypt_context->new_obj_send();
+        recv = c.tls_crypt_context->new_obj_recv();
+
+        // static direction assignment - not user configurable
+        const unsigned int key_dir = server ? OpenVPNStaticKey::NORMAL : OpenVPNStaticKey::INVERSE;
+
+        send->init(c.ssl_factory->libctx(),
+                   key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | key_dir),
+                   key.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::ENCRYPT | key_dir));
+        recv->init(c.ssl_factory->libctx(),
+                   key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::DECRYPT | key_dir),
+                   key.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::DECRYPT | key_dir));
+    }
+
+  private:
+    // TLS wrapping mode for the control channel
+    enum TLSWrapMode
+    {
+        TLS_PLAIN,
+        TLS_AUTH,
+        TLS_CRYPT,
+        TLS_CRYPT_V2
+    };
+
+    //! A control-channel wrap mode paired with its hmac size.
+    struct TLSWrapSelection
+    {
+        TLSWrapMode mode;
+        size_t hmac_size;
+    };
+
+    //! Wrap mode implied by @p c, preferring tls-auth when it is enabled
+    //! alongside tls-crypt or tls-crypt-v2.
+    static TLSWrapSelection select_tls_wrap(const ProtoConfig &c)
+    {
+        if (c.tls_crypt_v2_enabled() && !c.tls_auth_enabled())
+            return {.mode = TLS_CRYPT_V2, .hmac_size = c.tls_crypt_context->digest_size()};
+        if (c.tls_crypt_enabled() && !c.tls_auth_enabled())
+            return {.mode = TLS_CRYPT, .hmac_size = c.tls_crypt_context->digest_size()};
+        if (c.tls_auth_enabled())
+            return {.mode = TLS_AUTH, .hmac_size = c.tls_auth_context->size()};
+        return {.mode = TLS_PLAIN, .hmac_size = 0};
+    }
+
+  public:
+    /**
+     * @brief Wrap an out-of-band SERVER_PROBE / unwrap the matching PROBE_REPLY.
+     *
+     * Applies whichever control-channel protection is configured (tls-auth,
+     * tls-crypt, tls-crypt-v2 or plaintext), built directly from a ProtoConfig --
+     * no session exists yet. The on-wire framing is identical to an in-session
+     * control packet (the wrap_ / unwrap_ helpers), so a standard server accepts
+     * it. The probe is always sent by the client; for tls-crypt-v2 the wrapped
+     * client key (WKc) is appended (opcode CONTROL_OOB_WKC_V1) so a stateless
+     * server can derive the session key and unwrap the probe.
+     */
+    class ProbeWrap
+    {
+      public:
+        //! Pick the wrap mode from @p config_arg and build the crypto contexts for it.
+        ProbeWrap(const ProtoConfig::Ptr &config_arg, const SessionStats::Ptr &stats)
+            : config(config_arg)
+        {
+            const ProtoConfig &c = *config;
+
+            const TLSWrapSelection sel = select_tls_wrap(c);
+            mode = sel.mode;
+            hmac_size = sel.hmac_size;
+
+            switch (mode)
+            {
+            case TLS_AUTH:
+                build_tls_auth(c, ta_hmac_send, ta_hmac_recv);
+                break;
+            case TLS_CRYPT:
+            case TLS_CRYPT_V2:
+                // the probe is sent by the client, so build with the client role
+                build_tls_crypt(c, false, c.tls_crypt_key, tls_crypt_send, tls_crypt_recv);
+                break;
+            case TLS_PLAIN:
+                break;
+            }
+
+            ta_pid_send.init();
+            ta_pid_recv.init("OOB-PROBE", 0, stats);
+
+            psid_self.randomize(*c.rng);
+        }
+
+        //! the client session id carried in the probe (echoed back in the reply)
+        const ProtoSessionID &self_psid() const
+        {
+            return psid_self;
+        }
+
+        /**
+         * @brief Wrap an already-encoded SERVER_PROBE payload in place.
+         * @param buf   holds the plaintext OOB payload on entry, the wrapped
+         *              packet on return
+         * @param work  scratch buffer (used only by the tls-crypt paths)
+         */
+        void wrap(BufferAllocated &buf, BufferAllocated &work)
+        {
+            const PacketIDControl::time_t now_secs = config->now->seconds_since_epoch();
+            switch (mode)
+            {
+            case TLS_AUTH:
+                wrap_tls_auth(CONTROL_OOB_V1, buf, ta_pid_send, now_secs, hmac_size, psid_self, KEY_ID, *ta_hmac_send);
+                break;
+            case TLS_CRYPT:
+                wrap_tls_crypt(CONTROL_OOB_V1, buf, work, *config->frame, ta_pid_send, now_secs, hmac_size, psid_self, KEY_ID, *tls_crypt_send, nullptr);
+                break;
+            case TLS_CRYPT_V2:
+                wrap_tls_crypt(CONTROL_OOB_WKC_V1, buf, work, *config->frame, ta_pid_send, now_secs, hmac_size, psid_self, KEY_ID, *tls_crypt_send, &config->wkc);
+                break;
+            case TLS_PLAIN:
+                wrap_tls_plain(CONTROL_OOB_V1, buf, psid_self, KEY_ID);
+                break;
+            }
+        }
+
+        /**
+         * @brief Unwrap a received PROBE_REPLY in place.
+         * @param recv     the wrapped packet on entry, the plaintext OOB payload
+         *                 on return (when OK)
+         * @param work     scratch buffer (used only by the tls-crypt paths)
+         * @param src_psid set to the server's session id
+         * @param pid      set to the packet id (unset for plaintext)
+         * @return the crypto/framing status; OK means @p recv holds the payload
+         */
+        UnwrapStatus unwrap(BufferAllocated &recv,
+                            BufferAllocated &work,
+                            ProtoSessionID &src_psid,
+                            PacketIDControl &pid)
+        {
+            // The unwrap helpers walk the fixed header -- opcode, psid, packet id and
+            // hmac, whose order differs per mode but not its size --
+            // with advance()/read(), which throw on a short buffer. In a session
+            // that is caught upstream, but a probe reply is parsed inside the
+            // prober's asio receive handler, where an exception has nowhere to go.
+            // Drop anything too small to hold the header instead.
+            const size_t header_size = OPCODE_SIZE + ProtoSessionID::SIZE + PacketIDControl::size() + hmac_size;
+
+            switch (mode)
+            {
+            case TLS_AUTH:
+                if (recv.size() < header_size)
+                    return UnwrapStatus::DROP;
+                return unwrap_tls_auth(recv, hmac_size, *ta_hmac_recv, ta_pid_recv, src_psid, pid);
+            case TLS_CRYPT:
+            case TLS_CRYPT_V2:
+                if (recv.size() < header_size)
+                    return UnwrapStatus::DROP;
+                return unwrap_tls_crypt(recv, work, *config->frame, hmac_size, *tls_crypt_recv, ta_pid_recv, src_psid, pid);
+            case TLS_PLAIN:
+                // plaintext control channel: [op][psid][payload]
+                if (recv.size() < OPCODE_SIZE + ProtoSessionID::SIZE)
+                    return UnwrapStatus::DROP;
+                recv.advance(OPCODE_SIZE);
+                src_psid.read(recv);
+                return UnwrapStatus::OK;
+            }
+            return UnwrapStatus::DROP;
+        }
+
+      private:
+        static constexpr unsigned int KEY_ID = 0;
+
+        ProtoConfig::Ptr config;
+        TLSWrapMode mode = TLS_PLAIN;
+        size_t hmac_size = 0;
+
+        OvpnHMACInstance::Ptr ta_hmac_send;
+        OvpnHMACInstance::Ptr ta_hmac_recv;
+        TLSCryptInstance::Ptr tls_crypt_send;
+        TLSCryptInstance::Ptr tls_crypt_recv;
+
+        PacketIDControlSend ta_pid_send;
+        PacketIDControlReceive ta_pid_recv;
+        ProtoSessionID psid_self;
+    };
 
     // KeyContext encapsulates a single SSL/TLS session.
     // ProtoStackBase uses CRTP-based static polymorphism for method callbacks.
@@ -4408,40 +4632,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
     void reset_tls_wrap_mode(const ProtoConfig &c)
     {
-        // Prefer TLS auth as the default if both TLS crypt V2 and TLS auth
-        // are enabled.
-        if (c.tls_crypt_v2_enabled() && !c.tls_auth_enabled())
-        {
-            tls_wrap_mode = TLS_CRYPT_V2;
-
-            // get HMAC size from Digest object
-            hmac_size = c.tls_crypt_context->digest_size();
-
-            return;
-        }
-
-        if (c.tls_crypt_enabled() && !c.tls_auth_enabled())
-        {
-            tls_wrap_mode = TLS_CRYPT;
-
-            // get HMAC size from Digest object
-            hmac_size = c.tls_crypt_context->digest_size();
-
-            return;
-        }
-
-        if (c.tls_auth_enabled())
-        {
-            tls_wrap_mode = TLS_AUTH;
-
-            // get HMAC size from Digest object
-            hmac_size = c.tls_auth_context->size();
-
-            return;
-        }
-
-        tls_wrap_mode = TLS_PLAIN;
-        hmac_size = 0;
+        const TLSWrapSelection sel = select_tls_wrap(c);
+        tls_wrap_mode = sel.mode;
+        hmac_size = sel.hmac_size;
     }
 
     uint32_t get_tls_warnings() const
@@ -4460,18 +4653,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
     void reset_tls_crypt(const ProtoConfig &c, const OpenVPNStaticKey &key)
     {
-        tls_crypt_send = c.tls_crypt_context->new_obj_send();
-        tls_crypt_recv = c.tls_crypt_context->new_obj_recv();
-
-        // static direction assignment - not user configurable
-        unsigned int key_dir = is_server() ? OpenVPNStaticKey::NORMAL : OpenVPNStaticKey::INVERSE;
-
-        tls_crypt_send->init(c.ssl_factory->libctx(),
-                             key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | key_dir),
-                             key.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::ENCRYPT | key_dir));
-        tls_crypt_recv->init(c.ssl_factory->libctx(),
-                             key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::DECRYPT | key_dir),
-                             key.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::DECRYPT | key_dir));
+        build_tls_crypt(c, is_server(), key, tls_crypt_send, tls_crypt_recv);
     }
 
     void set_dynamic_tls_crypt(const ProtoConfig &c, const KeyContext::Ptr &key_ctx)
@@ -4570,8 +4752,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         // start with key ID 0
         upcoming_key_id = 0;
 
-        unsigned int key_dir;
-
         // tls-auth initialization
         reset_tls_wrap_mode(c);
         switch (tls_wrap_mode)
@@ -4601,24 +4781,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             ta_pid_recv.init("SSL-CC", 0, stats);
             break;
         case TLS_AUTH:
-            // init OvpnHMACInstance
-            ta_hmac_send = c.tls_auth_context->new_obj();
-            ta_hmac_recv = c.tls_auth_context->new_obj();
-
-            // init tls_auth hmac
-            if (c.key_direction >= 0)
-            {
-                // key-direction is 0 or 1
-                key_dir = c.key_direction ? OpenVPNStaticKey::INVERSE : OpenVPNStaticKey::NORMAL;
-                ta_hmac_send->init(c.tls_auth_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | key_dir));
-                ta_hmac_recv->init(c.tls_auth_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::DECRYPT | key_dir));
-            }
-            else
-            {
-                // key-direction bidirectional mode
-                ta_hmac_send->init(c.tls_auth_key.slice(OpenVPNStaticKey::HMAC));
-                ta_hmac_recv->init(c.tls_auth_key.slice(OpenVPNStaticKey::HMAC));
-            }
+            // init OvpnHMACInstance send + recv
+            build_tls_auth(c, ta_hmac_send, ta_hmac_recv);
 
             /**
              * @brief Initialize tls_auth packet ID for the send case
@@ -5085,15 +5249,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     }
 
   private:
-    // TLS wrapping mode for the control channel
-    enum TLSWrapMode
-    {
-        TLS_PLAIN,
-        TLS_AUTH,
-        TLS_CRYPT,
-        TLS_CRYPT_V2
-    };
-
     void reset_all()
     {
         if (primary)
