@@ -212,7 +212,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
   protected:
 #endif
     static constexpr size_t APP_MSG_MAX = 65536;
-    static constexpr int OPCODE_SIZE = 1;
+    // size of the leading opcode/key-id byte of a packet
+    static constexpr size_t OPCODE_SIZE = 1;
 
     enum
     {
@@ -331,6 +332,22 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     OPENVPN_UNTAGGED_EXCEPTION_INHERIT(option_error, proto_error);
     OPENVPN_UNTAGGED_EXCEPTION_INHERIT(option_error, process_server_push_error);
     OPENVPN_UNTAGGED_EXCEPTION_INHERIT(option_error, proto_option_error);
+
+    // Worst-case number of bytes added around the SSL ciphertext of a
+    // control channel packet: opcode, session id, tls-auth/tls-crypt
+    // packet id, the largest supported HMAC digest (SHA512, tls-auth),
+    // the reliable-layer message id and the largest possible piggybacked
+    // ACK block (count byte + ACK ids + dest session id).  Used to size
+    // the control channel ciphertext chunks such that the final wrapped
+    // packet cannot exceed the mssfix_ctrl limit.
+    static constexpr size_t MAX_CONTROL_WRAP_OVERHEAD =
+        OPCODE_SIZE
+        + ProtoSessionID::SIZE
+        + PacketIDControl::size()
+        + 64 // largest supported HMAC digest (SHA512, tls-auth)
+        + sizeof(reliable::id_t)
+        + 1 + sizeof(reliable::id_t) * ReliableAck::maximum_acks_control_v1
+        + ProtoSessionID::SIZE;
 
     // configuration data passed to ProtoContext constructor
     class ProtoConfig : public RCCopyable<thread_unsafe_refcount>
@@ -461,15 +478,21 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
       int remote_peer_id = -1; // -1 to disable
       int local_peer_id = -1;  // -1 to disable
 
-      // MTU
-      unsigned int tun_mtu = TUN_MTU_DEFAULT;
-      unsigned int tun_mtu_max = TUN_MTU_DEFAULT + 100;
-      MSSParms mss_parms;
-      unsigned int mss_fix = 0;
 
-      // For compatibility with openvpn2 we send initial options on rekeying,
-      // instead of possible modifications caused by NCP
-      std::string initial_options;
+        // MTU
+        unsigned int tun_mtu = TUN_MTU_DEFAULT;
+        unsigned int tun_mtu_max = TUN_MTU_DEFAULT + 100;
+        MSSParms mss_parms;
+        unsigned int mss_fix = 0;
+
+        // maximum size of a control channel packet on the wire, after all
+        // wrapping (tls-auth/tls-crypt/tls-crypt-v2) has been applied;
+        // 1280 == IPv6 minimum MTU
+        size_t mssfix_ctrl = 1280;
+
+        // For compatibility with openvpn2 we send initial options on rekeying,
+        // instead of possible modifications caused by NCP
+        std::string initial_options;
 
         bool auth_nocache = false;
 
@@ -505,252 +528,252 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                     throw proto_option_error(ERR_INVALID_OPTION_VAL, "bad dev-type");
             }
 
-    // cipher/digest/tls-auth/tls-crypt
-    {
-        CryptoAlgs::Type cipher = CryptoAlgs::NONE;
-        CryptoAlgs::Type digest = CryptoAlgs::NONE;
-
-        // negotiable data ciphers (openvpn 2.5) ProMIND
-        {
-            CryptoAlgs::Type ncipher = CryptoAlgs::NONE;
-            size_t pos = 0;
-            std::string alg, cconf;
-            const Option *o = opt.get_ptr("data-ciphers");
-
-            if(o)
+            // cipher/digest/tls-auth/tls-crypt
             {
-                negotiable_data_ciphers = o->get(1, 128);
+                CryptoAlgs::Type cipher = CryptoAlgs::NONE;
+                CryptoAlgs::Type digest = CryptoAlgs::NONE;
 
-                if(negotiable_data_ciphers.length() > 0)
+                // negotiable data ciphers (openvpn 2.5) ProMIND
                 {
-                    if(negotiable_data_ciphers.find(":") != std::string::npos)
+                    CryptoAlgs::Type ncipher = CryptoAlgs::NONE;
+                    size_t pos = 0;
+                    std::string alg, cconf;
+                    const Option *o = opt.get_ptr("data-ciphers");
+
+                    if(o)
                     {
-                        cconf = negotiable_data_ciphers;
+                        negotiable_data_ciphers = o->get(1, 128);
 
-                        while((pos = cconf.find(":")) != std::string::npos)
+                        if(negotiable_data_ciphers.length() > 0)
                         {
-                            alg = cconf.substr(0, pos);
+                            if(negotiable_data_ciphers.find(":") != std::string::npos)
+                            {
+                                cconf = negotiable_data_ciphers;
 
-                            ncipher = CryptoAlgs::lookup(alg);
+                                while((pos = cconf.find(":")) != std::string::npos)
+                                {
+                                    alg = cconf.substr(0, pos);
 
-                            cconf.erase(0, pos + 1);
+                                    ncipher = CryptoAlgs::lookup(alg);
 
-                            if(cipher == CryptoAlgs::NONE)
-                              cipher = ncipher;
+                                    cconf.erase(0, pos + 1);
+
+                                    if(cipher == CryptoAlgs::NONE)
+                                      cipher = ncipher;
+                                }
+                                  
+                                if(cconf.length() > 0)
+                                    ncipher = CryptoAlgs::lookup(cconf);
+                            }
+                            else
+                                cipher = CryptoAlgs::lookup(negotiable_data_ciphers);
                         }
-                          
-                        if(cconf.length() > 0)
-                            ncipher = CryptoAlgs::lookup(cconf);
+                        else
+                            cipher = CryptoAlgs::lookup("BF-CBC");
                     }
                     else
-                        cipher = CryptoAlgs::lookup(negotiable_data_ciphers);
-                }
-                else
-                    cipher = CryptoAlgs::lookup("BF-CBC");
-            }
-            else
-            {
-                negotiable_data_ciphers = "";
-
-                o = opt.get_ptr("cipher");
-            
-                if(o)
-                {
-                    alg = o->get(1, 128);
-
-                    if (alg != "none")
-                        cipher = CryptoAlgs::lookup(alg);
-                }
-                else
-                    cipher = CryptoAlgs::lookup("BF-CBC");
-            }
-        }
-
-        /* disabled by ProMIND (master)
-
-        // data channel cipher
-        if(negotiable_data_ciphers == "")
-        {
-            const Option *o = opt.get_ptr("cipher");
-            if (o)
-            {
-                const std::string &cipher_name = o->get(1, 128);
-                if (cipher_name != "none")
-                    cipher = CryptoAlgs::lookup(cipher_name);
-            }
-            else
-                cipher = CryptoAlgs::lookup("BF-CBC");
-        }
-        */
-
-        // data channel HMAC
-        {
-            const Option *o = opt.get_ptr("auth");
-            if (o)
-            {
-                const std::string &auth_name = o->get(1, 128);
-                if (auth_name != "none")
-                    digest = CryptoAlgs::lookup(auth_name);
-            }
-            else
-                digest = CryptoAlgs::lookup("SHA1");
-        }
-        dc.set_cipher(cipher);
-        dc.set_digest(digest);
-
-        // tls-auth
-        {
-            const Option *o = opt.get_ptr(relay_prefix("tls-auth"));
-            if (o)
-            {
-                if (!server && tls_crypt_context)
-                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-auth and tls-crypt are mutually exclusive");
-
-                tls_auth_key.parse(o->get(1, 0));
-
-                const Option *tad = opt.get_ptr(relay_prefix("tls-auth-digest"));
-                if (tad)
-                    digest = CryptoAlgs::lookup(tad->get(1, 128));
-                if (digest != CryptoAlgs::NONE)
-                    set_tls_auth_digest(digest);
-            }
-        }
-
-        // tls-crypt
-        {
-            const Option *o = opt.get_ptr(relay_prefix("tls-crypt"));
-            if (o)
-            {
-                if (!server && tls_auth_context)
-                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-auth and tls-crypt are mutually exclusive");
-                if (tls_crypt_context)
-                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-crypt and tls-crypt-v2 are mutually exclusive");
-
-                tls_crypt_ = TLSCrypt::V1;
-                tls_crypt_key.parse(o->get(1, 0));
-
-                set_tls_crypt_algs();
-            }
-        }
-
-        // tls-crypt-v2
-        {
-            const Option *o = opt.get_ptr(relay_prefix("tls-crypt-v2"));
-            if (o)
-            {
-                if (!server && tls_auth_context)
-                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-auth and tls-crypt-v2 are mutually exclusive");
-                if (tls_crypt_context)
-                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-crypt and tls-crypt-v2 are mutually exclusive");
-
-                // initialize tls_crypt_context
-                set_tls_crypt_algs();
-
-                std::string keyfile = o->get(1, 0);
-
-                if (opt.exists("client"))
-                {
-                    // in client mode expect the key to be a PEM encoded tls-crypt-v2 client key (key + WKc)
-                    TLSCryptV2ClientKey tls_crypt_v2_key(tls_crypt_context);
-                    tls_crypt_v2_key.parse(keyfile);
-                    tls_crypt_v2_key.extract_key(tls_crypt_key);
-                    tls_crypt_v2_key.extract_wkc(wkc);
-                }
-                else
-                {
-                    if (!tls_crypt_v2_serverkey_id)
                     {
-                        // in server mode this is a PEM encoded tls-crypt-v2 server key
-                        TLSCryptV2ServerKey tls_crypt_v2_key;
-                        tls_crypt_v2_key.parse(keyfile);
-                        tls_crypt_v2_key.extract_key(tls_crypt_key);
+                        negotiable_data_ciphers = "";
+
+                        o = opt.get_ptr("cipher");
+                    
+                        if(o)
+                        {
+                            alg = o->get(1, 128);
+
+                            if (alg != "none")
+                                cipher = CryptoAlgs::lookup(alg);
+                        }
+                        else
+                            cipher = CryptoAlgs::lookup("BF-CBC");
                     }
                 }
-                tls_crypt_ = TLSCrypt::V2;
-            }
-        }
-    }
 
-    // key-direction
-    {
-        if (key_direction >= -1 && key_direction <= 1)
-        {
-            const Option *o = opt.get_ptr(relay_prefix("key-direction"));
-            if (o)
-            {
-                const std::string &dir = o->get(1, 16);
-                if (dir == "0")
-                    key_direction = 0;
-                else if (dir == "1")
-                    key_direction = 1;
-                else if (dir == "bidirectional" || dir == "bi")
-                    key_direction = -1;
-                else
-                    throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "bad key-direction parameter");
-            }
-        }
-        else
-            throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "bad key-direction default");
-    }
+                /* disabled by ProMIND (master)
 
-    // compression
-    {
-        const Option *o = opt.get_ptr("compress");
-        if (o)
-        {
-            if (o->size() >= 2)
-            {
-                const std::string meth_name = o->get(1, 128);
-                CompressContext::Type meth = CompressContext::parse_method(meth_name);
-                if (meth == CompressContext::NONE)
-                    OPENVPN_THROW_ARG1(proto_option_error, ERR_INVALID_OPTION_VAL, "Unknown compressor: '" << meth_name << '\'');
-                comp_ctx = CompressContext(pco.is_comp() ? meth : CompressContext::stub(meth), pco.is_comp_asym());
-            }
-            else
-                comp_ctx = CompressContext(pco.is_comp() ? CompressContext::ANY : CompressContext::COMP_STUB, pco.is_comp_asym());
-        }
-        else
-        {
-            o = opt.get_ptr("comp-lzo");
-            if (o)
-            {
-                if (o->size() == 2 && o->ref(1) == "no")
+                // data channel cipher
+                if(negotiable_data_ciphers == "")
                 {
-                    // On the client, by using ANY instead of ANY_LZO, we are telling the server
-                    // that it's okay to use any of our supported compression methods.
-                    comp_ctx = CompressContext(pco.is_comp() ? CompressContext::ANY : CompressContext::LZO_STUB, pco.is_comp_asym());
+                    const Option *o = opt.get_ptr("cipher");
+                    if (o)
+                    {
+                        const std::string &cipher_name = o->get(1, 128);
+                        if (cipher_name != "none")
+                            cipher = CryptoAlgs::lookup(cipher_name);
+                    }
+                    else
+                        cipher = CryptoAlgs::lookup("BF-CBC");
                 }
-                else
+                */
+
+                // data channel HMAC
                 {
-                    comp_ctx = CompressContext(pco.is_comp() ? CompressContext::LZO : CompressContext::LZO_STUB, pco.is_comp_asym());
+                    const Option *o = opt.get_ptr("auth");
+                    if (o)
+                    {
+                        const std::string &auth_name = o->get(1, 128);
+                        if (auth_name != "none")
+                            digest = CryptoAlgs::lookup(auth_name);
+                    }
+                    else
+                        digest = CryptoAlgs::lookup("SHA1");
                 }
+                dc.set_cipher(cipher);
+                dc.set_digest(digest);
+
+                // tls-auth
+                {
+                    const Option *o = opt.get_ptr(relay_prefix("tls-auth"));
+                    if (o)
+                    {
+                        if (!server && tls_crypt_context)
+                            throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-auth and tls-crypt are mutually exclusive");
+
+                        tls_auth_key.parse(o->get(1, 0));
+
+                        const Option *tad = opt.get_ptr(relay_prefix("tls-auth-digest"));
+                        if (tad)
+                            digest = CryptoAlgs::lookup(tad->get(1, 128));
+                        if (digest != CryptoAlgs::NONE)
+                            set_tls_auth_digest(digest);
+                    }
+                }
+
+                // tls-crypt
+                {
+                    const Option *o = opt.get_ptr(relay_prefix("tls-crypt"));
+                    if (o)
+                    {
+                        if (!server && tls_auth_context)
+                            throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-auth and tls-crypt are mutually exclusive");
+                        if (tls_crypt_context)
+                            throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-crypt and tls-crypt-v2 are mutually exclusive");
+
+                        tls_crypt_ = TLSCrypt::V1;
+                        tls_crypt_key.parse(o->get(1, 0));
+
+                        set_tls_crypt_algs();
+                    }
+                }
+
+                // tls-crypt-v2
+                {
+                    const Option *o = opt.get_ptr(relay_prefix("tls-crypt-v2"));
+                    if (o)
+                    {
+                        if (!server && tls_auth_context)
+                            throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-auth and tls-crypt-v2 are mutually exclusive");
+                        if (tls_crypt_context)
+                            throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "tls-crypt and tls-crypt-v2 are mutually exclusive");
+
+                        // initialize tls_crypt_context
+                        set_tls_crypt_algs();
+
+                        std::string keyfile = o->get(1, 0);
+
+                        if (opt.exists("client"))
+                        {
+                            // in client mode expect the key to be a PEM encoded tls-crypt-v2 client key (key + WKc)
+                            TLSCryptV2ClientKey tls_crypt_v2_key(tls_crypt_context);
+                            tls_crypt_v2_key.parse(keyfile);
+                            tls_crypt_v2_key.extract_key(tls_crypt_key);
+                            tls_crypt_v2_key.extract_wkc(wkc);
+                        }
+                        else
+                        {
+                            if (!tls_crypt_v2_serverkey_id)
+                            {
+                                // in server mode this is a PEM encoded tls-crypt-v2 server key
+                                TLSCryptV2ServerKey tls_crypt_v2_key;
+                                tls_crypt_v2_key.parse(keyfile);
+                                tls_crypt_v2_key.extract_key(tls_crypt_key);
+                            }
+                        }
+                        tls_crypt_ = TLSCrypt::V2;
+                    }
+                }
+
+                // key-direction
+                {
+                    if (key_direction >= -1 && key_direction <= 1)
+                    {
+                        const Option *o = opt.get_ptr(relay_prefix("key-direction"));
+                        if (o)
+                        {
+                            const std::string &dir = o->get(1, 16);
+                            if (dir == "0")
+                                key_direction = 0;
+                            else if (dir == "1")
+                                key_direction = 1;
+                            else if (dir == "bidirectional" || dir == "bi")
+                                key_direction = -1;
+                            else
+                                throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "bad key-direction parameter");
+                        }
+                    }
+                    else
+                        throw proto_option_error(ERR_INVALID_OPTION_CRYPTO, "bad key-direction default");
+                }
+
+                // compression
+                {
+                    const Option *o = opt.get_ptr("compress");
+                    if (o)
+                    {
+                        if (o->size() >= 2)
+                        {
+                            const std::string meth_name = o->get(1, 128);
+                            CompressContext::Type meth = CompressContext::parse_method(meth_name);
+                            if (meth == CompressContext::NONE)
+                                OPENVPN_THROW_ARG1(proto_option_error, ERR_INVALID_OPTION_VAL, "Unknown compressor: '" << meth_name << '\'');
+                            comp_ctx = CompressContext(pco.is_comp() ? meth : CompressContext::stub(meth), pco.is_comp_asym());
+                        }
+                        else
+                            comp_ctx = CompressContext(pco.is_comp() ? CompressContext::ANY : CompressContext::COMP_STUB, pco.is_comp_asym());
+                    }
+                    else
+                    {
+                        o = opt.get_ptr("comp-lzo");
+                        if (o)
+                        {
+                            if (o->size() == 2 && o->ref(1) == "no")
+                            {
+                                // On the client, by using ANY instead of ANY_LZO, we are telling the server
+                                // that it's okay to use any of our supported compression methods.
+                                comp_ctx = CompressContext(pco.is_comp() ? CompressContext::ANY : CompressContext::LZO_STUB, pco.is_comp_asym());
+                            }
+                            else
+                            {
+                                comp_ctx = CompressContext(pco.is_comp() ? CompressContext::LZO : CompressContext::LZO_STUB, pco.is_comp_asym());
+                            }
+                        }
+                    }
+                }
+
+                // tun-mtu
+                tun_mtu = parse_tun_mtu(opt, tun_mtu);
+                tun_mtu_max = parse_tun_mtu_max(opt, tun_mtu_max);
+
+                // mssfix
+                mss_parms.parse(opt, true);
+                if (mss_parms.mssfix_default)
+                  {
+                    if (tun_mtu == TUN_MTU_DEFAULT)
+                      {
+                        mss_parms.mssfix = MSSParms::MSSFIX_DEFAULT;
+                        mss_parms.mtu = true;
+                      }
+                    else
+                      {
+                        mss_parms.mssfix = tun_mtu;
+                        mss_parms.fixed = true;
+                      }
+                  }
+
+                // load parameters that can be present in both config file or pushed options
+                load_common(opt, pco, server ? LOAD_COMMON_SERVER : LOAD_COMMON_CLIENT);
             }
         }
-    }
-
-	// tun-mtu
-	tun_mtu = parse_tun_mtu(opt, tun_mtu);
-	tun_mtu_max = parse_tun_mtu_max(opt, tun_mtu_max);
-
-	// mssfix
-	mss_parms.parse(opt, true);
-	if (mss_parms.mssfix_default)
-	  {
-	    if (tun_mtu == TUN_MTU_DEFAULT)
-	      {
-		mss_parms.mssfix = MSSParms::MSSFIX_DEFAULT;
-		mss_parms.mtu = true;
-	      }
-	    else
-	      {
-		mss_parms.mssfix = tun_mtu;
-		mss_parms.fixed = true;
-	      }
-	  }
-
-	// load parameters that can be present in both config file or pushed options
-	load_common(opt, pco, server ? LOAD_COMMON_SERVER : LOAD_COMMON_CLIENT);
-      }
 
         /**
          * Fire up the infrastructure needed in order to be able to process dynamic
@@ -1795,6 +1818,10 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     {
         using Base = ProtoStackBase<Packet, KeyContext>;
         friend Base;
+#ifdef UNIT_TEST
+        // test seam: lets ProtoContext::force_resend_wkc() set resend_wkc
+        friend class ProtoContext;
+#endif
         using ReliableSend = Base::ReliableSend;
         using ReliableRecv = Base::ReliableRecv;
 
@@ -3347,6 +3374,62 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	  }
       }
 
+
+        // True if the control packet with the given reliable-layer id will
+        // carry the tls-crypt-v2 wrapped client key (WKc), appended after the
+        // payload during encapsulation.  Used both to select the CONTROL_WKC_V1
+        // opcode and to reserve room for the WKc when filling the packet with
+        // ciphertext.
+        bool packet_carries_wkc(id_t id) const
+        {
+            return id == 1 && resend_wkc && proto.tls_wrap_mode == TLS_CRYPT_V2;
+        }
+
+        // Worst-case number of bytes this control packet will carry around
+        // the SSL ciphertext once encapsulated and wrapped: the tls wrap
+        // header (opcode, session id, packet id, hmac) plus the reliable
+        // layer message id and the largest possible piggybacked ACK block.
+        // ACKs must be accounted for at their maximum, since retransmits
+        // re-run encapsulate() with whatever ACKs are pending at that time.
+        size_t control_channel_wrap_overhead() const
+        {
+            size_t overhead = OPCODE_SIZE + ProtoSessionID::SIZE + proto.hmac_size;
+            if (proto.tls_wrap_mode != TLS_PLAIN)
+                overhead += PacketIDControl::size();
+            // reliable layer message id
+            overhead += sizeof(id_t);
+            // worst-case ACK block: count byte + ACK ids + dest session id
+            overhead += 1 + sizeof(id_t) * ReliableAck::maximum_acks_control_v1
+                        + ProtoSessionID::SIZE;
+            return overhead;
+        }
+
+        // Maximum amount of SSL ciphertext that may be placed into the control
+        // packet with the given id, such that the fully wrapped packet does
+        // not exceed the mssfix_ctrl limit.  For the packet that also carries
+        // the WKc, the WKc length is subtracted as well.  Called by
+        // ProtoStackBase.
+        size_t control_ciphertext_capacity(id_t id) const
+        {
+            size_t capacity = (*proto.config->frame)[Frame::READ_BIO_MEMQ_STREAM].payload();
+
+            // never let the fully wrapped packet exceed mssfix_ctrl
+            size_t wire_budget = proto.config->mssfix_ctrl;
+            wire_budget -= std::min(wire_budget, control_channel_wrap_overhead());
+            capacity = std::min(capacity, wire_budget);
+
+            if (packet_carries_wkc(id) && proto.config->wkc.defined())
+            {
+                // clamp: a large WKc could exceed a small budget (mssfix-ctrl
+                // can go as low as 256); never let the subtraction wrap.  A
+                // zero capacity yields a CONTROL_WKC_V1 packet carrying the
+                // WKc alone, with all ciphertext deferred to the following
+                // messages.
+                capacity -= std::min(capacity, proto.config->wkc.size());
+            }
+            return capacity;
+        }
+
       void encapsulate(id_t id, Packet& pkt) // called by ProtoStackBase
       {
 	BufferAllocated& buf = *pkt.buf;
@@ -3367,15 +3450,15 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	gen_head(opcode, buf);
       }
 
-      void generate_ack(Packet& pkt) // called by ProtoStackBase
-      {
-	BufferAllocated& buf = *pkt.buf;
+        void generate_ack(Packet &pkt) // called by ProtoStackBase
+        {
+            BufferAllocated &buf = *pkt.buf;
 
-	// prepend dest PSID and ACKs to reply to peer
-        prepend_dest_psid_and_acks(buf, pkt.opcode);
+            // prepend dest PSID and ACKs to reply to peer
+            prepend_dest_psid_and_acks(buf, pkt.opcode);
 
-	gen_head(ACK_V1, buf);
-      }
+            gen_head(ACK_V1, buf);
+        }
 
         bool decapsulate_post_process(Packet &pkt, ProtoSessionID &src_psid, const PacketIDControl pid)
         {
@@ -4310,6 +4393,17 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         primary->start(cookie_psid);
         update_last_received(); // set an upper bound on when we expect a response
     }
+
+#ifdef UNIT_TEST
+    // Test seam: pretend the server requested resending the tls-crypt-v2 WKc
+    // (EARLY_NEG_FLAG_RESEND_WKC), so the first control packet carrying SSL
+    // ciphertext is emitted as CONTROL_WKC_V1 with the WKc appended.
+    void force_resend_wkc()
+    {
+        if (primary)
+            primary->resend_wkc = true;
+    }
+#endif
 
     // trigger a protocol renegotiation
     void renegotiate()
