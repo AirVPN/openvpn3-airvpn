@@ -282,6 +282,11 @@ inline T optional<T>::operator*()
     return const_cast<T &>(*(std::as_const(*this)));
 }
 
+/// \cond KNOWN_WARNINGS
+/// warning: no uniquely matching class member found for the operator->() overloads.
+/// Newer doxygen cannot match these constrained, trailing-return-type out-of-line
+/// definitions to their in-class declarations because the two overloads differ only
+/// in const-qualification. The declarations above carry the documentation.
 template <typename T>
     requires std::is_reference_v<T>
 inline auto optional<T>::operator->() const -> const value_type *
@@ -297,5 +302,6 @@ inline auto optional<T>::operator->() -> value_type *
 {
     return const_cast<value_type *>(std::as_const(*this).operator->());
 }
+/// \endcond
 
 } // namespace openvpn
