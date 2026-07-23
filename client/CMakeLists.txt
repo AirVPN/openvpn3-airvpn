@@ -4,8 +4,8 @@ include(findswigdeps)
 if (BUILD_SWIG_LIB)
     set_property(SOURCE ovpncli.i PROPERTY CPLUSPLUS ON)
     if (NOT MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        # Swig generates code with deprecated python declarations
-        set_property(SOURCE ovpncli.i PROPERTY GENERATED_COMPILE_OPTIONS -Wno-deprecated-declarations -Wno-sometimes-uninitialized -Wno-class-memaccess -Wno-unused-function -Wno-unknown-warning-option)
+        # Swig generates code with issues
+	set_property(SOURCE ovpncli.i PROPERTY GENERATED_COMPILE_OPTIONS -Wno-deprecated-declarations -Wno-sometimes-uninitialized -Wno-class-memaccess -Wno-unused-function -Wno-unknown-warning-option -Wno-conversion)
     endif()
 
     swig_add_library(ovpnclilib
