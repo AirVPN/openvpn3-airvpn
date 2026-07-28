@@ -86,7 +86,7 @@ class HTTPContext
         if (debug_level_ >= 2)
             ssl_flags |= SSLConst::LOG_VERIFY_STATUS;
 
-        // make SSL context using awspc_web_cert() as our CA bundle
+        // make SSL context using api_ca() as our CA bundle
         SSLLib::SSLAPI::Config::Ptr ssl(new SSLLib::SSLAPI::Config);
         ssl->set_mode(Mode(Mode::CLIENT));
         ssl->load_ca(api_ca(), false);

@@ -10,8 +10,6 @@
 //
 
 // Get AWS info such as instanceId, region, and privateIp.
-// Also optionally call AWSPC API with product code to get
-// number of licensed concurrent connections.
 
 #pragma once
 
@@ -21,14 +19,10 @@
 #include <openvpn/aws/awscreds.hpp>
 #include <openvpn/ws/httpcliset.hpp>
 #include <openvpn/common/jsonhelper.hpp>
-#include <openvpn/common/hexstr.hpp>
 #include <openvpn/common/enumdir.hpp>
 #include <openvpn/common/file.hpp>
-#include <openvpn/random/devurand.hpp>
 #include <openvpn/frame/frame_init.hpp>
-#include <openvpn/openssl/sign/verify.hpp>
 #include <openvpn/openssl/sign/pkcs7verify.hpp>
-#include <openvpn/ssl/sslchoose.hpp>
 
 namespace openvpn::AWS {
 
@@ -48,7 +42,6 @@ class PCQuery : public RC<thread_unsafe_refcount>
 
         Creds creds;
 
-        int concurrentConnections = -1;
         std::string error;
 
         bool is_error() const
@@ -61,14 +54,12 @@ class PCQuery : public RC<thread_unsafe_refcount>
             return !instanceId.empty() && !region.empty() && !privateIp.empty();
         }
 
-        // example: [instanceId=i-ae91d23e region=us-east-1 privateIp=10.0.0.218 concurrentConnections=10]
+        // example: [instanceId=i-ae91d23e region=us-east-1 privateIp=10.0.0.218]
         std::string to_string() const
         {
             std::string ret = "[instanceId=" + instanceId + " region=" + region;
             if (!privateIp.empty())
                 ret += " privateIp=" + privateIp;
-            if (concurrentConnections >= 0)
-                ret += " concurrentConnections=" + std::to_string(concurrentConnections);
             if (!error.empty())
                 ret += " error='" + error + '\'';
             ret += ']';
@@ -77,12 +68,9 @@ class PCQuery : public RC<thread_unsafe_refcount>
     };
 
     PCQuery(WS::ClientSet::Ptr cs_arg,
-            const bool lookup_product_code_arg,
             const int debug_level_arg)
         : cs(std::move(cs_arg)),
-          rng(new DevURand()),
           frame(frame_init_simple(1024)),
-          lookup_product_code(lookup_product_code_arg),
           debug_level(debug_level_arg)
     {
     }
@@ -91,9 +79,7 @@ class PCQuery : public RC<thread_unsafe_refcount>
             const std::string &role_for_credentials_arg,
             const std::string &certs_dir_arg)
         : cs(std::move(cs_arg)),
-          rng(new DevURand()),
           frame(frame_init_simple(1024)),
-          lookup_product_code(false),
           debug_level(0),
           role_for_credentials(role_for_credentials_arg),
           certs_dir(certs_dir_arg)
@@ -230,21 +216,9 @@ class PCQuery : public RC<thread_unsafe_refcount>
                 info.privateIp = json::get_string(root, "privateIp", title);
             }
 
-            if (lookup_product_code)
-            {
-                WS::ClientSet::Transaction &pc_trans = *lts.transactions.at(2);
-                if (pc_trans.request_status_success())
-                {
-                    const std::string pc = pc_trans.content_in.to_string();
-                    queue_pc_validation(pc);
-                }
-                else
-                    done("could not fetch AWS product code: " + pc_trans.format_status(lts));
-            }
-
             if (!role_for_credentials.empty())
             {
-                WS::ClientSet::Transaction &cred_trans = *lts.transactions.at(lookup_product_code ? 3 : 2);
+                WS::ClientSet::Transaction &cred_trans = *lts.transactions.at(2);
                 if (cred_trans.request_status_success())
                 {
                     const std::string creds = cred_trans.content_in.to_string();
@@ -300,16 +274,6 @@ class PCQuery : public RC<thread_unsafe_refcount>
             }
 
             // transaction #3
-            if (lookup_product_code)
-            {
-                std::unique_ptr<WS::ClientSet::Transaction> t(new WS::ClientSet::Transaction);
-                t->req.method = "GET";
-                t->req.uri = "/latest/meta-data/product-codes";
-                t->ci.extra_headers.emplace_back("X-aws-ec2-metadata-token: " + token);
-                ts->transactions.push_back(std::move(t));
-            }
-
-            // transaction #4
             if (!role_for_credentials.empty())
             {
                 std::unique_ptr<WS::ClientSet::Transaction> t(new WS::ClientSet::Transaction);
@@ -332,181 +296,6 @@ class PCQuery : public RC<thread_unsafe_refcount>
         {
             done(e.what());
         }
-    }
-
-    void queue_pc_validation(const std::string &pc)
-    {
-        if (debug_level >= 3)
-            OPENVPN_LOG("PRODUCT CODE: " << pc);
-
-        // SSL flags
-        unsigned int ssl_flags = SSLConst::ENABLE_CLIENT_SNI;
-        if (debug_level >= 1)
-            ssl_flags |= SSLConst::LOG_VERIFY_STATUS;
-
-        // make SSL context using awspc_web_cert() as our CA bundle
-        SSLLib::SSLAPI::Config::Ptr ssl(new SSLLib::SSLAPI::Config);
-        ssl->set_mode(Mode(Mode::CLIENT));
-        ssl->load_ca(awspc_web_cert(), false);
-        ssl->set_local_cert_enabled(false);
-        ssl->set_tls_version_min(TLSVersion::Type::V1_2);
-        ssl->set_remote_cert_tls(KUParse::TLS_WEB_SERVER);
-        ssl->set_flags(ssl_flags);
-        ssl->set_frame(frame);
-        ssl->set_rng(rng);
-
-        // make HTTP context
-        WS::Client::Config::Ptr hc(new WS::Client::Config());
-        hc->frame = frame;
-        hc->ssl_factory = ssl->new_factory();
-        hc->user_agent = "PG";
-        hc->connect_timeout = 30;
-        hc->general_timeout = 60;
-
-        // make host list
-        WS::ClientSet::HostRetry::Ptr hr(new WS::ClientSet::HostRetry(
-            "awspc1.openvpn.net",
-            "awspc2.openvpn.net"));
-
-        // make transaction set
-        WS::ClientSet::TransactionSet::Ptr ts = new WS::ClientSet::TransactionSet;
-        ts->host.host = hr->next_host();
-        ts->host.port = "443";
-        ts->http_config = hc;
-        ts->error_recovery = hr;
-        ts->max_retries = 5;
-        ts->retry_duration = Time::Duration::seconds(5);
-        ts->debug_level = debug_level;
-
-        // transaction #1
-        {
-            std::unique_ptr<WS::ClientSet::Transaction> t(new WS::ClientSet::Transaction);
-            t->req.uri = "/prod/AwsPC";
-            t->req.method = "POST";
-            t->ci.type = "application/json";
-            t->randomize_resolver_results = true;
-
-            Json::Value root(Json::objectValue);
-            root["region"] = Json::Value(info.region);
-            root["identityIp"] = Json::Value(info.privateIp);
-            root["host"] = Json::Value(openvpn_io::ip::host_name());
-            root["instanceId"] = Json::Value(info.instanceId);
-            root["productCode"] = Json::Value(pc);
-            root["nonce"] = Json::Value(nonce());
-            const std::string jreq = root.toStyledString();
-            t->content_out.push_back(buf_from_string(jreq));
-            awspc_req = std::move(root);
-
-            ts->transactions.push_back(std::move(t));
-
-            if (debug_level >= 3)
-                OPENVPN_LOG("AWSPC REQ\n"
-                            << jreq);
-        }
-
-        // completion handler
-        ts->completion = [self = Ptr(this)](WS::ClientSet::TransactionSet &ts)
-        {
-            self->awspc_query_complete(ts);
-        };
-
-        // do the request
-        cs->new_request(ts);
-    }
-
-    void awspc_query_complete(WS::ClientSet::TransactionSet &ats)
-    {
-        try
-        {
-            const std::string title = "awspc-reply";
-
-            // get transactions and check that they succeeded
-            WS::ClientSet::Transaction &trans = *ats.transactions.at(0);
-            if (!trans.request_status_success())
-            {
-                done("awspc server error: " + trans.format_status(ats));
-                return;
-            }
-
-            // check content-type
-            if (trans.reply.headers.get_value_trim("content-type") != "application/json")
-            {
-                done("expected application/json reply from awspc server");
-                return;
-            }
-
-            // parse JSON reply
-            const std::string jtxt = trans.content_in.to_string();
-            const Json::Value root = json::parse(jtxt, title);
-            if (debug_level >= 3)
-                OPENVPN_LOG("AWSPC REPLY\n"
-                            << root.toStyledString());
-
-            // check for errors
-            if (json::exists(root, "errorMessage"))
-            {
-                const std::string em = json::get_string(root, "errorMessage", title);
-                const std::string et = json::get_string_optional(root, "errorType", "unspecified-error", title);
-                done(et + " : " + em);
-                return;
-            }
-
-            // verify consistency of region, instanceId, productCode, and nonce
-            if (!awspc_req_verify_consistency(root))
-            {
-                done("awspc request/reply consistency");
-                return;
-            }
-
-            // verify reply signature
-            {
-                const std::string line_to_sign = to_string_sig(root);
-                if (debug_level >= 3)
-                    OPENVPN_LOG("LINE TO SIGN: " << line_to_sign);
-                const std::string sig = json::get_string(root, "signature", title);
-                const OpenSSLPKI::X509 cert(awspc_signing_cert(), "awspc-cert");
-                OpenSSLSign::verify(cert, sig, line_to_sign, "sha256");
-            }
-
-            // get concurrent connections
-            info.concurrentConnections = json::get_int(root, "concurrentConnections", title);
-            done("");
-        }
-        catch (const std::exception &e)
-        {
-            done(e.what());
-        }
-    }
-
-    bool awspc_req_verify_consistency(const Json::Value &reply,
-                                      const std::string &key) const
-    {
-        return json::get_string(reply, key, "awspc-verify-reply") == json::get_string(awspc_req, key, "awspc-verify-request");
-    }
-
-    bool awspc_req_verify_consistency(const Json::Value &reply) const
-    {
-        return awspc_req_verify_consistency(reply, "region")
-               && awspc_req_verify_consistency(reply, "instanceId")
-               && awspc_req_verify_consistency(reply, "productCode")
-               && awspc_req_verify_consistency(reply, "nonce");
-    }
-
-    static std::string to_string_sig(const Json::Value &reply)
-    {
-        const std::string title = "to-string-sig";
-        return json::get_string(reply, "region", title)
-               + '/' + json::get_string(reply, "instanceId", title)
-               + '/' + json::get_string(reply, "productCode", title)
-               + '/' + json::get_string(reply, "nonce", title)
-               + '/' + std::to_string(json::get_int(reply, "concurrentConnections", title));
-    }
-
-    std::string nonce() const
-    {
-        unsigned char data[16];
-        rng->rand_fill(data);
-        return render_hex(data, sizeof(data));
     }
 
     // The AWS cert for PKCS#7 validation of AWS identity document
@@ -533,69 +322,14 @@ class PCQuery : public RC<thread_unsafe_refcount>
             "-----END CERTIFICATE-----\n");
     }
 
-    // The OpenVPN Tech. lambda web cert
-    static std::string awspc_web_cert()
-    {
-        // Go Daddy Root Certificate Authority - G2
-        return std::string(
-            "-----BEGIN CERTIFICATE-----\n"
-            "MIIDxTCCAq2gAwIBAgIBADANBgkqhkiG9w0BAQsFADCBgzELMAkGA1UEBhMCVVMxEDAOBgNVBAgT\n"
-            "B0FyaXpvbmExEzARBgNVBAcTClNjb3R0c2RhbGUxGjAYBgNVBAoTEUdvRGFkZHkuY29tLCBJbmMu\n"
-            "MTEwLwYDVQQDEyhHbyBEYWRkeSBSb290IENlcnRpZmljYXRlIEF1dGhvcml0eSAtIEcyMB4XDTA5\n"
-            "MDkwMTAwMDAwMFoXDTM3MTIzMTIzNTk1OVowgYMxCzAJBgNVBAYTAlVTMRAwDgYDVQQIEwdBcml6\n"
-            "b25hMRMwEQYDVQQHEwpTY290dHNkYWxlMRowGAYDVQQKExFHb0RhZGR5LmNvbSwgSW5jLjExMC8G\n"
-            "A1UEAxMoR28gRGFkZHkgUm9vdCBDZXJ0aWZpY2F0ZSBBdXRob3JpdHkgLSBHMjCCASIwDQYJKoZI\n"
-            "hvcNAQEBBQADggEPADCCAQoCggEBAL9xYgjx+lk09xvJGKP3gElY6SKDE6bFIEMBO4Tx5oVJnyfq\n"
-            "9oQbTqC023CYxzIBsQU+B07u9PpPL1kwIuerGVZr4oAH/PMWdYA5UXvl+TW2dE6pjYIT5LY/qQOD\n"
-            "+qK+ihVqf94Lw7YZFAXK6sOoBJQ7RnwyDfMAZiLIjWltNowRGLfTshxgtDj6AozO091GB94KPutd\n"
-            "fMh8+7ArU6SSYmlRJQVhGkSBjCypQ5Yj36w6gZoOKcUcqeldHraenjAKOc7xiID7S13MMuyFYkMl\n"
-            "NAJWJwGRtDtwKj9useiciAF9n9T521NtYJ2/LOdYq7hfRvzOxBsDPAnrSTFcaUaz4EcCAwEAAaNC\n"
-            "MEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFDqahQcQZyi27/a9\n"
-            "BUFuIMGU2g/eMA0GCSqGSIb3DQEBCwUAA4IBAQCZ21151fmXWWcDYfF+OwYxdS2hII5PZYe096ac\n"
-            "vNjpL9DbWu7PdIxztDhC2gV7+AJ1uP2lsdeu9tfeE8tTEH6KRtGX+rcuKxGrkLAngPnon1rpN5+r\n"
-            "5N9ss4UXnT3ZJE95kTXWXwTrgIOrmgIttRD02JDHBHNA7XIloKmf7J6raBKZV8aPEjoJpL1E/QYV\n"
-            "N8Gb5DKj7Tjo2GTzLH4U/ALqn83/B2gX2yKQOC16jdFU8WnjXzPKej17CuPKf1855eJ1usV2GDPO\n"
-            "LPAvTK33sefOT6jEm0pUBsV/fdUID+Ic/n4XuKxe9tQWskMJDE32p2u0mYRlynqI4uJEvlz36hz1\n"
-            "-----END CERTIFICATE-----\n");
-    }
-
-    // The OpenVPN Tech. lambda response signing cert
-    static std::string awspc_signing_cert()
-    {
-        return std::string(
-            "-----BEGIN CERTIFICATE-----\n"
-            "MIIDSDCCAjCgAwIBAgIQYadxADonNbu3mPeXR0yYVTANBgkqhkiG9w0BAQsFADAW\n"
-            "MRQwEgYDVQQDEwtBV1MgUEMgUm9vdDAeFw0xNjAzMDExOTU2NTZaFw0yNjAyMjcx\n"
-            "OTU2NTZaMBAxDjAMBgNVBAMTBWF3c3BjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\n"
-            "MIIBCgKCAQEA0ggZoYroOMwDHKCngVOdUKiF6y65LDWmbAwZVqwVI7WYpvOELV34\n"
-            "04ZYtSqPq6IoGFuH6zl0P5rCi674T0oBPSUTmlLwLks+1zrGznboApkr67Mf2dCd\n"
-            "snlyaNPuwrjWHJBa6Pi9dv/YMoJgDxOxk9mslAlcl5xOFgXbfSj1pAA0KVzwwbzz\n"
-            "dnznJL67wCnuiAeqBxbkyarfOL414tepsI24kHoAddAVDdhWQ2WkhrT/vK2IRdGZ\n"
-            "kU5hAAz/qPKkJxebw5uc+cL2TBii2r0Hvg7tEXI9eIEWeoghftsE5YEuaQHP4EVL\n"
-            "JU+21OQzz0lT9L2rrvffTR7cF89Nbn2KMQIDAQABo4GXMIGUMAkGA1UdEwQCMAAw\n"
-            "HQYDVR0OBBYEFAMy6uiElCGZVP/wwJeqvXL7QHTSMEYGA1UdIwQ/MD2AFLDKS6Dk\n"
-            "NtTpQoOPxJi+DRS+GD2CoRqkGDAWMRQwEgYDVQQDEwtBV1MgUEMgUm9vdIIJAOu5\n"
-            "NqrIe040MBMGA1UdJQQMMAoGCCsGAQUFBwMCMAsGA1UdDwQEAwIHgDANBgkqhkiG\n"
-            "9w0BAQsFAAOCAQEAsFhhC9wwybTS2yTYiStATbxHWqnHJRrbMBpqX8FJweS1MM/j\n"
-            "pwr1suTllwTHpqXpqgN6SDzdeG2ZKx8pvJr/dlmD9e+cHguIMTo6TcqPv1MPl3MZ\n"
-            "ugOmDPlgmFYwAWBwzujiGR9bgdGfzw+94KK06iO8MrFLtkz9EbeoJol68mi98CEz\n"
-            "kmOb2BM6tVzkvB9fIYyNkW66ZJs2gXwb6RZTyE9HMMGR67nWKYo9SxpB6f+6hlyU\n"
-            "q7ptxP2Rwmz0u1pRaZdfHmJFOJnPniB7UmMx/t3ftqYWYDXuobr3LVvg7+33WUk0\n"
-            "HfSdbAEkzzC82UTHj0xVH/uZZt8ORChRxuIWZQ==\n"
-            "-----END CERTIFICATE-----\n");
-    }
-
     WS::ClientSet::Ptr cs;
-    StrongRandomAPI::Ptr rng;
     Frame::Ptr frame;
-    const bool lookup_product_code;
     const int debug_level;
     std::string role_for_credentials;
     std::string certs_dir;
 
     std::function<void(Info info)> completion;
     Info info;
-    Json::Value awspc_req;
     bool pending = false;
 };
 } // namespace openvpn::AWS
