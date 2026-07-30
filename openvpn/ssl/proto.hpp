@@ -2607,6 +2607,12 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         static bool validate_tls_crypt(Buffer &recv, ProtoContext &proto, TimePtr now)
         {
+            // in TLS_CRYPT_V2 mode the receive context stays unset until a WKc has been
+            // unwrapped, so a packet reaching here before that has nothing to be judged
+            // with -- whichever opcodes validate() lets past it
+            if (!proto.tls_crypt_recv)
+                return false;
+
             const unsigned char *orig_data = recv.data();
             const size_t orig_size = recv.size();
 
@@ -3218,6 +3224,12 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         void gen_head_tls_crypt(const unsigned int opcode, BufferAllocated &buf)
         {
+            // The send context stays unset until a WKc has been unwrapped, and decapsulate()
+            // can put a session into TLS_CRYPT_V2 mode before that ever happens. Giving up
+            // this session is caught per session, where the dereference below would not be.
+            if (!proto.tls_crypt_send)
+                throw proto_error("gen_head_tls_crypt: no tls-crypt send context");
+
             // in 'work' we store all the fields that are not supposed to be encrypted
             proto.config->frame->prepare(Frame::ENCRYPT_WORK, work);
             // make space for HMAC
@@ -3473,6 +3485,17 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         bool decapsulate_tls_crypt(Packet &pkt)
         {
+            // in TLS_CRYPT_V2 mode the receive context stays unset until a WKc has been
+            // unwrapped, so any other opcode reaching us before that has no key to be
+            // decrypted with
+            if (!proto.tls_crypt_recv)
+            {
+                proto.stats->error(Error::CC_ERROR);
+                if (proto.is_tcp())
+                    invalidate(Error::CC_ERROR);
+                return false;
+            }
+
             auto &recv = *pkt.buf;
             const unsigned char *orig_data = recv.data();
             const size_t orig_size = recv.size();
@@ -3602,6 +3625,19 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                         // unwrap WKc and extract Kc (client key) from packet.
                         // This way we can initialize the tls-crypt per-client contexts
                         // (this happens on the server side only)
+                        //
+                        // A session the psid cookie layer created has no server context:
+                        // its WKc was unwrapped before the session existed, so a further
+                        // copy of the first packet has nothing left to unwrap it with. A
+                        // late duplicate of a packet we already acted on is not an error,
+                        // so drop it without counting one.
+                        if (!proto.tls_crypt_server)
+                        {
+                            OVPN_LOG_VERBOSE(proto.debug_prefix()
+                                             << " DROPPING HARD_RESET_V3 WITH NO SERVER CONTEXT");
+                            return false;
+                        }
+
                         OpenVPNStaticKey client_key;
                         const Error::Type unwrap_wkc_result = unwrap_tls_crypt_wkc(*pkt.buf,
                                                                                    *proto.config,
