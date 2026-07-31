@@ -76,9 +76,11 @@ class PsidCookieTest : public testing::Test
     openvpn_io::io_context dummy_io_context;
     Time now;
     ProtoContext::ProtoConfig::Ptr pcfg;
-    ServerProto::Factory::Ptr spf;
 
   protected:
+    //! the server factory each session's ProtoConfig is cloned from
+    ServerProto::Factory::Ptr spf;
+
     PsidCookieTest()
         : dummy_io_context(1), pcfg(new ProtoContext::ProtoConfig())
     {
@@ -472,6 +474,12 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
         meta_factory.reset(new MetadataRecorderFactory());
         pcfg.tls_crypt_metadata_factory = meta_factory;
 
+        // only wanted by the tests below that drive a ProtoContext, which builds a
+        // KeyContext, which wants somewhere to derive key material from and a protocol
+        // to know whether it is reliable
+        pcfg.tlsprf_factory.reset(new CryptoTLSPRFFactory<SSLLib::CryptoAPI>());
+        pcfg.protocol = Protocol(Protocol::UDPv4);
+
         // Kc, the client key the WKc wraps. Kept as raw bytes to write into the
         // WKc plaintext, and mirrored into a static key to key the client-side
         // tls-crypt instance with the same material.
@@ -567,14 +575,26 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
                                                     const BufferAllocated &wkc,
                                                     unsigned char op_field)
     {
+        return wrap_third_packet(client_key_, cli_psid, cookie_psid, wkc, op_field, 0);
+    }
+
+    //! As build_third_packet_tls_crypt_v2(), but wrapping the frame with @p kc and
+    //! numbering the message @p own_pktid_be rather than 0.
+    BufferAllocated wrap_third_packet(const OpenVPNStaticKey &kc,
+                                      const ProtoSessionID &cli_psid,
+                                      const ProtoSessionID &cookie_psid,
+                                      const BufferAllocated &wkc,
+                                      unsigned char op_field,
+                                      std::uint32_t own_pktid_be)
+    {
         ProtoContext::ProtoConfig &pcfg = pcookie_impl->pcfg_;
         const size_t hmac_size = pcfg.tls_crypt_context->digest_size();
 
         // ENCRYPT|INVERSE, as a client slices it: the server's DECRYPT|NORMAL key set
         TLSCryptInstance::Ptr send = pcfg.tls_crypt_context->new_obj_send();
         send->init(pcfg.ssl_factory->libctx(),
-                   client_key_.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | OpenVPNStaticKey::INVERSE),
-                   client_key_.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::ENCRYPT | OpenVPNStaticKey::INVERSE));
+                   kc.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | OpenVPNStaticKey::INVERSE),
+                   kc.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::ENCRYPT | OpenVPNStaticKey::INVERSE));
 
         // the layout validate_3whs_ack_payload() walks
         BufferAllocated payload;
@@ -583,7 +603,6 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
         const std::uint32_t acked_pktid_be = 0;
         payload.write(&acked_pktid_be, sizeof(acked_pktid_be));
         cookie_psid.write(payload);
-        const std::uint32_t own_pktid_be = 0;
         payload.write(&own_pktid_be, sizeof(own_pktid_be));
 
         // header fields, prepended in reverse on-the-wire order
@@ -605,10 +624,37 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
                                                    payload.size());
         work.inc_size(encrypt_bytes);
 
-        // the WKc rides at the very end of the packet
-        work.write(wkc.c_data(), wkc.size());
+        // the WKc rides at the very end of the packet, on the opcodes that carry one
+        if (!wkc.empty())
+            work.write(wkc.c_data(), wkc.size());
 
         return work;
+    }
+
+    /**
+     * @brief The handshake packet a client of this server can forge for another's address
+     *
+     * The WKc is the attacker's own, so it unwraps under the server key like any other, and
+     * the frame is wrapped with the very Kc that WKc carries, so it authenticates under the
+     * key the session installs from it. Nothing in it is the victim's.
+     */
+    BufferAllocated build_foreign_third_packet(const ProtoSessionID &cookie_psid,
+                                               std::uint32_t own_pktid_be = 0)
+    {
+        unsigned char kc_raw[OpenVPNStaticKey::KEY_SIZE];
+        pcookie_impl->pcfg_.prng->rand_bytes(kc_raw, sizeof(kc_raw));
+        OpenVPNStaticKey kc;
+        std::memcpy(kc.raw_alloc(), kc_raw, sizeof(kc_raw));
+
+        ProtoSessionID cli_psid;
+        cli_psid.randomize(*pcookie_impl->pcfg_.rng);
+
+        return wrap_third_packet(kc,
+                                 cli_psid,
+                                 cookie_psid,
+                                 wrap_wkc(kc_raw, "v=1,type=external", 0x00),
+                                 wkc_v1_op_field(),
+                                 own_pktid_be);
     }
 
     /**
@@ -648,6 +694,12 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
         return ProtoContext::op_compose(ProtoContext::CONTROL_WKC_V1, 0);
     }
 
+    //! the opcode of the packets that follow, which carry no WKc to key a session from
+    static unsigned char control_v1_op_field()
+    {
+        return ProtoContext::op_compose(ProtoContext::CONTROL_V1, 0);
+    }
+
     //! K_id of test/ssl/06/063FE634.key, the server key the WKc names
     static constexpr std::uint32_t SERVER_KEY_ID = 0x063FE634;
 
@@ -657,6 +709,203 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
     OpenVPNStaticKey server_key_; //!< Ka/Ke, used here to wrap the WKc
 };
 
+// The session created for this client strips the WKc itself, uniformly for this copy and
+// the retransmissions that follow, so intercept() must hand the packet on as it arrived.
+TEST_F(PsidCookieTlsCryptV2Test, ThirdPacketIsForwardedIntact)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    const size_t wire_size = pkt.size();
+    const std::string wire = buf_to_string(pkt);
+
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    EXPECT_EQ(pkt.size(), wire_size);
+    EXPECT_EQ(buf_to_string(pkt), wire);
+    // ... and the session takes the WKc off it
+    EXPECT_TRUE(ProtoContext::KeyContext::strip_resent_wkc(pkt, pcookie_impl->pcfg_));
+    EXPECT_LT(pkt.size(), wire_size);
+}
+
+// Nothing travels: the cookie layer unwrapped a key to answer the packet with and threw
+// it away, so the config every session is cloned from is as it was before the client
+// showed up, and one client's handshake cannot furnish another's session.
+TEST_F(PsidCookieTlsCryptV2Test, NothingIsLeftOnTheSharedConfig)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    // the shared config holds what it was configured with: the server key ID to look
+    // WKc-wrapping keys up by, and no client's key
+    EXPECT_TRUE(pcookie_impl->pcfg_.tls_crypt_v2_serverkey_id);
+    EXPECT_FALSE(pcookie_impl->pcfg_.tls_crypt_key.defined());
+    EXPECT_FALSE(spf->clone_proto_config()->tls_crypt_key.defined());
+}
+
+//! Stands in for the transport the cookie layer answers a first packet through.
+class RecordingTransport : public PsidCookieTransportBase
+{
+  public:
+    size_t n_sent = 0;
+
+  private:
+    bool psid_cookie_send_const(Buffer &send_buf, const PsidCookieAddrInfoBase &pcaib) override
+    {
+        ++n_sent;
+        return true;
+    }
+};
+
+//! A ProtoContext needs one of these; it counts what the session puts on the wire.
+class NullProtoCallback : public ProtoContextCallbackInterface
+{
+  public:
+    size_t n_sent = 0;
+
+  private:
+    void control_net_send(const Buffer &net_buf) override
+    {
+        ++n_sent;
+    }
+    void control_recv(BufferPtr &&app_bp) override
+    {
+    }
+    bool supports_epoch_data() override
+    {
+        return false;
+    }
+    void active(bool primary) override
+    {
+    }
+};
+
+//! Names every error the session reports, so a test can say why a packet was dropped.
+class RecordingStats : public SessionStats
+{
+  public:
+    std::string names;
+
+  private:
+    void error(const size_t type, const std::string *text = nullptr) override
+    {
+        if (!names.empty())
+            names += " ";
+        names += Error::name(type);
+    }
+};
+
+/**
+ * @brief The session kotun.hpp creates once intercept() has returned HANDLE_2ND
+ *
+ * Stood up the way ServerProto::Session::start() does, with the psid the cookie layer
+ * validated, and fed packets the way the transport feeds them.
+ */
+struct CookieSession
+{
+    NullProtoCallback cb;
+    RCPtr<RecordingStats> rec{new RecordingStats()};
+    SessionStats::Ptr stats{rec};
+    ProtoContext proto;
+
+    CookieSession(const ProtoContext::ProtoConfig::Ptr &cfg, const ProtoSessionID &cookie_psid)
+        : proto(&cb, cfg, stats)
+    {
+        proto.reset(cookie_psid);
+        proto.start(cookie_psid);
+        proto.flush(true);
+        cb.n_sent = 0; // count only what the packets below draw out
+    }
+
+    //! @return how many packets the session put on the wire in reply
+    size_t recv(const BufferAllocated &pkt)
+    {
+        const size_t before = cb.n_sent;
+
+        BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+        const ProtoContext::PacketType pt = proto.packet_type(*bp);
+        if (pt.is_control())
+            proto.control_net_recv(pt, std::move(bp));
+        proto.flush(true);
+
+        return cb.n_sent - before;
+    }
+};
+
+// The point of the whole arrangement: the session keys its control channel off the WKc
+// still riding on the packet it is handed, having been given no key by anyone. It accepts
+// the packet, which it could only do with the right key, and answers it.
+TEST_F(PsidCookieTlsCryptV2Test, SessionDerivesItsKeyFromTheWkcOnItsFirstPacket)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+    // the cookie layer unwrapped the WKc to answer the packet, and judged nothing
+    ASSERT_EQ(meta_factory->n_created, 0u);
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    EXPECT_GT(session.recv(pkt), 0u);
+
+    // One hook for the client, made where the record is judged and shown it once
+    EXPECT_EQ(meta_factory->n_created, 1u);
+    EXPECT_EQ(meta_factory->last->n_calls, 1u);
+}
+
+TEST_F(PsidCookieTlsCryptV2Test, ThirdPacketParsesWKcMetadata)
+{
+    auto f = make_fixture();
+    const std::string metadata = "v=1,type=external,sn=04:e3,time=1750000000,tenant=acme";
+
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc(metadata),
+                                                          wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+    EXPECT_TRUE(pcookie_impl->get_cookie_psid().match(f.cookie_psid));
+
+    // the record reaches the hook from the session's own unwrap of the same WKc, once
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    ASSERT_GT(session.recv(pkt), 0u);
+
+    ASSERT_EQ(meta_factory->n_created, 1u);
+    ASSERT_TRUE(meta_factory->last);
+    EXPECT_EQ(meta_factory->last->n_calls, 1u);
+    EXPECT_EQ(meta_factory->last->type_seen, 0x00);
+    EXPECT_EQ(meta_factory->last->payload_seen, metadata);
+}
+
+// A WKc that does not unwrap keys nothing, so the packet it rode in on is dropped rather
+// than answered -- and the handshake is not left half-converted, see
+// ProtoContext::KeyContext::tls_crypt_v2_wanted().
+TEST_F(PsidCookieTlsCryptV2Test, SessionDropsAPacketWhoseWkcDoesNotUnwrap)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    // flip a bit in the WKc ciphertext, past the tls-crypt frame the session decapsulates
+    pkt.data()[pkt.size() - 32] ^= 0x01;
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    EXPECT_EQ(session.recv(pkt), 0u);
+}
 
 /**
  * @brief A server with one tls-crypt-v2 key in its config for every client
@@ -690,19 +939,56 @@ TEST_F(PsidCookieSingleServerKeyTest, ThirdPacketUnwrapsWithNoServerKeyIdOnTheWi
     EXPECT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
 }
 
-//! Stands in for the transport the cookie layer answers a first packet through.
-class RecordingTransport : public PsidCookieTransportBase
+// ... and the session behind it keys itself from the same WKc, with no key directory to
+// consult and no K_id to consult it with.
+TEST_F(PsidCookieSingleServerKeyTest, SessionDerivesItsKeyWithNoServerKeyId)
 {
-  public:
-    size_t n_sent = 0;
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
 
-  private:
-    bool psid_cookie_send_const(Buffer &send_buf, const PsidCookieAddrInfoBase &pcaib) override
-    {
-        ++n_sent;
-        return true;
-    }
-};
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    EXPECT_GT(session.recv(pkt), 0u);
+    EXPECT_EQ(meta_factory->n_created, 1u);
+}
+
+// The client key is the one part of a WKc that has to be there, and the check for it counted
+// the length prefix and the K_id along with it -- neither of which is key material, and both
+// advanced past before the key is read. A WKc short by those six bytes passed the check,
+// passed the tag comparison behind it, and underflowed the read. Only a holder of the server
+// key can wrap one, so this is a key generator's mistake, but it arrives as an exception.
+TEST_F(PsidCookieTlsCryptV2Test, WkcWrappingTooLittleKeyIsRejectedRatherThanThrown)
+{
+    auto f = make_fixture();
+
+    // short by the 2-byte length prefix and the 4-byte K_id in front of the key
+    const size_t short_kc = OpenVPNStaticKey::KEY_SIZE - sizeof(std::uint16_t) - sizeof(std::uint32_t);
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          wrap_wkc(client_key_raw_, "", 0x00, short_kc),
+                                                          wkc_v1_op_field());
+
+    PsidCookie::Intercept ret = PsidCookie::Intercept::HANDLE_2ND;
+    ASSERT_NO_THROW(ret = pcookie_impl->intercept(pkt, f.cli_addr));
+    EXPECT_NE(ret, PsidCookie::Intercept::HANDLE_2ND);
+
+    // and the unwrap leaves its out parameter untouched, as it promises: raw_alloc() defines
+    // the key before the read that fills it, so a throw there left behind a client key that
+    // had never been unwrapped
+    BufferAllocated again = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                            f.cookie_psid,
+                                                            wrap_wkc(client_key_raw_, "", 0x00, short_kc),
+                                                            wkc_v1_op_field());
+    TLSCryptInstance::Ptr server = pcookie_impl->pcfg_.tls_crypt_context->new_obj_recv();
+    ProtoContext::KeyContext::UnwrappedWkc unwrapped;
+    EXPECT_NE(ProtoContext::KeyContext::unwrap_tls_crypt_wkc(again, pcookie_impl->pcfg_, *server, unwrapped),
+              Error::SUCCESS);
+    EXPECT_FALSE(unwrapped.client_key.defined());
+}
 
 // Answering the first packet means unwrapping the WKc on it, and the unwrap trims the WKc off
 // the buffer it is handed -- so this returned the caller a packet shorter than the one it
@@ -717,13 +1003,13 @@ TEST_F(PsidCookieTlsCryptV2Test, FirstPacketIsLeftAsItArrived)
     BufferAllocated pkt = build_first_packet_tls_crypt_v2(f.cli_psid, make_wkc("v=1,type=external"));
 
     const size_t wire_size = pkt.size();
-    const std::string wire(reinterpret_cast<const char *>(pkt.c_data()), pkt.size());
+    const std::string wire = buf_to_string(pkt);
 
     EXPECT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_1ST);
     EXPECT_EQ(transport->n_sent, 1u);
 
     EXPECT_EQ(pkt.size(), wire_size);
-    EXPECT_EQ(std::string(reinterpret_cast<const char *>(pkt.c_data()), pkt.size()), wire);
+    EXPECT_EQ(buf_to_string(pkt), wire);
 }
 
 // intercept() turns away only an empty datagram, so every one whose first byte carries a
@@ -754,30 +1040,10 @@ TEST_F(PsidCookieTlsCryptV2Test, ShortInitialResetIsDroppedRatherThanThrown)
     }
 }
 
-// The client key is the one part of a WKc that has to be there, and the check for it counted
-// the length prefix and the K_id along with it -- neither of which is key material, and both
-// advanced past before the key is read. A WKc short by those six bytes passed the check,
-// passed the tag comparison behind it, and underflowed the read. Only a holder of the server
-// key can wrap one, so this is a key generator's mistake, but it arrives as an exception.
-TEST_F(PsidCookieTlsCryptV2Test, WkcWrappingTooLittleKeyIsRejectedRatherThanThrown)
-{
-    auto f = make_fixture();
-
-    // short by the 2-byte length prefix and the 4-byte K_id in front of the key
-    const size_t short_kc = OpenVPNStaticKey::KEY_SIZE - sizeof(std::uint16_t) - sizeof(std::uint32_t);
-    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
-                                                          f.cookie_psid,
-                                                          wrap_wkc(client_key_raw_, "", 0x00, short_kc),
-                                                          wkc_v1_op_field());
-
-    PsidCookie::Intercept ret = PsidCookie::Intercept::HANDLE_2ND;
-    ASSERT_NO_THROW(ret = pcookie_impl->intercept(pkt, f.cli_addr));
-    EXPECT_NE(ret, PsidCookie::Intercept::HANDLE_2ND);
-}
-
-// The session created for this client strips the WKc itself, uniformly for this copy and
-// the retransmissions that follow, so intercept() must hand the packet on as it arrived.
-TEST_F(PsidCookieTlsCryptV2Test, ThirdPacketIsForwardedIntact)
+// The session's hook is its own: it judges the record whether or not a cookie layer ever
+// saw the client, which is how a session reached over TCP -- kotcp.hpp creates those with
+// no cookie layer at all -- comes by its verdict.
+TEST_F(PsidCookieTlsCryptV2Test, SessionWithoutACookieLayerJudgesTheRecordItself)
 {
     auto f = make_fixture();
     BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
@@ -785,14 +1051,108 @@ TEST_F(PsidCookieTlsCryptV2Test, ThirdPacketIsForwardedIntact)
                                                           make_wkc("v=1,type=external"),
                                                           wkc_v1_op_field());
 
-    const size_t wire_size = pkt.size();
-    const std::string wire(reinterpret_cast<const char *>(pkt.c_data()), pkt.size());
+    // the packet reaches the session without passing intercept() first
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    EXPECT_GT(session.recv(pkt), 0u);
+
+    EXPECT_EQ(meta_factory->n_created, 1u);
+    EXPECT_EQ(meta_factory->last->n_calls, 1u);
+}
+
+// The factory is optional: TLSCryptMetadata::verify() accepts by default, so an embedder
+// with nothing to check has no reason to configure one. A session without it makes no
+// handler, runs no hook, and comes up all the same.
+TEST_F(PsidCookieTlsCryptV2Test, SessionWithoutMetadataFactoryMakesNoHandler)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    pcookie_impl->pcfg_.tls_crypt_metadata_factory.reset();
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    EXPECT_GT(session.recv(pkt), 0u);
+    EXPECT_EQ(meta_factory->n_created, 0u);
+}
+
+TEST_F(PsidCookieTlsCryptV2Test, TimestampMetadataIsNotUserMetadata)
+{
+    // stock tls-crypt-v2-genkey's default: a timestamp, type 0x01. The hook still runs, and
+    // sees the type byte saying this is not a CSV record.
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc(std::string("\x68\x74\x9f\x00", 4), 0x01),
+                                                          wkc_v1_op_field());
 
     ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
 
-    EXPECT_EQ(pkt.size(), wire_size);
-    EXPECT_EQ(std::string(reinterpret_cast<const char *>(pkt.c_data()), pkt.size()), wire);
-    // ... and the session takes the WKc off it
-    EXPECT_TRUE(ProtoContext::KeyContext::strip_resent_wkc(pkt, pcookie_impl->pcfg_));
-    EXPECT_LT(pkt.size(), wire_size);
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    ASSERT_GT(session.recv(pkt), 0u);
+
+    ASSERT_TRUE(meta_factory->last);
+    EXPECT_EQ(meta_factory->last->n_calls, 1u);
+    EXPECT_EQ(meta_factory->last->type_seen, 0x01);
+}
+
+TEST_F(PsidCookieTlsCryptV2Test, WkcWithoutMetadataReportsNoMetadata)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc(""),
+                                                          wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    ASSERT_GT(session.recv(pkt), 0u);
+
+    ASSERT_TRUE(meta_factory->last);
+    EXPECT_EQ(meta_factory->last->n_calls, 1u);
+    EXPECT_EQ(meta_factory->last->type_seen, -1);
+}
+
+// verify() belongs to an embedder, and a bad cookie is all it takes to aim a packet at this
+// layer, so nothing a stranger sends may reach the hook. Since the cookie layer judges
+// nothing at all, a dropped third packet cannot: it never becomes the session that would ask.
+TEST_F(PsidCookieTlsCryptV2Test, DroppedThirdPacketRunsNoMetadataHook)
+{
+    auto f = make_fixture();
+    ProtoSessionID bogus;
+    bogus.randomize(*pcookie_impl->pcfg_.rng);
+
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          bogus,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    EXPECT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::DROP_2ND);
+    // no handler was made for it, so nothing saw the record ...
+    EXPECT_EQ(meta_factory->n_created, 0u);
+    EXPECT_FALSE(meta_factory->last);
+}
+
+// A failed verify() rejects the client, and the session is where that is decided: the packet
+// is dropped and the rejection counted. PG's hook never does this -- its metadata is
+// informational -- but the plumbing honours it.
+TEST_F(PsidCookieTlsCryptV2Test, PacketRejectedByMetadataHookIsDroppedAndCounted)
+{
+    auto f = make_fixture();
+    meta_factory->accept = false;
+
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    // the cookie layer answers it either way; judging is not its business
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    EXPECT_EQ(session.recv(pkt), 0u);
+    EXPECT_EQ(session.rec->names, "TLS_CRYPT_META_FAIL");
 }

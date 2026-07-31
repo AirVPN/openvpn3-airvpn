@@ -425,9 +425,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         //! leave this undefined to disable tls-crypt/tls-crypt-v2
         OpenVPNStaticKey tls_crypt_key;
 
-        //! For TLS crypt V2, this (if defined()) is the wrapped WKc client key.
-        OpenVPNStaticKey wrapped_tls_crypt_key;
-
         //! needed to distinguish between tls-crypt and tls-crypt-v2 server mode
         unsigned tls_crypt_ = TLSCrypt::None;
 
@@ -2455,20 +2452,46 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         }
 
         /**
+         * @brief The metadata record a WKc carried, for TLSCryptMetadata::verify()
+         *
+         * Handed back rather than checked in place: whoever asked for the unwrap decides
+         * when its record is worth a handler, which on the psid cookie path is only once
+         * the cookie has proven this is a live handshake rather than a replayed packet.
+         */
+        struct WkcMetadata
+        {
+            //! -1 when the WKc carried no metadata at all
+            int type = -1;
+            BufferAllocated payload;
+        };
+
+        /**
+         * @brief What a WKc yields, owned by whoever asked for the unwrap
+         *
+         * Handed back rather than written into the config the unwrap was given: on the
+         * psid cookie path that config is the one every session on the thread is cloned
+         * from, and the key belongs to one client.
+         */
+        struct UnwrappedWkc
+        {
+            //! Kc, the client key the WKc wrapped
+            OpenVPNStaticKey client_key;
+            WkcMetadata metadata;
+        };
+
+        /**
          * @brief  Extract and process the TLS crypt WKc information.
          * @param  recv                Buffer containing the raw packet.
          * @param  proto_config        Config object holding the settings needed for processing.
-         *                             This function may write to proto_config.tls_crypt_key, so
-         *                             we can't use a const reference here.
          * @param  tls_crypt_server    Server context used only to process incoming WKc's.
-         * @param  tls_crypt_metadata  If not nullptr, the function will also check the validity
-         *                             of the WKc metadata.
+         * @param  unwrapped           Receives the client key and the metadata record the
+         *                             WKc carried. Written only on success.
          * @return Error::SUCCESS on success.
          */
         static Error::Type unwrap_tls_crypt_wkc(Buffer &recv,
-                                                ProtoConfig &proto_config,
+                                                const ProtoConfig &proto_config,
                                                 TLSCryptInstance &tls_crypt_server,
-                                                TLSCryptMetadata::Ptr tls_crypt_metadata = nullptr)
+                                                UnwrappedWkc &unwrapped)
         {
             // the ``WKc`` is located at the end of the packet, after the tls-crypt
             // payload.
@@ -2550,18 +2573,22 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 {
                     TLSCryptV2ServerKey tls_crypt_v2_key;
                     tls_crypt_v2_key.parse(read_text(serverkey_path));
-                    tls_crypt_v2_key.extract_key(proto_config.tls_crypt_key);
+
+                    // Ka/Ke are of use only for the unwrap they key below, so they stay here
+                    // rather than on the config the cookie layer shares between sessions.
+                    OpenVPNStaticKey serverkey_material;
+                    tls_crypt_v2_key.extract_key(serverkey_material);
 
                     // the server key is composed by one key set only, therefore direction and
                     // mode should not be specified when slicing
                     tls_crypt_server.init(proto_config.ssl_factory->libctx(),
-                                          proto_config.tls_crypt_key.slice(OpenVPNStaticKey::HMAC),
-                                          proto_config.tls_crypt_key.slice(OpenVPNStaticKey::CIPHER));
+                                          serverkey_material.slice(OpenVPNStaticKey::HMAC),
+                                          serverkey_material.slice(OpenVPNStaticKey::CIPHER));
                 }
                 catch (const std::exception &e)
                 {
-                    OVPN_LOG_VERBOSE("DROPPING WKc NAMING SERVER KEY " << serverkey_path
-                                                                       << ": " << e.what());
+                    OVPN_LOG_VERBOSE("DROPPING WKc NAMING TLS-crypt-V2 server key "
+                                     << serverkey_path << ": " << e.what());
                     return Error::DECRYPT_ERROR;
                 }
 
@@ -2576,7 +2603,10 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 // this function's business in either mode: a caller that had to do it for one
                 // mode and not the other could forget.
                 if (!proto_config.tls_crypt_key.defined())
+                {
+                    OVPN_LOG_VERBOSE("DROPPING WKc WITH NO TLS-crypt-V2 SERVER KEY TO UNWRAP IT");
                     return Error::DECRYPT_ERROR;
+                }
 
                 tls_crypt_server.init(proto_config.ssl_factory->libctx(),
                                       proto_config.tls_crypt_key.slice(OpenVPNStaticKey::HMAC),
@@ -2614,15 +2644,12 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             if (proto_config.tls_crypt_v2_serverkey_id)
                 plaintext.advance(sizeof(k_id));
 
-            plaintext.read(proto_config.wrapped_tls_crypt_key.raw_alloc(), OpenVPNStaticKey::KEY_SIZE);
+            plaintext.read(unwrapped.client_key.raw_alloc(), OpenVPNStaticKey::KEY_SIZE);
 
-            // verify metadata
-            int metadata_type = -1;
+            // what is left of the plaintext is the metadata, its type byte in front
             if (!plaintext.empty())
-                metadata_type = plaintext.pop_front();
-
-            if (tls_crypt_metadata && !tls_crypt_metadata->verify(metadata_type, plaintext))
-                return Error::TLS_CRYPT_META_FAIL;
+                unwrapped.metadata.type = plaintext.pop_front();
+            unwrapped.metadata.payload = std::move(plaintext);
 
             // virtually remove the WKc from the packet
             recv.set_size(orig_size - wkc_len);
@@ -3812,11 +3839,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 {
                     if (!proto.tls_crypt_recv)
                     {
-                        // A session the psid cookie layer created has no server context:
-                        // its WKc was unwrapped before the session existed, so a further
-                        // copy of the first packet has nothing left to unwrap it with. A
-                        // late duplicate of a packet we already acted on is not an error,
-                        // so drop it without counting one.
                         if (!proto.tls_crypt_server)
                         {
                             OVPN_LOG_VERBOSE(proto.debug_prefix()
@@ -3824,10 +3846,11 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                             return false;
                         }
 
+                        UnwrappedWkc unwrapped;
                         const Error::Type unwrap_wkc_result = unwrap_tls_crypt_wkc(*pkt.buf,
                                                                                    *proto.config,
                                                                                    *proto.tls_crypt_server,
-                                                                                   proto.tls_crypt_metadata);
+                                                                                   unwrapped);
                         switch (unwrap_wkc_result)
                         {
                         case Error::DECRYPT_ERROR:
@@ -3836,19 +3859,26 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                             if (proto.is_tcp())
                                 invalidate(unwrap_wkc_result);
                             return false;
-                        case Error::TLS_CRYPT_META_FAIL:
-                            proto.stats->error(unwrap_wkc_result);
-                            return false;
                         case Error::SUCCESS:
                             break;
                         default:
                             return false;
                         }
 
-                        // WKc has been authenticated: it contains the client key followed
-                        // by the optional metadata. Let's initialize the tls-crypt context
-                        // with the client key
-                        proto.reset_tls_crypt(*proto.config, proto.config->wrapped_tls_crypt_key);
+                        if (proto.config->tls_crypt_metadata_factory)
+                        {
+                            const TLSCryptMetadata::Ptr metadata = proto.config->tls_crypt_metadata_factory->new_obj();
+
+                            if (!metadata->verify(unwrapped.metadata.type, unwrapped.metadata.payload))
+                            {
+                                proto.stats->error(Error::TLS_CRYPT_META_FAIL);
+                                return false;
+                            }
+                        }
+
+                        // The WKc holds up under the server key, so the client key inside it
+                        // is one this server issued. Key the session with it.
+                        proto.reset_tls_crypt(*proto.config, unwrapped.client_key);
                     }
                     else if (!strip_resent_wkc(*pkt.buf, *proto.config))
                     {
@@ -4326,7 +4356,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         if (c.tls_auth_enabled())
             dyn_key.XOR(c.tls_auth_key);
-        else if (c.tls_crypt_enabled() || c.tls_crypt_v2_enabled())
+        else if ((c.tls_crypt_enabled() || c.tls_crypt_v2_enabled()) && c.tls_crypt_key.defined())
             dyn_key.XOR(c.tls_crypt_key);
 
         tls_wrap_mode = TLS_CRYPT;
@@ -4342,24 +4372,15 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
     void reset_tls_crypt_server(const ProtoConfig &c)
     {
-        // It is possible that the PSID/HMAC cookie logic has already set the TLS crypt V2
-        // keys up, during the processing of the second packet. If so, just use them.
-        if (c.tls_crypt_key.defined() && c.wrapped_tls_crypt_key.defined())
-        {
-            reset_tls_crypt(c, c.wrapped_tls_crypt_key);
-        }
-        else
-        {
-            // tls-crypt session key is derived later from WKc received from the client
-            tls_crypt_send.reset();
-            tls_crypt_recv.reset();
+        // The session key is derived from the WKc riding on the first packet we
+        // decapsulate, so there is nothing to install here -- see decapsulate(). Any key
+        // this session already holds is left alone: decapsulate() can bring us back here
+        // for a session already running, and dropping its contexts would leave the next
+        // control packet it sends with nothing to authenticate itself with.
 
-            // Server context, used only to process incoming WKc's. Left unkeyed:
-            // unwrap_tls_crypt_wkc() keys it, since only it knows which key the WKc needs.
-            tls_crypt_server = c.tls_crypt_context->new_obj_recv();
-        }
-
-        tls_crypt_metadata = c.tls_crypt_metadata_factory->new_obj();
+        // Server context, used only to process incoming WKc's. Left unkeyed:
+        // unwrap_tls_crypt_wkc() keys it, since only it knows which key the WKc needs.
+        tls_crypt_server = c.tls_crypt_context->new_obj_recv();
     }
 
     /**
@@ -4382,6 +4403,13 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         // clear key contexts
         reset_all();
+
+        // Drop the contexts a previous handshake set up: until the peer is known, no key may
+        // be left that could authenticate its packets. reset_tls_crypt_server() cannot do it,
+        // since decapsulate() also calls that for a session already running.
+        tls_crypt_send.reset();
+        tls_crypt_recv.reset();
+        tls_crypt_server.reset();
 
         // start with key ID 0
         upcoming_key_id = 0;
@@ -5220,7 +5248,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     TLSCryptInstance::Ptr tls_crypt_recv;
 
     TLSCryptInstance::Ptr tls_crypt_server;
-    TLSCryptMetadata::Ptr tls_crypt_metadata;
 
     PacketIDControlSend ta_pid_send;
     PacketIDControlReceive ta_pid_recv;

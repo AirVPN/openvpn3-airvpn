@@ -1532,8 +1532,10 @@ class TlsCryptV2WkcUnwrapTest : public testing::Test
 TEST_F(TlsCryptV2WkcUnwrapTest, RejectsWkcLenLargerThanPacket)
 {
     BufferAllocated buf = make_wkc_v1_packet(200, 60000);
-    EXPECT_EQ(ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server),
+    ProtoContext::KeyContext::UnwrappedWkc unwrapped;
+    EXPECT_EQ(ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server, unwrapped),
               Error::CC_ERROR);
+    EXPECT_FALSE(unwrapped.client_key.defined());
 }
 
 // wkc_len smaller than the auth tag: pre-fix the decrypt ciphertext length
@@ -1541,8 +1543,10 @@ TEST_F(TlsCryptV2WkcUnwrapTest, RejectsWkcLenLargerThanPacket)
 TEST_F(TlsCryptV2WkcUnwrapTest, RejectsWkcLenSmallerThanAuthTag)
 {
     BufferAllocated buf = make_wkc_v1_packet(200, 4);
-    EXPECT_EQ(ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server),
+    ProtoContext::KeyContext::UnwrappedWkc unwrapped;
+    EXPECT_EQ(ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server, unwrapped),
               Error::CC_ERROR);
+    EXPECT_FALSE(unwrapped.client_key.defined());
 }
 
 // strip_resent_wkc() takes the WKc off a retransmitted CONTROL_WKC_V1 without
@@ -1566,9 +1570,12 @@ TEST_F(TlsCryptV2WkcUnwrapTest, UnknownServerKeyIdIsAnErrorAndNotAnException)
     const uint16_t wkc_len = min_wkc_len();
     BufferAllocated buf = make_wkc_v1_packet(frame_size() + wkc_len, wkc_len);
 
+    ProtoContext::KeyContext::UnwrappedWkc unwrapped;
     Error::Type ret = Error::SUCCESS;
-    EXPECT_NO_THROW(ret = ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server));
+    EXPECT_NO_THROW(
+        ret = ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server, unwrapped));
     EXPECT_EQ(ret, Error::DECRYPT_ERROR);
+    EXPECT_FALSE(unwrapped.client_key.defined());
 }
 
 TEST_F(TlsCryptV2WkcUnwrapTest, StripsResentWkc)
