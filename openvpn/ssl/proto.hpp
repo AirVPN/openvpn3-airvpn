@@ -2721,8 +2721,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 }
             }
 
-            // verify source PSID
-            if (!proto.psid_peer.match(src_psid))
+            // verify source PSID; a session has none until accept_peer() pins one
+            if (proto.psid_peer.defined() && !proto.psid_peer.match(src_psid))
                 return false;
 
             // read tls_auth packet ID
@@ -2818,9 +2818,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             // advance buffer past initial op byte
             recv.advance(1);
 
-            // verify source PSID
             ProtoSessionID src_psid(recv);
-            if (!proto.psid_peer.match(src_psid))
+            // verify source PSID; a session has none until accept_peer() pins one
+            if (proto.psid_peer.defined() && !proto.psid_peer.match(src_psid))
                 return false;
 
             // make sure that our own PSID is contained in packet received from peer

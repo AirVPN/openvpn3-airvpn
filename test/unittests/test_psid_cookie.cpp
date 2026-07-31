@@ -1099,6 +1099,44 @@ TEST_F(TlsCryptV1SessionTest, ControlNetValidateDoesNotPinThePeer)
     EXPECT_TRUE(validate(v1_packet(f.cli_psid, f.cookie_psid)));
 }
 
+/**
+ * @brief A plain tls-auth server: no tls-crypt of either version
+ *
+ * Its pre-filter is validate_tls_auth().
+ */
+class TlsAuthSessionTest : public PsidCookieTlsCryptV2Test
+{
+  protected:
+    TlsAuthSessionTest()
+    {
+        ProtoContext::ProtoConfig &pcfg = pcookie_impl->pcfg_;
+        pcfg.tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::None;
+        pcfg.tls_crypt_key.erase();
+        pcfg.tls_crypt_v2_serverkey_id = false;
+        pcfg.tls_crypt_v2_serverkey_dir.clear();
+    }
+};
+
+// match() is false against an undefined psid, so the pre-filter turned away every packet
+// until a peer was pinned -- including the one that would have pinned it.
+TEST_F(TlsAuthSessionTest, ControlNetValidateAcceptsAPacketBeforeAPeerIsPinned)
+{
+    auto f = make_fixture();
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    BufferAllocated pkt = build_third_packet_tls_auth(f.cli_psid,
+                                                      f.cookie_psid,
+                                                      /*acked_pktid_be=*/0,
+                                                      /*own_pktid_be=*/0,
+                                                      /*ack_count=*/1,
+                                                      ProtoContext::op_compose(ProtoContext::CONTROL_V1, 0));
+
+    BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+    const ProtoContext::PacketType pt = session.proto.packet_type(*bp);
+    ASSERT_TRUE(pt.is_control());
+    EXPECT_TRUE(session.proto.control_net_validate(pt, *bp));
+}
+
 // intercept() turns away only an empty datagram, so every one whose first byte carries a
 // CONTROL_HARD_RESET_CLIENT_V3 opcode reaches the tls-crypt arm -- which read a psid and a
 // packet id off it before establishing there was that much packet. Two bytes from anywhere
