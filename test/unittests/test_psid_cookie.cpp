@@ -611,6 +611,37 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
         return work;
     }
 
+    /**
+     * @brief Build the tls-crypt-v2 first handshake packet: a CONTROL_HARD_RESET_CLIENT_V3
+     *        with the WKc behind the tls-crypt frame.
+     *
+     * The cookie layer answers this one without decrypting it, so only the cleartext fields
+     * mean anything. What has to be exact is the geometry: on this opcode the unwrap expects
+     * the WKc to begin where the frame ends.
+     */
+    BufferAllocated build_first_packet_tls_crypt_v2(const ProtoSessionID &cli_psid,
+                                                    const BufferAllocated &wkc)
+    {
+        const size_t frame_size = ProtoContext::KeyContext::tls_crypt_frame_size(pcookie_impl->pcfg_);
+
+        BufferAllocated pkt(frame_size + wkc.size(), BufAllocFlags::GROW);
+        pkt.push_back(ProtoContext::op_compose(ProtoContext::CONTROL_HARD_RESET_CLIENT_V3, 0));
+        cli_psid.write(pkt);
+
+        // the packet id; its id field is what supports_early_negotiation() weighs
+        const std::uint32_t early_neg_be = htonl(ProtoContext::EARLY_NEG_START);
+        pkt.write(&early_neg_be, sizeof(early_neg_be));
+        const std::uint32_t pid_time_be = 0;
+        pkt.write(&pid_time_be, sizeof(pid_time_be));
+
+        // the hmac and payload behind it, which this path does not look at
+        while (pkt.size() < frame_size)
+            pkt.push_back(0);
+
+        pkt.write(wkc.c_data(), wkc.size());
+        return pkt;
+    }
+
     //! the opcode of the third packet, the one whose WKc keys the session behind it
     static unsigned char wkc_v1_op_field()
     {
@@ -657,6 +688,42 @@ TEST_F(PsidCookieSingleServerKeyTest, ThirdPacketUnwrapsWithNoServerKeyIdOnTheWi
                                                           wkc_v1_op_field());
 
     EXPECT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+}
+
+//! Stands in for the transport the cookie layer answers a first packet through.
+class RecordingTransport : public PsidCookieTransportBase
+{
+  public:
+    size_t n_sent = 0;
+
+  private:
+    bool psid_cookie_send_const(Buffer &send_buf, const PsidCookieAddrInfoBase &pcaib) override
+    {
+        ++n_sent;
+        return true;
+    }
+};
+
+// Answering the first packet means unwrapping the WKc on it, and the unwrap trims the WKc off
+// the buffer it is handed -- so this returned the caller a packet shorter than the one it
+// passed in. Nothing forwards this packet today; anything that did would hand on a packet
+// with no WKc, and a session keyed from that can never key itself.
+TEST_F(PsidCookieTlsCryptV2Test, FirstPacketIsLeftAsItArrived)
+{
+    RCPtr<RecordingTransport> transport(new RecordingTransport());
+    pcookie_impl->provide_psid_cookie_transport(transport);
+
+    auto f = make_fixture();
+    BufferAllocated pkt = build_first_packet_tls_crypt_v2(f.cli_psid, make_wkc("v=1,type=external"));
+
+    const size_t wire_size = pkt.size();
+    const std::string wire(reinterpret_cast<const char *>(pkt.c_data()), pkt.size());
+
+    EXPECT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_1ST);
+    EXPECT_EQ(transport->n_sent, 1u);
+
+    EXPECT_EQ(pkt.size(), wire_size);
+    EXPECT_EQ(std::string(reinterpret_cast<const char *>(pkt.c_data()), pkt.size()), wire);
 }
 
 // intercept() turns away only an empty datagram, so every one whose first byte carries a

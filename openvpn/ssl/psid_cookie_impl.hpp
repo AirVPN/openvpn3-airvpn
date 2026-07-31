@@ -327,7 +327,10 @@ class PsidCookieImpl : public PsidCookie
         if (!ch.supports_early_negotiation(replay_packet_id))
             return Intercept::DECLINE_HANDLING;
 
-        TLSCryptInstance::Ptr send = init_tls_crypt_v2(pkt_buf, OpenVPNStaticKey::ENCRYPT);
+        // A shallow view, for the same reason the third packet's path takes one: the unwrap
+        // trims the WKc off the buffer it is handed, and this one is the caller's.
+        Buffer work_buf(pkt_buf);
+        TLSCryptInstance::Ptr send = init_tls_crypt_v2(work_buf, OpenVPNStaticKey::ENCRYPT);
 
         if (!send)
             return Intercept::DROP_1ST;
