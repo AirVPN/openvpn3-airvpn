@@ -3794,6 +3794,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 // Drop a packet that's not ours.
                 proto.tls_crypt_send.reset();
                 proto.tls_crypt_recv.reset();
+                proto.tls_crypt_client_key.erase();
             }
 
             if (detect_tls_crypt_v2)
@@ -3886,7 +3887,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
                         // The WKc holds up under the server key, so the client key inside it
                         // is one this server issued. Key the session with it.
-                        proto.reset_tls_crypt(*proto.config, unwrapped.client_key);
+                        proto.tls_crypt_client_key = std::move(unwrapped.client_key);
+                        proto.reset_tls_crypt(*proto.config, proto.tls_crypt_client_key);
                     }
                     else if (!strip_resent_wkc(*pkt.buf, *proto.config))
                     {
@@ -4359,13 +4361,41 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
     void set_dynamic_tls_crypt(const ProtoConfig &c, const KeyContext::Ptr &key_ctx)
     {
+        // Both call sites fire on primary->key_id() == 0, which a duplicated -- or
+        // corrupted, then retransmitted -- soft reset satisfies twice. The switch below
+        // reads tls_wrap_mode, which this function ends by overwriting, so a second
+        // pass would land on TLS_CRYPT and mix c.tls_crypt_key: the wrong key, and on
+        // a tls_crypt_v2_serverkey_id server not a defined one. There is nothing new
+        // to derive anyway -- same TLS session, same exported material.
+        if (dynamic_tls_crypt_keyed)
+            return;
+
         OpenVPNStaticKey dyn_key;
         key_ctx->export_key_material(dyn_key, "EXPORTER-OpenVPN-dynamic-tls-crypt");
 
-        if (c.tls_auth_enabled())
+        // The mode this session settled on, not what the config allows. A server holding
+        // both a tls-auth key and tls-crypt-v2 starts every session as TLS_AUTH and only
+        // decapsulate() converts it, so asking the config here would have such a server
+        // mix tls_auth_key while its converted tls-crypt-v2 client mixes Kc.
+        switch (tls_wrap_mode)
+        {
+        case TLS_AUTH:
             dyn_key.XOR(c.tls_auth_key);
-        else if ((c.tls_crypt_enabled() || c.tls_crypt_v2_enabled()) && c.tls_crypt_key.defined())
+            break;
+        case TLS_CRYPT_V2:
+            // Kc, this session's own: c.tls_crypt_key is the client's Kc on a client but the
+            // server key on a server, and with tls_crypt_v2_serverkey_id not even defined, so
+            // mixing it in would have the two ends derive different keys.
+            if (!tls_crypt_client_key.defined())
+                throw proto_error("dynamic tls-crypt with no tls-crypt-v2 client key");
+            dyn_key.XOR(tls_crypt_client_key);
+            break;
+        case TLS_CRYPT:
             dyn_key.XOR(c.tls_crypt_key);
+            break;
+        case TLS_PLAIN:
+            break;
+        }
 
         tls_wrap_mode = TLS_CRYPT;
 
@@ -4376,6 +4406,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         ta_pid_recv.init("SSL-CC", 0, stats);
 
         reset_tls_crypt(c, dyn_key);
+        dynamic_tls_crypt_keyed = true;
     }
 
     void reset_tls_crypt_server(const ProtoConfig &c)
@@ -4418,6 +4449,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         tls_crypt_send.reset();
         tls_crypt_recv.reset();
         tls_crypt_server.reset();
+        tls_crypt_client_key.erase();
+        dynamic_tls_crypt_keyed = false;
 
         // start with key ID 0
         upcoming_key_id = 0;
@@ -4441,7 +4474,11 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 // session key setup is postponed to reception of the WKc too.
                 reset_tls_crypt_server(c);
             else
-                reset_tls_crypt(c, c.tls_crypt_key);
+            {
+                // a client's own Kc, the one its WKc carries to the server
+                tls_crypt_client_key = c.tls_crypt_key;
+                reset_tls_crypt(c, tls_crypt_client_key);
+            }
             /** tls-auth/tls-crypt packet id. We start with a different id here
              * to indicate EARLY_NEG_START/CONTROL_WKC_V1 support */
             // init tls_crypt packet ID
@@ -5256,6 +5293,26 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
     TLSCryptInstance::Ptr tls_crypt_recv;
 
     TLSCryptInstance::Ptr tls_crypt_server;
+
+    /**
+     * @brief Kc, the tls-crypt-v2 client key this session's control channel is keyed with
+     *
+     * Per session: a server has one per client, unwrapped from that client's WKc, where
+     * ProtoConfig::tls_crypt_key holds the server key every WKc is wrapped with -- or, with
+     * tls_crypt_v2_serverkey_id, nothing at all. A client has only its own. The contexts
+     * above do the encrypting; this is kept because set_dynamic_tls_crypt() has to mix the
+     * same key in at both ends.
+     */
+    OpenVPNStaticKey tls_crypt_client_key;
+
+    /**
+     * @brief Whether set_dynamic_tls_crypt() has keyed this session already
+     *
+     * Makes it idempotent: it derives from the wrap mode it then overwrites, so only the
+     * first call for a session may derive, and later ones must leave the key installed.
+     * Cleared with the contexts in reset().
+     */
+    bool dynamic_tls_crypt_keyed = false;
 
     PacketIDControlSend ta_pid_send;
     PacketIDControlReceive ta_pid_recv;

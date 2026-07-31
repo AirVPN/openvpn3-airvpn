@@ -926,7 +926,8 @@ static auto create_client_proto_context(ClientSSLAPI::Config::Ptr cc,
                                         MySessionStats::Ptr cli_stats,
                                         Time &time,
                                         const std::string &tls_crypt_v2_key_fn = "",
-                                        bool tls_auth_only = false)
+                                        bool tls_auth_only = false,
+                                        bool use_dynamic_tls_crypt = false)
 {
     const std::string tls_auth_key = read_text(TEST_KEYCERT_DIR "tls-auth.key");
     const std::string tls_crypt_v2_client_key = tls_crypt_v2_key_fn.empty()
@@ -988,6 +989,8 @@ static auto create_client_proto_context(ClientSSLAPI::Config::Ptr cc,
         }
         cp->tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::V2;
     }
+    if (use_dynamic_tls_crypt)
+        cp->enable_dynamic_tls_crypt();
 #endif
 #ifdef HANDSHAKE_WINDOW
     cp->handshake_window = Time::Duration::seconds(HANDSHAKE_WINDOW);
@@ -1030,6 +1033,7 @@ struct proto_test
     bool client_tls_auth_only = false;
     bool spoof_hard_reset_v3 = false;
     bool force_resend_wkc = false;
+    bool use_dynamic_tls_crypt = false;
     size_t control_payload = 378;
     size_t mssfix_ctrl = 0;
 };
@@ -1070,7 +1074,7 @@ int test(const struct proto_test &t)
         ClientSSLAPI::Config::Ptr cc = create_client_ssl_config(frame, prng_cli, t.tls_version_mismatch);
         MySessionStats::Ptr cli_stats(new MySessionStats);
 
-        auto cp = create_client_proto_context(std::move(cc), frame, prng_cli, cli_stats, time, t.tls_crypt_v2_key_fn, t.client_tls_auth_only);
+        auto cp = create_client_proto_context(std::move(cc), frame, prng_cli, cli_stats, time, t.tls_crypt_v2_key_fn, t.client_tls_auth_only, t.use_dynamic_tls_crypt);
         if (t.use_tls_ekm)
             cp->dc.set_key_derivation(CryptoAlgs::KeyDerivation::TLS_EKM);
         if (t.mssfix_ctrl)
@@ -1140,6 +1144,9 @@ int test(const struct proto_test &t)
         sp->tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::V2;
         sp->tls_crypt_v2_serverkey_id = !t.tls_crypt_v2_key_fn.empty();
         sp->tls_crypt_v2_serverkey_dir = TEST_KEYCERT_DIR;
+
+        if (t.use_dynamic_tls_crypt)
+            sp->enable_dynamic_tls_crypt();
 
         if (t.use_tls_auth_with_tls_crypt_v2)
         {
@@ -1296,6 +1303,18 @@ int test(const struct proto_test &t)
                   << " HE=" << cli_stats->get_error_count(Error::HANDSHAKE_TIMEOUT) << '/' << serv_stats->get_error_count(Error::HANDSHAKE_TIMEOUT)
                   << '\n';
 
+        if (t.use_dynamic_tls_crypt)
+        {
+            // The rekey is the first thing to use the derived key, and it is a control
+            // channel handshake like any other: if the two ends derived different keys,
+            // nothing either sends can authenticate and neither gets past its first one.
+            if (cli_proto.proto_context.negotiations() < 2 || serv_proto.proto_context.negotiations() < 2)
+            {
+                std::cerr << "dynamic tls-crypt: no rekey completed\n";
+                return 1;
+            }
+        }
+
 #ifdef STATS
         std::cerr << "-------- CLIENT STATS --------\n";
         cli_stats->show_error_counts();
@@ -1421,6 +1440,61 @@ TEST_F(ProtoUnitTest, TlsAuthSessionSurvivesSpoofedTlsCryptV2Opcode)
                           .use_tls_auth_with_tls_crypt_v2 = true,
                           .client_tls_auth_only = true,
                           .spoof_hard_reset_v3 = true});
+    EXPECT_EQ(ret, 0);
+}
+
+// Dynamic tls-crypt rekeys the control channel with a key each end derives from the TLS
+// session -- so it needs keying material export, which our mbed TLS does not have -- and
+// mixes its own tls-crypt key into. A tls-crypt-v2 server's ProtoConfig holds
+// the server key it unwraps WKc's with, not the Kc inside them, so mixing that in derived a
+// key the client could not match and the rekey never completed. Both server key modes are
+// covered: with a server key in the config the server mixed in the wrong key, and with
+// serverkey_id it had none to mix in and skipped the step the client had taken.
+TEST_F(ProtoUnitTest, DynamicTlsCryptRekeysTlsCryptV2WithServerkeyInConfig)
+{
+    if (!openvpn::SSLLib::SSLAPI::support_key_material_export())
+        GTEST_SKIP_("our mbed TLS implementation does not support TLS EKM");
+
+    int ret = test_retry(N_RETRIES, {.use_dynamic_tls_crypt = true});
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(ProtoUnitTest, DynamicTlsCryptRekeysTlsCryptV2WithServerkeyId)
+{
+    if (!openvpn::SSLLib::SSLAPI::support_key_material_export())
+        GTEST_SKIP_("our mbed TLS implementation does not support TLS EKM");
+
+    int ret = test_retry(N_RETRIES, {.tls_crypt_v2_key_fn = "tls-crypt-v2-client-with-serverkey.key", .use_dynamic_tls_crypt = true});
+    EXPECT_EQ(ret, 0);
+}
+
+// The two above run tls-crypt-v2-only servers, where the config the key is picked from and
+// the mode the session is in cannot disagree. A server holding a tls-auth key as well --
+// what PG deploys -- is the case that can: reset_tls_wrap_mode() prefers TLS_AUTH, so such a
+// session starts as tls-auth and only decapsulate() converts it once the client's WKc
+// arrives. Picking the key to mix from the config then had the server mix tls_auth_key while
+// its tls-crypt-v2 client mixed Kc; the handshake came up fine and the session died at the
+// first rekey, hours in. Both server key modes, as above.
+TEST_F(ProtoUnitTest, DynamicTlsCryptRekeysTlsCryptV2OnTlsAuthServerWithServerkeyInConfig)
+{
+    if (!openvpn::SSLLib::SSLAPI::support_key_material_export())
+        GTEST_SKIP_("our mbed TLS implementation does not support TLS EKM");
+
+    int ret = test_retry(N_RETRIES,
+                         {.use_tls_auth_with_tls_crypt_v2 = true,
+                          .use_dynamic_tls_crypt = true});
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(ProtoUnitTest, DynamicTlsCryptRekeysTlsCryptV2OnTlsAuthServerWithServerkeyId)
+{
+    if (!openvpn::SSLLib::SSLAPI::support_key_material_export())
+        GTEST_SKIP_("our mbed TLS implementation does not support TLS EKM");
+
+    int ret = test_retry(N_RETRIES,
+                         {.tls_crypt_v2_key_fn = "tls-crypt-v2-client-with-serverkey.key",
+                          .use_tls_auth_with_tls_crypt_v2 = true,
+                          .use_dynamic_tls_crypt = true});
     EXPECT_EQ(ret, 0);
 }
 
