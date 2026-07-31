@@ -2165,6 +2165,17 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             }
         }
 
+        /**
+         * @brief Does a packet with this opcode carry a WKc?
+         *
+         * On a server such a packet is what keys the session, so it cannot be validated
+         * with a key yet.
+         */
+        static bool opcode_carries_wkc(const unsigned int opcode)
+        {
+            return opcode == CONTROL_HARD_RESET_CLIENT_V3 || opcode == CONTROL_WKC_V1;
+        }
+
         // validate the integrity of a packet
         static bool validate(const Buffer &net_buf, ProtoContext &proto, TimePtr now)
         {
@@ -2177,11 +2188,10 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 case TLS_AUTH:
                     return validate_tls_auth(recv, proto, now);
                 case TLS_CRYPT_V2:
-                    if (opcode_extract(recv[0]) == CONTROL_HARD_RESET_CLIENT_V3)
+                    if (proto.is_server() && opcode_carries_wkc(opcode_extract(recv[0])))
                     {
-                        // skip validation of HARD_RESET_V3 because the tls-crypt
-                        // engine has not been initialized yet
-                        OVPN_LOG_VERBOSE("SKIPPING VALIDATION OF HARD_RESET_V3");
+                        // Nothing to judge it with: this packet keys the receive context.
+                        OVPN_LOG_VERBOSE("SKIPPING VALIDATION OF WKc-BEARING PACKET");
                         return true;
                     }
                     /* no break */
@@ -3405,8 +3415,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             work.inc_size(encrypt_bytes);
 
             // append WKc to wrapped packet for tls-crypt-v2
-            if ((opcode == CONTROL_HARD_RESET_CLIENT_V3 || opcode == CONTROL_WKC_V1)
-                && (proto.tls_wrap_mode == TLS_CRYPT_V2))
+            if (opcode_carries_wkc(opcode) && (proto.tls_wrap_mode == TLS_CRYPT_V2))
                 proto.tls_crypt_append_wkc(work);
 
             // 'work' now contains the complete packet ready to go. swap it with 'buf'
@@ -3751,7 +3760,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                    && proto.tls_wrap_mode == TLS_AUTH
                    && !proto.psid_peer.defined()
                    && proto.config->tls_crypt_v2_enabled()
-                   && (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3 || pkt.opcode == CONTROL_WKC_V1);
+                   && opcode_carries_wkc(pkt.opcode);
         }
 
         bool decapsulate(Packet &pkt) // called by ProtoStackBase
@@ -3837,14 +3846,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             case TLS_AUTH:
                 return decapsulate_tls_auth(pkt);
             case TLS_CRYPT_V2:
-                // Both opcodes carry a WKc: the first packet of a handshake this session
-                // saw the start of, and the third one of a handshake a psid cookie layer
-                // fielded on its behalf, which is what asking the client to resend the WKc
-                // (EARLY_NEG_FLAG_RESEND_WKC) is for. Either way the client key comes from
-                // the packet in front of us and from nowhere else, so unwrap it here, once
-                // -- and take the WKc off every later copy, which carries it just the same.
-                if (proto.is_server()
-                    && (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3 || pkt.opcode == CONTROL_WKC_V1))
+                // The client key comes from this packet and nowhere else; later copies carry
+                // the WKc too and only need it stripped.
+                if (proto.is_server() && opcode_carries_wkc(pkt.opcode))
                 {
                     if (!proto.tls_crypt_recv)
                     {

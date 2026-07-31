@@ -1012,6 +1012,45 @@ TEST_F(PsidCookieTlsCryptV2Test, FirstPacketIsLeftAsItArrived)
     EXPECT_EQ(buf_to_string(pkt), wire);
 }
 
+/**
+ * @brief A server holding a tls-crypt-v2 key and no tls-auth one
+ *
+ * Starts in TLS_CRYPT_V2, where the fixtures above hold both keys, start in TLS_AUTH and
+ * convert.
+ */
+class PsidCookieTlsCryptV2OnlyTest : public PsidCookieTlsCryptV2Test
+{
+  protected:
+    PsidCookieTlsCryptV2OnlyTest()
+    {
+        pcookie_impl->pcfg_.tls_auth_key.erase();
+    }
+};
+
+// The first packet a pre-filtering embedder sees is the one the receive context is keyed
+// from, so there is no key to check it with. Only CONTROL_HARD_RESET_CLIENT_V3 was exempt,
+// not the CONTROL_WKC_V1 a psid cookie layer leaves the session to key itself from.
+TEST_F(PsidCookieTlsCryptV2OnlyTest, ControlNetValidateAcceptsTheWkcBearingPacket)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+    const ProtoContext::PacketType pt = session.proto.packet_type(*bp);
+    ASSERT_TRUE(pt.is_control());
+    EXPECT_TRUE(session.proto.control_net_validate(pt, *bp));
+
+    // the pre-filter and the path it filters for have to agree
+    EXPECT_GT(session.recv(pkt), 0u);
+}
+
 // intercept() turns away only an empty datagram, so every one whose first byte carries a
 // CONTROL_HARD_RESET_CLIENT_V3 opcode reaches the tls-crypt arm -- which read a psid and a
 // packet id off it before establishing there was that much packet. Two bytes from anywhere
