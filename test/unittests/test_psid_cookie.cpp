@@ -659,6 +659,34 @@ TEST_F(PsidCookieSingleServerKeyTest, ThirdPacketUnwrapsWithNoServerKeyIdOnTheWi
     EXPECT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
 }
 
+// intercept() turns away only an empty datagram, so every one whose first byte carries a
+// CONTROL_HARD_RESET_CLIENT_V3 opcode reaches the tls-crypt arm -- which read a psid and a
+// packet id off it before establishing there was that much packet. Two bytes from anywhere
+// threw buffer_underflow out of intercept(). The tls-auth sibling has always checked.
+TEST_F(PsidCookieTlsCryptV2Test, ShortInitialResetIsDroppedRatherThanThrown)
+{
+    auto f = make_fixture();
+
+    for (size_t size = 1; size <= 96; ++size)
+    {
+        BufferAllocated pkt(size, BufAllocFlags::CONSTRUCT_ZERO);
+        pkt.set_size(size);
+        pkt.data()[0] = ProtoContext::op_compose(ProtoContext::CONTROL_HARD_RESET_CLIENT_V3, 0);
+
+        // where there is room, claim early-negotiation support so the arm carries on into the
+        // WKc unwrap instead of declining at the flag; both outcomes are wanted
+        if (size >= 1 + ProtoSessionID::SIZE + sizeof(std::uint32_t))
+        {
+            const std::uint32_t early_neg_be = htonl(ProtoContext::EARLY_NEG_START);
+            std::memcpy(pkt.data() + 1 + ProtoSessionID::SIZE, &early_neg_be, sizeof(early_neg_be));
+        }
+
+        PsidCookie::Intercept ret = PsidCookie::Intercept::HANDLE_2ND;
+        ASSERT_NO_THROW(ret = pcookie_impl->intercept(pkt, f.cli_addr)) << "size " << size;
+        EXPECT_NE(ret, PsidCookie::Intercept::HANDLE_2ND) << "size " << size;
+    }
+}
+
 // The client key is the one part of a WKc that has to be there, and the check for it counted
 // the length prefix and the K_id along with it -- neither of which is key material, and both
 // advanced past before the key is read. A WKc short by those six bytes passed the check,

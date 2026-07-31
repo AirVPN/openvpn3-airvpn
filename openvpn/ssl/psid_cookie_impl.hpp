@@ -306,6 +306,16 @@ class PsidCookieImpl : public PsidCookie
     {
         static const size_t hmac_size = pcfg_.tls_crypt_context->digest_size();
 
+        // Check the size before reading any of it. intercept() turns away only an empty
+        // datagram, and unlike the tls-auth path there is no hmac comparison ahead of this to
+        // vet the length on the way past -- the WKc is what authenticates a packet here, and
+        // that is not looked at until below.
+        static const size_t reqd_packet_size = TLSCryptContext::hmac_offset;
+        if (pkt_buf.size() < reqd_packet_size)
+        {
+            return Intercept::DROP_1ST;
+        }
+
         ConstBuffer recv_buf_copy(pkt_buf.c_data() + 1, pkt_buf.size() - 1, true);
 
         ProtoSessionID client_session_id(recv_buf_copy);

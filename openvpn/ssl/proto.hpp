@@ -299,6 +299,13 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         EARLY_NEG_FLAG_RESEND_WKC = 0x0001
     };
 
+    /** a peer announces EARLY_NEG_START/CONTROL_WKC_V1 support by numbering its
+     *  first sent control packet EARLY_NEG_START instead of 0; EARLY_NEG_MASK
+     *  selects the bits that carry the announcement -- see
+     *  supports_early_negotiation() */
+    static constexpr PacketIDControl::id_t EARLY_NEG_START = 0x0f000000;
+    static constexpr PacketIDControl::id_t EARLY_NEG_MASK = 0xff000000;
+
     static unsigned int opcode_extract(const unsigned int op)
     {
         return op >> OPCODE_SHIFT;
@@ -4898,9 +4905,6 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         TLS_CRYPT,
         TLS_CRYPT_V2
     };
-
-    static constexpr PacketIDControl::id_t EARLY_NEG_START = 0x0f000000;
-    static constexpr PacketIDControl::id_t EARLY_NEG_MASK = 0xff000000;
 
     void reset_all()
     {
