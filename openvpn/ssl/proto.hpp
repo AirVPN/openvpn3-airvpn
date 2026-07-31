@@ -2793,16 +2793,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                                                 work.size()))
                 return false;
 
-            // verify source PSID
-            if (proto.psid_peer.defined())
-            {
-                if (!proto.psid_peer.match(src_psid))
-                    return false;
-            }
-            else
-            {
-                proto.psid_peer = src_psid;
-            }
+            // verify source PSID, never pin it: only accept_peer() may name our peer
+            if (proto.psid_peer.defined() && !proto.psid_peer.match(src_psid))
+                return false;
 
             // get current time_t
             const PacketIDControl::time_t t = now->seconds_since_epoch();

@@ -1051,6 +1051,54 @@ TEST_F(PsidCookieTlsCryptV2OnlyTest, ControlNetValidateAcceptsTheWkcBearingPacke
     EXPECT_GT(session.recv(pkt), 0u);
 }
 
+/**
+ * @brief A tls-crypt v1 server: one key shared with every client, no tls-auth, no WKc
+ *
+ * TLS_CRYPT is the one mode whose pre-filter can be reached with no peer pinned yet.
+ */
+class TlsCryptV1SessionTest : public PsidCookieTlsCryptV2Test
+{
+  protected:
+    TlsCryptV1SessionTest()
+    {
+        ProtoContext::ProtoConfig &pcfg = pcookie_impl->pcfg_;
+        pcfg.tls_auth_key.erase();
+        pcfg.tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::V1;
+        pcfg.tls_crypt_v2_serverkey_id = false;
+        pcfg.tls_crypt_v2_serverkey_dir.clear();
+        pcfg.tls_crypt_key = server_key_;
+    }
+
+    //! A CONTROL_V1 frame from @p cli_psid, wrapped with the shared key and echoing @p srv_psid
+    BufferAllocated v1_packet(const ProtoSessionID &cli_psid, const ProtoSessionID &srv_psid)
+    {
+        return wrap_third_packet(server_key_, cli_psid, srv_psid, BufferAllocated(), control_v1_op_field(), 0);
+    }
+};
+
+// A pre-filter's verdict must not depend on what it was handed before. It pinned the peer
+// psid from whatever packet reached it first, outside accept_peer(), so a holder of the
+// shared key could pin itself from a spoofed datagram and lock the real client out.
+TEST_F(TlsCryptV1SessionTest, ControlNetValidateDoesNotPinThePeer)
+{
+    auto f = make_fixture();
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    ProtoSessionID other_psid;
+    other_psid.randomize(*pcookie_impl->pcfg_.rng);
+
+    auto validate = [&](const BufferAllocated &pkt)
+    {
+        BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+        const ProtoContext::PacketType pt = session.proto.packet_type(*bp);
+        return pt.is_control() && session.proto.control_net_validate(pt, *bp);
+    };
+
+    // whichever arrives first, both are packets the pre-filter has no peer to judge against
+    EXPECT_TRUE(validate(v1_packet(other_psid, f.cookie_psid)));
+    EXPECT_TRUE(validate(v1_packet(f.cli_psid, f.cookie_psid)));
+}
+
 // intercept() turns away only an empty datagram, so every one whose first byte carries a
 // CONTROL_HARD_RESET_CLIENT_V3 opcode reaches the tls-crypt arm -- which read a psid and a
 // packet id off it before establishing there was that much packet. Two bytes from anywhere
