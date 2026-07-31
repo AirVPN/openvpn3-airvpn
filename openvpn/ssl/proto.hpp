@@ -2387,6 +2387,67 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         }
 
         /**
+         * @brief Smallest tls-crypt frame a WKc can be appended to
+         *
+         * Header, auth tag, an empty ACK array and the reliable ID, with no ciphertext --
+         * a WKc can fill a packet by itself, see control_ciphertext_capacity().
+         */
+        static size_t tls_crypt_frame_size(const ProtoConfig &proto_config)
+        {
+            return TLSCryptContext::hmac_offset
+                   + proto_config.tls_crypt_context->digest_size()
+                   // the following is the tls-crypt payload
+                   + sizeof(char)  // length of ACK array
+                   + sizeof(id_t); // reliable ID
+        }
+
+        /**
+         * @brief What a WKc holds besides the client key and the metadata
+         *
+         * Its own trailing length field, the authentication tag ``T``, and the server key
+         * ID where one is configured. A WKc smaller than this cannot be parsed at all, so
+         * it is the floor an attacker-supplied length is held to.
+         */
+        static size_t wkc_overhead(const ProtoConfig &proto_config)
+        {
+            return sizeof(uint16_t)
+                   + proto_config.tls_crypt_context->digest_size()
+                   + (proto_config.tls_crypt_v2_serverkey_id ? sizeof(uint32_t) : 0);
+        }
+
+        /**
+         * @brief Read and validate the WKc length a tls-crypt-v2 packet ends with
+         *
+         * ``wkc_len`` is read straight from the last two bytes of the packet and is
+         * therefore fully attacker-controlled. It has to be validated before any pointer
+         * arithmetic uses it: the WKc must fit between the end of the tls-crypt frame and
+         * the end of the packet, and hold at least @p min_wkc_len bytes. Without this a
+         * bogus length underflows the unsigned size computations into a wild pointer,
+         * causing an out-of-bounds read during decryption -- an unauthenticated remote DoS.
+         *
+         * @return false if @p recv is too short to hold the tls-crypt frame and the
+         *         length field, or if ``wkc_len`` is smaller than @p min_wkc_len or
+         *         larger than the space behind the frame.
+         */
+        static bool trailing_wkc_len(const Buffer &recv,
+                                     const ProtoConfig &proto_config,
+                                     const size_t min_wkc_len,
+                                     uint16_t &wkc_len)
+        {
+            const size_t frame_size = tls_crypt_frame_size(proto_config);
+            const size_t orig_size = recv.size();
+
+            if (orig_size < (frame_size + sizeof(wkc_len)))
+                return false;
+
+            // avoid unaligned access
+            std::memcpy(&wkc_len, recv.c_data() + orig_size - sizeof(wkc_len), sizeof(wkc_len));
+            wkc_len = ntohs(wkc_len);
+
+            return wkc_len >= min_wkc_len && wkc_len <= (orig_size - frame_size);
+        }
+
+        /**
          * @brief  Extract and process the TLS crypt WKc information.
          * @param  recv                Buffer containing the raw packet.
          * @param  proto_config        Config object holding the settings needed for processing.
@@ -2418,58 +2479,36 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             const unsigned char *orig_data = recv.data();
             const size_t orig_size = recv.size();
             const size_t hmac_size = proto_config.tls_crypt_context->digest_size();
-            const size_t tls_frame_size = OPCODE_SIZE + ProtoSessionID::SIZE
-                                          + PacketIDControl::size()
-                                          + hmac_size
-                                          // the following is the tls-crypt payload
-                                          + sizeof(char)  // length of ACK array
-                                          + sizeof(id_t); // reliable ID
-
-            // check that at least the authentication tag ``T`` is present
-            if (orig_size < (tls_frame_size + hmac_size))
-                return Error::CC_ERROR;
-
-            // the ``WKc`` is just appended after the standard tls-crypt frame
-            const unsigned char *wkc_raw = orig_data + tls_frame_size;
-            size_t wkc_raw_size = orig_size - tls_frame_size - sizeof(uint16_t);
-            // retrieve the ``WKc`` len from the bottom of the packet and convert it to Host Order
-            uint16_t wkc_len;
-            // avoid unaligned access
-            std::memcpy(&wkc_len, wkc_raw + wkc_raw_size, sizeof(wkc_len));
-            wkc_len = ntohs(wkc_len);
+            const size_t tls_frame_size = tls_crypt_frame_size(proto_config);
 
             uint32_t k_id = 0;
             const size_t serverkey_id_size = proto_config.tls_crypt_v2_serverkey_id ? sizeof(k_id) : 0;
 
-            // There's also a payload here, so the assumption that the difference in size
-            // from the TLS frame's end to the end of the packet constitutes the WKc no
-            // longer holds. We can only rely on wkc_len for P_CONTROL_WKC_V1 packets.
-            if (opcode_extract(orig_data[0]) != CONTROL_HARD_RESET_CLIENT_V3)
-            {
-                // ``wkc_len`` is read straight from the last two bytes of the received
-                // packet and is therefore fully attacker-controlled. It must be validated
-                // before being used in the pointer arithmetic below: the WKc has to fit
-                // between the end of the tls-crypt frame and the end of the packet, and be
-                // large enough to hold the auth tag, the optional server key ID and the
-                // trailing length field. Without this guard a bogus ``wkc_len`` underflows
-                // the (unsigned) size computations and turns ``wkc_raw`` into a wild
-                // pointer, causing an out-of-bounds read during decryption (an
-                // unauthenticated remote DoS). ``orig_size >= tls_frame_size + hmac_size``
-                // was already established above, so ``orig_size - tls_frame_size`` is safe.
-                if (wkc_len < (sizeof(uint16_t) + hmac_size + serverkey_id_size)
-                    || wkc_len > (orig_size - tls_frame_size))
-                    return Error::CC_ERROR;
-
-                wkc_raw = orig_data + orig_size - wkc_len;
-                wkc_raw_size = wkc_len - sizeof(uint16_t);
-            }
-
-            // For both packet types the WKc must be large enough to hold the auth tag and
-            // the optional server key ID, otherwise the server key ID read below or the
-            // ciphertext length passed to decrypt() (``wkc_raw_size - hmac_size -
-            // serverkey_id_size``) would underflow and read out of bounds.
-            if (wkc_raw_size < (hmac_size + serverkey_id_size))
+            // Establishes ``wkc_overhead() <= wkc_len <= orig_size - tls_frame_size``, so
+            // the WKc holds its own length field, the authentication tag ``T`` and the
+            // optional ``K_id``, and fits behind the tls-crypt frame. Both wkc_raw_size
+            // expressions below then come to at least ``hmac_size + serverkey_id_size``,
+            // which is what keeps the ``K_id`` read and the ciphertext length handed to
+            // decrypt() from underflowing.
+            uint16_t wkc_len;
+            if (!trailing_wkc_len(recv, proto_config, wkc_overhead(proto_config), wkc_len))
                 return Error::CC_ERROR;
+
+            // A CONTROL_HARD_RESET_CLIENT_V3 carries nothing but the ``WKc`` behind the
+            // tls-crypt frame, so its extent follows from the sizes; a P_CONTROL_WKC_V1
+            // carries a payload as well, and only ``wkc_len`` locates the ``WKc`` in it.
+            const unsigned char *wkc_raw;
+            size_t wkc_raw_size;
+            if (opcode_extract(orig_data[0]) == CONTROL_HARD_RESET_CLIENT_V3)
+            {
+                wkc_raw = orig_data + tls_frame_size;
+                wkc_raw_size = orig_size - tls_frame_size - sizeof(wkc_len);
+            }
+            else
+            {
+                wkc_raw = orig_data + orig_size - wkc_len;
+                wkc_raw_size = wkc_len - sizeof(wkc_len);
+            }
 
             if (proto_config.tls_crypt_v2_serverkey_id)
             {
@@ -2516,12 +2555,17 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 plaintext.write(&k_id, sizeof(k_id));
             }
 
-            if (plaintext.max_size() <= 2 + serverkey_id_size)
+            // the ``len || K_id`` prefix written above is part of the authenticated
+            // plaintext, but the decrypted key material goes behind it
+            const size_t plaintext_prefix_size = sizeof(wkc_len) + serverkey_id_size;
+
+            const size_t plaintext_max_size = plaintext.max_size();
+            if (plaintext_max_size <= plaintext_prefix_size)
                 return Error::DECRYPT_ERROR;
 
             const size_t decrypt_bytes = tls_crypt_server.decrypt(wkc_raw,
-                                                                  plaintext.data() + 2 + serverkey_id_size,
-                                                                  plaintext.max_size() - 2 - serverkey_id_size,
+                                                                  plaintext.data() + plaintext_prefix_size,
+                                                                  plaintext_max_size - plaintext_prefix_size,
                                                                   wkc_raw + hmac_size,
                                                                   wkc_raw_size - hmac_size - serverkey_id_size);
             plaintext.inc_size(decrypt_bytes);
