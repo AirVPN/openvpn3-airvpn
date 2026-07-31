@@ -1551,6 +1551,26 @@ TEST_F(TlsCryptV2WkcUnwrapTest, RejectsWkcLenSmallerThanAuthTag)
 // too: a length that survives validation is used to trim the packet, and one
 // that doesn't must leave the packet alone and drop it.
 
+// A WKc's K_id names a file and the K_id is whatever the packet says it is, so a client whose
+// key we never had -- or a forgery -- points at a file that is not there. read_text() throws
+// open_file_error for it, which is not a BufferException, so it sailed past the only catch in
+// decapsulate() and out of the psid cookie layer's intercept(), from a path reached before
+// anything about the packet has been authenticated.
+TEST_F(TlsCryptV2WkcUnwrapTest, UnknownServerKeyIdIsAnErrorAndNotAnException)
+{
+    pcfg->tls_crypt_v2_serverkey_id = true;
+    pcfg->tls_crypt_v2_serverkey_dir = TEST_KEYCERT_DIR;
+
+    // room for a WKc behind a tls-crypt frame; the buffer is zero filled, so the K_id it
+    // carries is 0 and names <dir>/00/00000000.key
+    const uint16_t wkc_len = min_wkc_len();
+    BufferAllocated buf = make_wkc_v1_packet(frame_size() + wkc_len, wkc_len);
+
+    Error::Type ret = Error::SUCCESS;
+    EXPECT_NO_THROW(ret = ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server));
+    EXPECT_EQ(ret, Error::DECRYPT_ERROR);
+}
+
 TEST_F(TlsCryptV2WkcUnwrapTest, StripsResentWkc)
 {
     BufferAllocated buf = make_wkc_v1_packet(frame_size() + 300, 300);

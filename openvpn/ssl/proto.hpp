@@ -2535,21 +2535,30 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 const std::string serverkey_path = proto_config.tls_crypt_v2_serverkey_dir + "/"
                                                    + serverkey_fn.substr(0, 2) + "/" + serverkey_fn;
 
-                // If the key is missing, an exception will be thrown here, for example:
-                // "cannot open for read: <KEYS_DIR>/06/063FE634.key"
-                const std::string serverkey = read_text(serverkey_path);
+                // The K_id came off the wire, so a client whose key we never had -- or a
+                // forgery -- names a file that is not there. That is a WKc we cannot unwrap
+                // and nothing more, so nothing here may leave as an exception: decapsulate()
+                // catches BufferException alone and open_file_error is not one.
+                try
+                {
+                    TLSCryptV2ServerKey tls_crypt_v2_key;
+                    tls_crypt_v2_key.parse(read_text(serverkey_path));
+                    tls_crypt_v2_key.extract_key(proto_config.tls_crypt_key);
+
+                    // the server key is composed by one key set only, therefore direction and
+                    // mode should not be specified when slicing
+                    tls_crypt_server.init(proto_config.ssl_factory->libctx(),
+                                          proto_config.tls_crypt_key.slice(OpenVPNStaticKey::HMAC),
+                                          proto_config.tls_crypt_key.slice(OpenVPNStaticKey::CIPHER));
+                }
+                catch (const std::exception &e)
+                {
+                    OVPN_LOG_VERBOSE("DROPPING WKc NAMING SERVER KEY " << serverkey_path
+                                                                       << ": " << e.what());
+                    return Error::DECRYPT_ERROR;
+                }
 
                 OVPN_LOG_VERBOSE("Using TLS-crypt-V2 server key " << serverkey_path);
-
-                TLSCryptV2ServerKey tls_crypt_v2_key;
-                tls_crypt_v2_key.parse(serverkey);
-                tls_crypt_v2_key.extract_key(proto_config.tls_crypt_key);
-
-                // the server key is composed by one key set only, therefore direction and
-                // mode should not be specified when slicing
-                tls_crypt_server.init(proto_config.ssl_factory->libctx(),
-                                      proto_config.tls_crypt_key.slice(OpenVPNStaticKey::HMAC),
-                                      proto_config.tls_crypt_key.slice(OpenVPNStaticKey::CIPHER));
 
                 k_id = htonl(k_id);
                 plaintext.write(&k_id, sizeof(k_id));
