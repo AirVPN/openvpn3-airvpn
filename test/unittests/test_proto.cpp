@@ -1235,18 +1235,23 @@ int test(const struct proto_test &t)
                     // Pretend the server asked the client to resend the
                     // tls-crypt-v2 WKc on the first control packet, so the
                     // client's ClientHello is emitted as CONTROL_WKC_V1 with
-                    // the WKc appended.  Drive only enough rounds for the
-                    // client to emit it, then verify it fits the control-channel
-                    // frame.  The handshake won't complete (a plain ProtoContext
-                    // server doesn't expect a WKc on a mid-handshake
-                    // CONTROL_WKC_V1), which is irrelevant to this check.
+                    // the WKc appended -- as is every retransmission of that
+                    // packet, which the noisy wire below produces plenty of.
+                    // The server has to take the WKc off each of them, so the
+                    // handshake completes like any other.
                     cli_proto.proto_context.force_resend_wkc();
-                    for (int k = 0; k < 60; ++k)
-                    {
-                        client_to_server.xfer(cli_proto, serv_proto);
-                        server_to_client.xfer(serv_proto, cli_proto);
-                        time += time_step;
-                    }
+                }
+
+                // message loop
+                for (j = 0; j < ITER; ++j)
+                {
+                    client_to_server.xfer(cli_proto, serv_proto);
+                    server_to_client.xfer(serv_proto, cli_proto);
+                    time += time_step;
+                }
+
+                if (t.force_resend_wkc)
+                {
                     // Frame control context above is Context(128, control_payload, ...).
                     // Even the WKc-bearing packet must stay within headroom +
                     // payload; without the reservation fix it overflows by
@@ -1262,15 +1267,6 @@ int test(const struct proto_test &t)
                                   << " > " << t.mssfix_ctrl << '\n';
                         return 1;
                     }
-                    return 0;
-                }
-
-                // message loop
-                for (j = 0; j < ITER; ++j)
-                {
-                    client_to_server.xfer(cli_proto, serv_proto);
-                    server_to_client.xfer(serv_proto, cli_proto);
-                    time += time_step;
                 }
             }
             catch (const std::exception &e)
@@ -1515,6 +1511,20 @@ class TlsCryptV2WkcUnwrapTest : public testing::Test
         std::memcpy(buf.data() + size - sizeof(net_wkc_len), &net_wkc_len, sizeof(net_wkc_len));
         return buf;
     }
+
+    //! Smallest tls-crypt frame a WKc can follow, from the code under test
+    size_t frame_size() const
+    {
+        return ProtoContext::KeyContext::tls_crypt_frame_size(*pcfg);
+    }
+
+    //! Smallest WKc strip_resent_wkc() accepts, from the code under test: everything a
+    //! WKc carries besides the key, plus the key it wraps
+    uint16_t min_wkc_len() const
+    {
+        return static_cast<uint16_t>(ProtoContext::KeyContext::wkc_overhead(*pcfg)
+                                     + OpenVPNStaticKey::KEY_SIZE);
+    }
 };
 
 // wkc_len far larger than the packet: pre-fix this underflowed wkc_raw into a
@@ -1533,6 +1543,69 @@ TEST_F(TlsCryptV2WkcUnwrapTest, RejectsWkcLenSmallerThanAuthTag)
     BufferAllocated buf = make_wkc_v1_packet(200, 4);
     EXPECT_EQ(ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server),
               Error::CC_ERROR);
+}
+
+// strip_resent_wkc() takes the WKc off a retransmitted CONTROL_WKC_V1 without
+// unwrapping it again.  It reads the same attacker-controlled trailing length
+// field as the unwrap above and needs the same guards, so exercise them here
+// too: a length that survives validation is used to trim the packet, and one
+// that doesn't must leave the packet alone and drop it.
+
+TEST_F(TlsCryptV2WkcUnwrapTest, StripsResentWkc)
+{
+    BufferAllocated buf = make_wkc_v1_packet(frame_size() + 300, 300);
+    EXPECT_TRUE(ProtoContext::KeyContext::strip_resent_wkc(buf, *pcfg));
+    // what is left is the frame the tls-crypt auth tag actually covers
+    EXPECT_EQ(buf.size(), frame_size());
+}
+
+TEST_F(TlsCryptV2WkcUnwrapTest, StripRejectsWkcLenLargerThanPacket)
+{
+    BufferAllocated buf = make_wkc_v1_packet(400, 60000);
+    EXPECT_FALSE(ProtoContext::KeyContext::strip_resent_wkc(buf, *pcfg));
+    EXPECT_EQ(buf.size(), 400u);
+}
+
+// a WKc too small to even hold the client key it is supposed to wrap
+TEST_F(TlsCryptV2WkcUnwrapTest, StripRejectsWkcLenSmallerThanClientKey)
+{
+    BufferAllocated buf = make_wkc_v1_packet(400, min_wkc_len() - 1);
+    EXPECT_FALSE(ProtoContext::KeyContext::strip_resent_wkc(buf, *pcfg));
+    EXPECT_EQ(buf.size(), 400u);
+}
+
+// one byte more than the packet can spare: trimming it would leave less than a
+// tls-crypt frame in front of the WKc
+TEST_F(TlsCryptV2WkcUnwrapTest, StripRejectsWkcLeavingNoTlsCryptFrame)
+{
+    BufferAllocated buf = make_wkc_v1_packet(400, static_cast<uint16_t>(400 - frame_size() + 1));
+    EXPECT_FALSE(ProtoContext::KeyContext::strip_resent_wkc(buf, *pcfg));
+    EXPECT_EQ(buf.size(), 400u);
+}
+
+// too short to hold a frame plus the trailing length field at all; the length
+// read itself must not happen
+TEST_F(TlsCryptV2WkcUnwrapTest, StripRejectsPacketShorterThanAFrame)
+{
+    BufferAllocated buf = make_wkc_v1_packet(frame_size() + 1, 300);
+    EXPECT_FALSE(ProtoContext::KeyContext::strip_resent_wkc(buf, *pcfg));
+}
+
+// with server key IDs in use -- how PG deploys tls-crypt-v2 -- the WKc carries a
+// 4 byte K_id as well, so the minimum grows by that much
+TEST_F(TlsCryptV2WkcUnwrapTest, StripAccountsForServerKeyId)
+{
+    pcfg->tls_crypt_v2_serverkey_id = true;
+    // the one place the number is spelled out rather than asked for: length field, a
+    // SHA-256 tag, K_id and the client key
+    ASSERT_EQ(min_wkc_len(), sizeof(uint16_t) + 32 + sizeof(uint32_t) + OpenVPNStaticKey::KEY_SIZE);
+
+    BufferAllocated too_small = make_wkc_v1_packet(400, min_wkc_len() - 1);
+    EXPECT_FALSE(ProtoContext::KeyContext::strip_resent_wkc(too_small, *pcfg));
+
+    BufferAllocated ok = make_wkc_v1_packet(400, min_wkc_len());
+    EXPECT_TRUE(ProtoContext::KeyContext::strip_resent_wkc(ok, *pcfg));
+    EXPECT_EQ(ok.size(), 400u - min_wkc_len());
 }
 #endif
 

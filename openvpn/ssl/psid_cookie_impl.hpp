@@ -375,7 +375,14 @@ class PsidCookieImpl : public PsidCookie
 
     Intercept process_clients_server_reset_ack_tls_crypt(Buffer &pkt_buf, const PsidCookieAddrInfoBase &pcaib)
     {
-        TLSCryptInstance::Ptr recv = init_tls_crypt_v2(pkt_buf, OpenVPNStaticKey::DECRYPT);
+        // The unwrap below works on a shallow view over the same bytes, trimming the WKc
+        // off it to leave the tls-crypt frame the auth tag covers -- the size everything
+        // else here has to work on. pkt_buf keeps the packet as it arrived, so that the
+        // session created for this client finds the WKc where it expects it and keys
+        // itself, uniformly for this copy and the retransmissions that follow it.
+        Buffer work_buf(pkt_buf);
+
+        TLSCryptInstance::Ptr recv = init_tls_crypt_v2(work_buf, OpenVPNStaticKey::DECRYPT);
 
         if (!recv)
             return Intercept::DROP_2ND;
@@ -383,9 +390,9 @@ class PsidCookieImpl : public PsidCookie
         static const size_t hmac_size = pcfg_.tls_crypt_context->digest_size();
 
         const size_t head_size = OPCODE_SIZE + ProtoSessionID::SIZE + PacketIDControl::size();
-        const unsigned char *orig_data = pkt_buf.c_data();
+        const unsigned char *orig_data = work_buf.c_data();
 
-        ConstBuffer recv_buf_copy(pkt_buf.c_data() + 1, pkt_buf.size() - 1, true);
+        ConstBuffer recv_buf_copy(work_buf.c_data() + 1, work_buf.size() - 1, true);
 
         ProtoSessionID client_session_id(recv_buf_copy);
         recv_buf_copy.advance(PacketIDControl::size() + hmac_size);

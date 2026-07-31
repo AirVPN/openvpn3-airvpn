@@ -2600,6 +2600,38 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             return Error::SUCCESS;
         }
 
+        /**
+         * @brief Virtually remove a resent WKc from the end of a CONTROL_WKC_V1 packet
+         *
+         * A client asked to resend its WKc (EARLY_NEG_FLAG_RESEND_WKC) appends it to every
+         * transmission of the third handshake packet, retransmissions included, since
+         * encapsulate() re-runs for each of them. By the time such a packet reaches a
+         * session the client key it wraps is already set up, so the WKc is of no further
+         * use and must simply be taken off: the tls-crypt frame in front of it is what
+         * gets decapsulated, and its auth tag covers that frame alone.
+         *
+         * OpenVPN 2 does the same in tls_crypt_v2_extract_client_key() when its
+         * `initial_packet` argument is false, turning the packet back into a CONTROL_V1.
+         *
+         * @return false if the trailing length does not describe a WKc that fits behind a
+         *         tls-crypt frame, i.e. the packet is malformed and must be dropped.
+         */
+        static bool strip_resent_wkc(Buffer &recv, const ProtoConfig &proto_config)
+        {
+            // nothing is unwrapped here, but a WKc that could not hold the client key is
+            // malformed all the same
+            uint16_t wkc_len;
+            if (!trailing_wkc_len(recv,
+                                  proto_config,
+                                  wkc_overhead(proto_config) + OpenVPNStaticKey::KEY_SIZE,
+                                  wkc_len))
+                return false;
+
+            recv.set_size(recv.size() - wkc_len);
+
+            return true;
+        }
+
       private:
         static bool validate_tls_auth(Buffer &recv, ProtoContext &proto, TimePtr now)
         {
@@ -3739,50 +3771,62 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             case TLS_AUTH:
                 return decapsulate_tls_auth(pkt);
             case TLS_CRYPT_V2:
-                if (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3)
+                // Both opcodes carry a WKc: the first packet of a handshake this session
+                // saw the start of, and the third one of a handshake a psid cookie layer
+                // fielded on its behalf, which is what asking the client to resend the WKc
+                // (EARLY_NEG_FLAG_RESEND_WKC) is for. Either way the client key comes from
+                // the packet in front of us and from nowhere else, so unwrap it here, once
+                // -- and take the WKc off every later copy, which carries it just the same.
+                if (proto.is_server()
+                    && (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3 || pkt.opcode == CONTROL_WKC_V1))
                 {
-                    // unwrap WKc and extract Kc (client key) from packet.
-                    // This way we can initialize the tls-crypt per-client contexts
-                    // (this happens on the server side only)
-                    //
-                    // A session the psid cookie layer created has no server context:
-                    // its WKc was unwrapped before the session existed, so a further
-                    // copy of the first packet has nothing left to unwrap it with. A
-                    // late duplicate of a packet we already acted on is not an error,
-                    // so drop it without counting one.
-                    if (!proto.tls_crypt_server)
+                    if (!proto.tls_crypt_recv)
                     {
-                        OVPN_LOG_VERBOSE(proto.debug_prefix()
-                                         << " DROPPING HARD_RESET_V3 WITH NO SERVER CONTEXT");
-                        return false;
-                    }
+                        // A session the psid cookie layer created has no server context:
+                        // its WKc was unwrapped before the session existed, so a further
+                        // copy of the first packet has nothing left to unwrap it with. A
+                        // late duplicate of a packet we already acted on is not an error,
+                        // so drop it without counting one.
+                        if (!proto.tls_crypt_server)
+                        {
+                            OVPN_LOG_VERBOSE(proto.debug_prefix()
+                                             << " DROPPING WKc WITH NO SERVER CONTEXT");
+                            return false;
+                        }
 
-                    OpenVPNStaticKey client_key;
-                    const Error::Type unwrap_wkc_result = unwrap_tls_crypt_wkc(*pkt.buf,
-                                                                               *proto.config,
-                                                                               *proto.tls_crypt_server,
-                                                                               proto.tls_crypt_metadata);
-                    switch (unwrap_wkc_result)
+                        const Error::Type unwrap_wkc_result = unwrap_tls_crypt_wkc(*pkt.buf,
+                                                                                   *proto.config,
+                                                                                   *proto.tls_crypt_server,
+                                                                                   proto.tls_crypt_metadata);
+                        switch (unwrap_wkc_result)
+                        {
+                        case Error::DECRYPT_ERROR:
+                        case Error::HMAC_ERROR:
+                            proto.stats->error(unwrap_wkc_result);
+                            if (proto.is_tcp())
+                                invalidate(unwrap_wkc_result);
+                            return false;
+                        case Error::TLS_CRYPT_META_FAIL:
+                            proto.stats->error(unwrap_wkc_result);
+                            return false;
+                        case Error::SUCCESS:
+                            break;
+                        default:
+                            return false;
+                        }
+
+                        // WKc has been authenticated: it contains the client key followed
+                        // by the optional metadata. Let's initialize the tls-crypt context
+                        // with the client key
+                        proto.reset_tls_crypt(*proto.config, proto.config->wrapped_tls_crypt_key);
+                    }
+                    else if (!strip_resent_wkc(*pkt.buf, *proto.config))
                     {
-                    case Error::DECRYPT_ERROR:
-                    case Error::HMAC_ERROR:
-                        proto.stats->error(unwrap_wkc_result);
+                        proto.stats->error(Error::CC_ERROR);
                         if (proto.is_tcp())
-                            invalidate(unwrap_wkc_result);
-                        return false;
-                    case Error::TLS_CRYPT_META_FAIL:
-                        proto.stats->error(unwrap_wkc_result);
-                        return false;
-                    case Error::SUCCESS:
-                        break;
-                    default:
+                            invalidate(Error::CC_ERROR);
                         return false;
                     }
-
-                    // WKc has been authenticated: it contains the client key followed
-                    // by the optional metadata. Let's initialize the tls-crypt context
-                    // with the client key
-                    proto.reset_tls_crypt(*proto.config, proto.config->wrapped_tls_crypt_key);
                 }
                 // now that the tls-crypt contexts have been initialized it is
                 // possible to proceed with the standard tls-crypt decapsulation
