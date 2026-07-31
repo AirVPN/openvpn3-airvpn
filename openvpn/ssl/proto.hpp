@@ -2568,10 +2568,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
             if (proto_config.tls_crypt_v2_serverkey_id)
             {
-                std::stringstream ss;
-                ss << std::hex << std::setfill('0') << std::uppercase << std::setw(8) << k_id;
-
-                const std::string serverkey_fn = ss.str() + ".key";
+                const std::string serverkey_fn = render_hex_number(k_id, true) + ".key";
                 const std::string serverkey_path = proto_config.tls_crypt_v2_serverkey_dir + "/"
                                                    + serverkey_fn.substr(0, 2) + "/" + serverkey_fn;
 
