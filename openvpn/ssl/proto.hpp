@@ -3595,6 +3595,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         bool decapsulate(Packet &pkt) // called by ProtoStackBase
         {
+            bool authenticated = false;
+
             try
             {
                 if (proto.is_server()
@@ -3615,70 +3617,89 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                     proto.ta_pid_recv.init("SSL-CC", 0, proto.stats);
                 }
 
-                switch (proto.tls_wrap_mode)
-                {
-                case TLS_AUTH:
-                    return decapsulate_tls_auth(pkt);
-                case TLS_CRYPT_V2:
-                    if (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3)
-                    {
-                        // unwrap WKc and extract Kc (client key) from packet.
-                        // This way we can initialize the tls-crypt per-client contexts
-                        // (this happens on the server side only)
-                        //
-                        // A session the psid cookie layer created has no server context:
-                        // its WKc was unwrapped before the session existed, so a further
-                        // copy of the first packet has nothing left to unwrap it with. A
-                        // late duplicate of a packet we already acted on is not an error,
-                        // so drop it without counting one.
-                        if (!proto.tls_crypt_server)
-                        {
-                            OVPN_LOG_VERBOSE(proto.debug_prefix()
-                                             << " DROPPING HARD_RESET_V3 WITH NO SERVER CONTEXT");
-                            return false;
-                        }
-
-                        OpenVPNStaticKey client_key;
-                        const Error::Type unwrap_wkc_result = unwrap_tls_crypt_wkc(*pkt.buf,
-                                                                                   *proto.config,
-                                                                                   *proto.tls_crypt_server,
-                                                                                   proto.tls_crypt_metadata);
-                        switch (unwrap_wkc_result)
-                        {
-                        case Error::DECRYPT_ERROR:
-                        case Error::HMAC_ERROR:
-                            proto.stats->error(unwrap_wkc_result);
-                            if (proto.is_tcp())
-                                invalidate(unwrap_wkc_result);
-                            return false;
-                        case Error::TLS_CRYPT_META_FAIL:
-                            proto.stats->error(unwrap_wkc_result);
-                            return false;
-                        case Error::SUCCESS:
-                            break;
-                        default:
-                            return false;
-                        }
-
-                        // WKc has been authenticated: it contains the client key followed
-                        // by the optional metadata. Let's initialize the tls-crypt context
-                        // with the client key
-                        proto.reset_tls_crypt(*proto.config, proto.config->wrapped_tls_crypt_key);
-                    }
-                    // now that the tls-crypt contexts have been initialized it is
-                    // possible to proceed with the standard tls-crypt decapsulation
-                    /* no break */
-                case TLS_CRYPT:
-                    return decapsulate_tls_crypt(pkt);
-                case TLS_PLAIN:
-                    return decapsulate_tls_plain(pkt);
-                }
+                authenticated = decapsulate_by_wrap_mode(pkt);
             }
             catch (const BufferException &)
             {
                 proto.stats->error(Error::BUFFER_ERROR);
                 if (proto.is_tcp())
                     invalidate(Error::BUFFER_ERROR);
+            }
+
+            return authenticated;
+        }
+
+        /**
+         * @brief Decapsulate @p pkt with the wrap mode this session is in
+         *
+         * Split out of decapsulate() so that what the wrap mode decides stays separate from
+         * what every packet gets: the tls-crypt-v2 arm is the one with a step of its own,
+         * since on a server the key its frame is read with comes from the WKc the packet
+         * carries and from nowhere else.
+         *
+         * @return whether the packet yielded a message for the reliable receive layer. A
+         *  packet of our peer's carrying only ACKs authenticates and returns false, so this
+         *  is not the test for whether the sender is who it claims -- see pkt_from_peer.
+         */
+        bool decapsulate_by_wrap_mode(Packet &pkt)
+        {
+            switch (proto.tls_wrap_mode)
+            {
+            case TLS_AUTH:
+                return decapsulate_tls_auth(pkt);
+            case TLS_CRYPT_V2:
+                if (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3)
+                {
+                    // unwrap WKc and extract Kc (client key) from packet.
+                    // This way we can initialize the tls-crypt per-client contexts
+                    // (this happens on the server side only)
+                    //
+                    // A session the psid cookie layer created has no server context:
+                    // its WKc was unwrapped before the session existed, so a further
+                    // copy of the first packet has nothing left to unwrap it with. A
+                    // late duplicate of a packet we already acted on is not an error,
+                    // so drop it without counting one.
+                    if (!proto.tls_crypt_server)
+                    {
+                        OVPN_LOG_VERBOSE(proto.debug_prefix()
+                                         << " DROPPING HARD_RESET_V3 WITH NO SERVER CONTEXT");
+                        return false;
+                    }
+
+                    OpenVPNStaticKey client_key;
+                    const Error::Type unwrap_wkc_result = unwrap_tls_crypt_wkc(*pkt.buf,
+                                                                               *proto.config,
+                                                                               *proto.tls_crypt_server,
+                                                                               proto.tls_crypt_metadata);
+                    switch (unwrap_wkc_result)
+                    {
+                    case Error::DECRYPT_ERROR:
+                    case Error::HMAC_ERROR:
+                        proto.stats->error(unwrap_wkc_result);
+                        if (proto.is_tcp())
+                            invalidate(unwrap_wkc_result);
+                        return false;
+                    case Error::TLS_CRYPT_META_FAIL:
+                        proto.stats->error(unwrap_wkc_result);
+                        return false;
+                    case Error::SUCCESS:
+                        break;
+                    default:
+                        return false;
+                    }
+
+                    // WKc has been authenticated: it contains the client key followed
+                    // by the optional metadata. Let's initialize the tls-crypt context
+                    // with the client key
+                    proto.reset_tls_crypt(*proto.config, proto.config->wrapped_tls_crypt_key);
+                }
+                // now that the tls-crypt contexts have been initialized it is
+                // possible to proceed with the standard tls-crypt decapsulation
+                [[fallthrough]];
+            case TLS_CRYPT:
+                return decapsulate_tls_crypt(pkt);
+            case TLS_PLAIN:
+                return decapsulate_tls_plain(pkt);
             }
             return false;
         }
