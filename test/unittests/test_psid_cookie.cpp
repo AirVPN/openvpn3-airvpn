@@ -493,6 +493,17 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
      */
     BufferAllocated make_wkc(const std::string &metadata, int metadata_type = 0x00)
     {
+        return wrap_wkc(client_key_raw_, metadata, metadata_type);
+    }
+
+    //! As make_wkc(), but wrapping @p kc_size bytes of @p kc instead of this client's key.
+    //! A kc_size below KEY_SIZE builds a WKc no client should ever send: correctly tagged,
+    //! and with less key inside than it takes to key anything.
+    BufferAllocated wrap_wkc(const unsigned char *kc,
+                             const std::string &metadata,
+                             int metadata_type,
+                             size_t kc_size = OpenVPNStaticKey::KEY_SIZE)
+    {
         ProtoContext::ProtoConfig &pcfg = pcookie_impl->pcfg_;
         const size_t hmac_size = pcfg.tls_crypt_context->digest_size();
 
@@ -504,23 +515,28 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
 
         // the encrypted part: Kc, then the metadata behind its type byte
         BufferAllocated inner(OpenVPNStaticKey::KEY_SIZE + 1 + metadata.size(), BufAllocFlags::GROW);
-        inner.write(client_key_raw_, sizeof(client_key_raw_));
+        inner.write(kc, kc_size);
         if (!metadata.empty())
         {
             inner.push_back(static_cast<unsigned char>(metadata_type));
             inner.write(metadata.c_str(), metadata.size());
         }
 
-        // the trailing length counts itself, the tag, the ciphertext and K_id
+        // A WKc names its server key by K_id only where the server looks keys up that way.
+        const bool with_k_id = pcfg.tls_crypt_v2_serverkey_id;
         const std::uint32_t k_id_be = htonl(SERVER_KEY_ID);
+        const size_t k_id_size = with_k_id ? sizeof(k_id_be) : 0;
+
+        // the trailing length counts itself, the tag, the ciphertext and K_id
         const std::uint16_t wkc_len = static_cast<std::uint16_t>(sizeof(std::uint16_t) + hmac_size
-                                                                 + inner.size() + sizeof(k_id_be));
+                                                                 + inner.size() + k_id_size);
         const std::uint16_t wkc_len_be = htons(wkc_len);
 
         // the tag covers the length prefix and K_id as well as the plaintext
-        BufferAllocated hmac_input(sizeof(wkc_len_be) + sizeof(k_id_be) + inner.size(), BufAllocFlags::GROW);
+        BufferAllocated hmac_input(sizeof(wkc_len_be) + k_id_size + inner.size(), BufAllocFlags::GROW);
         hmac_input.write(&wkc_len_be, sizeof(wkc_len_be));
-        hmac_input.write(&k_id_be, sizeof(k_id_be));
+        if (with_k_id)
+            hmac_input.write(&k_id_be, sizeof(k_id_be));
         hmac_input.write(inner.c_data(), inner.size());
 
         BufferAllocated wkc(wkc_len, BufAllocFlags::GROW);
@@ -534,7 +550,8 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
                                                       inner.c_data(),
                                                       inner.size());
         wkc.inc_size(ciphertext_bytes);
-        wkc.write(&k_id_be, sizeof(k_id_be));
+        if (with_k_id)
+            wkc.write(&k_id_be, sizeof(k_id_be));
         wkc.write(&wkc_len_be, sizeof(wkc_len_be));
 
         return wkc;
@@ -609,6 +626,27 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
     OpenVPNStaticKey server_key_; //!< Ka/Ke, used here to wrap the WKc
 };
 
+
+// The client key is the one part of a WKc that has to be there, and the check for it counted
+// the length prefix and the K_id along with it -- neither of which is key material, and both
+// advanced past before the key is read. A WKc short by those six bytes passed the check,
+// passed the tag comparison behind it, and underflowed the read. Only a holder of the server
+// key can wrap one, so this is a key generator's mistake, but it arrives as an exception.
+TEST_F(PsidCookieTlsCryptV2Test, WkcWrappingTooLittleKeyIsRejectedRatherThanThrown)
+{
+    auto f = make_fixture();
+
+    // short by the 2-byte length prefix and the 4-byte K_id in front of the key
+    const size_t short_kc = OpenVPNStaticKey::KEY_SIZE - sizeof(std::uint16_t) - sizeof(std::uint32_t);
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          wrap_wkc(client_key_raw_, "", 0x00, short_kc),
+                                                          wkc_v1_op_field());
+
+    PsidCookie::Intercept ret = PsidCookie::Intercept::HANDLE_2ND;
+    ASSERT_NO_THROW(ret = pcookie_impl->intercept(pkt, f.cli_addr));
+    EXPECT_NE(ret, PsidCookie::Intercept::HANDLE_2ND);
+}
 
 // The session created for this client strips the WKc itself, uniformly for this copy and
 // the retransmissions that follow, so intercept() must hand the packet on as it arrived.

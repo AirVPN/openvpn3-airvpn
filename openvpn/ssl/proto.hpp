@@ -2578,9 +2578,11 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                                                                   wkc_raw + hmac_size,
                                                                   wkc_raw_size - hmac_size - serverkey_id_size);
             plaintext.inc_size(decrypt_bytes);
-            // decrypted data must at least contain a full 2048bits client key
-            // (metadata is optional)
-            if (plaintext.size() < OpenVPNStaticKey::KEY_SIZE)
+
+            // The decrypted part must hold a full 2048-bit client key; metadata behind it is
+            // optional. Measure decrypt_bytes, not plaintext.size(), which also counts the
+            // length prefix and K_id written above.
+            if (decrypt_bytes < OpenVPNStaticKey::KEY_SIZE)
                 return Error::DECRYPT_ERROR;
 
             if (!tls_crypt_server.hmac_cmp(wkc_raw, 0, plaintext.c_data(), plaintext.size()))
