@@ -3170,21 +3170,29 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         bool verify_src_psid(const ProtoSessionID &src_psid)
         {
-            if (proto.psid_peer.defined())
+            if (proto.psid_peer.defined() && !proto.psid_peer.match(src_psid))
             {
-                if (!proto.psid_peer.match(src_psid))
-                {
-                    proto.stats->error(Error::CC_ERROR);
-                    if (proto.is_tcp())
-                        invalidate(Error::CC_ERROR);
-                    return false;
-                }
-            }
-            else
-            {
-                proto.psid_peer = src_psid;
+                proto.stats->error(Error::CC_ERROR);
+                if (proto.is_tcp())
+                    invalidate(Error::CC_ERROR);
+                return false;
             }
             return true;
+        }
+
+        /**
+         * @brief Adopt @p src_psid as our peer, and mark this packet as ours
+         *
+         * Reached only once a packet has verified under one of this session's keys and
+         * echoed the psid we chose. Pinning earlier let a packet that was then rejected
+         * name the peer anyway. Must precede any queued ACK: prepend_dest_psid_and_acks()
+         * throws without a peer psid.
+         */
+        void accept_peer(const ProtoSessionID &src_psid)
+        {
+            pkt_from_peer = true;
+            if (!proto.psid_peer.defined())
+                proto.psid_peer = src_psid;
         }
 
         bool verify_dest_psid(Buffer &buf)
@@ -3407,6 +3415,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                     return false;
             }
 
+            accept_peer(src_psid);
+
             // for CONTROL packets only, not ACK
             if (pkt.opcode != ACK_V1)
             {
@@ -3573,6 +3583,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                     return false;
             }
 
+            accept_peer(src_psid);
+
             // for CONTROL packets only, not ACK
             if (pkt.opcode != ACK_V1)
             {
@@ -3593,16 +3605,33 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             return false;
         }
 
+        /**
+         * @brief May this packet make a tls-auth server session a tls-crypt-v2 one?
+         *
+         * Only the opcode asks for the switch and packet_type() weighs nothing else, so a
+         * spoofed datagram gets a say. Hence: on offer only until a packet of our peer's
+         * has been accepted, and decapsulate() takes it back if this one is not.
+         */
+        bool tls_crypt_v2_wanted(const Packet &pkt) const
+        {
+            return proto.is_server()
+                   && proto.tls_wrap_mode == TLS_AUTH
+                   && !proto.psid_peer.defined()
+                   && proto.config->tls_crypt_v2_enabled()
+                   && (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3 || pkt.opcode == CONTROL_WKC_V1);
+        }
+
         bool decapsulate(Packet &pkt) // called by ProtoStackBase
         {
+            const bool detect_tls_crypt_v2 = tls_crypt_v2_wanted(pkt);
+            const size_t tls_auth_hmac_size = proto.hmac_size;
             bool authenticated = false;
+
+            pkt_from_peer = false;
 
             try
             {
-                if (proto.is_server()
-                    && proto.tls_wrap_mode != TLS_CRYPT_V2
-                    && proto.config->tls_crypt_v2_enabled()
-                    && (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3 || pkt.opcode == CONTROL_WKC_V1))
+                if (detect_tls_crypt_v2)
                 {
                     // setup key to be used to unwrap WKc upon client connection.
                     // tls-crypt session key setup is postponed to reception of WKc
@@ -3612,8 +3641,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                     proto.tls_wrap_mode = TLS_CRYPT_V2;
                     proto.hmac_size = proto.config->tls_crypt_context->digest_size();
 
-                    // init tls_crypt packet ID
-                    proto.ta_pid_send.init(EARLY_NEG_START);
+                    // init tls_crypt packet ID; the send half waits until the packet has
+                    // earned it, below, since putting the previous id back is not possible
                     proto.ta_pid_recv.init("SSL-CC", 0, proto.stats);
                 }
 
@@ -3624,6 +3653,24 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 proto.stats->error(Error::BUFFER_ERROR);
                 if (proto.is_tcp())
                     invalidate(Error::BUFFER_ERROR);
+            }
+
+            if (detect_tls_crypt_v2)
+            {
+                if (!pkt_from_peer)
+                {
+                    // Not our peer's packet, so leave the session as tls-auth had it. The
+                    // receive packet id needs no undoing: reset() initialises it the same
+                    // way and nothing of our peer's has moved it.
+                    proto.tls_wrap_mode = TLS_AUTH;
+                    proto.hmac_size = tls_auth_hmac_size;
+                }
+                else
+                {
+                    /** tls-auth/tls-crypt packet id. We start with a different id here
+                     * to indicate EARLY_NEG_START/CONTROL_WKC_V1 support */
+                    proto.ta_pid_send.init(EARLY_NEG_START);
+                }
             }
 
             return authenticated;
@@ -3757,6 +3804,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
          * with third packet of the three-way handshake
          */
         bool resend_wkc = false;
+        //! Set per packet by accept_peer(), read by decapsulate()
+        bool pkt_from_peer = false;
         bool dirty;
         bool key_limit_renegotiation_fired;
         bool is_reliable;
