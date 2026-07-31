@@ -3758,6 +3758,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         {
             const bool detect_tls_crypt_v2 = tls_crypt_v2_wanted(pkt);
             const size_t tls_auth_hmac_size = proto.hmac_size;
+            const bool had_client_key = bool(proto.tls_crypt_recv);
             bool authenticated = false;
 
             pkt_from_peer = false;
@@ -3786,6 +3787,13 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 proto.stats->error(Error::BUFFER_ERROR);
                 if (proto.is_tcp())
                     invalidate(Error::BUFFER_ERROR);
+            }
+
+            if (!pkt_from_peer && !had_client_key && proto.tls_crypt_recv)
+            {
+                // Drop a packet that's not ours.
+                proto.tls_crypt_send.reset();
+                proto.tls_crypt_recv.reset();
             }
 
             if (detect_tls_crypt_v2)

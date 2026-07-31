@@ -1040,6 +1040,100 @@ TEST_F(PsidCookieTlsCryptV2Test, ShortInitialResetIsDroppedRatherThanThrown)
     }
 }
 
+// A WKc that unwraps says only that this server issued the key inside it, which is true of
+// every client's WKc -- so a packet that unwraps one and then fails to authenticate under
+// it must leave no trace. Were its key kept, the genuine packet arriving next would find
+// the session already keyed and be decrypted with a stranger's key.
+TEST_F(PsidCookieTlsCryptV2Test, SessionKeepsNoKeyFromAPacketThatFailedToAuthenticate)
+{
+    auto f = make_fixture();
+    BufferAllocated good = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                           f.cookie_psid,
+                                                           make_wkc("v=1,type=external"),
+                                                           wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(good, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    // What an off-path attacker spoofing this client's address can put together: a WKc of
+    // its own, which unwraps under the server key like any other, on a frame it cannot
+    // wrap with the key that WKc carries.
+    unsigned char foreign_key_raw[OpenVPNStaticKey::KEY_SIZE];
+    pcookie_impl->pcfg_.prng->rand_bytes(foreign_key_raw, sizeof(foreign_key_raw));
+    BufferAllocated spoofed = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                              f.cookie_psid,
+                                                              wrap_wkc(foreign_key_raw, "v=1,type=external", 0x00),
+                                                              wkc_v1_op_field());
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    EXPECT_EQ(session.recv(spoofed), 0u);
+
+    // one datagram, and the client can still connect
+    EXPECT_GT(session.recv(good), 0u);
+}
+
+// Authenticating at the tls-crypt layer only says the sender holds the Kc it supplied its
+// own WKc for, which every client of this server can do. So a packet rejected after that --
+// here on the psid the cookie layer issued, which the sender cannot know -- must leave the
+// peer unpinned. Pinned, it closes tls_crypt_v2_wanted()'s conversion window for good and
+// the real client's packets are checked as tls-auth from then on.
+TEST_F(PsidCookieTlsCryptV2Test, SessionKeepsNoPeerPsidFromAPacketThatFailedToAuthenticate)
+{
+    auto f = make_fixture();
+    BufferAllocated good = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                           f.cookie_psid,
+                                                           make_wkc("v=1,type=external"),
+                                                           wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(good, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    ProtoSessionID bogus_cookie_psid;
+    bogus_cookie_psid.randomize(*pcookie_impl->pcfg_.rng);
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+    EXPECT_EQ(session.recv(build_foreign_third_packet(bogus_cookie_psid)), 0u);
+
+    // one datagram, and the client can still connect
+    EXPECT_GT(session.recv(good), 0u);
+}
+
+// The other side of that coin: a packet of the peer's own that yields no message must keep
+// the key it unwrapped, because the packet after it need not carry a WKc to re-key from.
+// Here the first packet is refused by the reliable receive window, and the CONTROL_V1 behind
+// it has no WKc of its own -- it can only be read with the key the refused packet left.
+TEST_F(PsidCookieTlsCryptV2Test, SessionKeepsTheKeyOfItsPeersPacketThatYieldedNoMessage)
+{
+    auto f = make_fixture();
+    BufferAllocated good = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                           f.cookie_psid,
+                                                           make_wkc("v=1,type=external"),
+                                                           wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(good, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    // the client's own third packet, numbered far outside the reliable receive window
+    session.recv(wrap_third_packet(client_key_,
+                                   f.cli_psid,
+                                   f.cookie_psid,
+                                   make_wkc("v=1,type=external"),
+                                   wkc_v1_op_field(),
+                                   htonl(5000)));
+
+    BufferAllocated no_wkc = wrap_third_packet(client_key_,
+                                               f.cli_psid,
+                                               f.cookie_psid,
+                                               BufferAllocated(),
+                                               control_v1_op_field(),
+                                               0);
+    session.rec->names.clear();
+    session.recv(no_wkc);
+
+    // CC_ERROR here would be the session finding no key at all, HMAC_ERROR a key that is
+    // not this client's
+    EXPECT_EQ(session.rec->names, "");
+}
+
 // The session's hook is its own: it judges the record whether or not a cookie layer ever
 // saw the client, which is how a session reached over TCP -- kotcp.hpp creates those with
 // no cookie layer at all -- comes by its verdict.
