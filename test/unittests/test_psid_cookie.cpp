@@ -627,6 +627,38 @@ class PsidCookieTlsCryptV2Test : public PsidCookieInterceptTest
 };
 
 
+/**
+ * @brief A server with one tls-crypt-v2 key in its config for every client
+ *
+ * The other of the two deployments: no K_id on the wire, no key directory.
+ */
+class PsidCookieSingleServerKeyTest : public PsidCookieTlsCryptV2Test
+{
+  protected:
+    PsidCookieSingleServerKeyTest()
+    {
+        ProtoContext::ProtoConfig &pcfg = pcookie_impl->pcfg_;
+        pcfg.tls_crypt_v2_serverkey_id = false;
+        pcfg.tls_crypt_v2_serverkey_dir.clear();
+        pcfg.tls_crypt_key = server_key_;
+    }
+};
+
+// Keying the server context was the caller's job in this mode, and only
+// ProtoContext::reset_tls_crypt_server() did it. The cookie layer hands over a context
+// straight from new_obj_recv(), so the first client packet threw ovpn_tls_crypt_wrong_mode
+// out of intercept() and into the embedder's packet loop.
+TEST_F(PsidCookieSingleServerKeyTest, ThirdPacketUnwrapsWithNoServerKeyIdOnTheWire)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    EXPECT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+}
+
 // The client key is the one part of a WKc that has to be there, and the check for it counted
 // the length prefix and the K_id along with it -- neither of which is key material, and both
 // advanced past before the key is read. A WKc short by those six bytes passed the check,

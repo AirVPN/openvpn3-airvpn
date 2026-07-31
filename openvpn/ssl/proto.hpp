@@ -2563,6 +2563,18 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 k_id = htonl(k_id);
                 plaintext.write(&k_id, sizeof(k_id));
             }
+            else
+            {
+                // Same key for every client, straight off the config. Keying the context is
+                // this function's business in either mode: a caller that had to do it for one
+                // mode and not the other could forget.
+                if (!proto_config.tls_crypt_key.defined())
+                    return Error::DECRYPT_ERROR;
+
+                tls_crypt_server.init(proto_config.ssl_factory->libctx(),
+                                      proto_config.tls_crypt_key.slice(OpenVPNStaticKey::HMAC),
+                                      proto_config.tls_crypt_key.slice(OpenVPNStaticKey::CIPHER));
+            }
 
             // the ``len || K_id`` prefix written above is part of the authenticated
             // plaintext, but the decrypted key material goes behind it
@@ -3720,9 +3732,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             {
                 if (detect_tls_crypt_v2)
                 {
-                    // setup key to be used to unwrap WKc upon client connection.
-                    // tls-crypt session key setup is postponed to reception of WKc
-                    // from client
+                    // Create the server context the client's WKc is unwrapped with,
+                    // keyed only at unwrap time, when the WKc names its key. tls-crypt
+                    // session key setup is postponed to reception of the WKc too.
                     proto.reset_tls_crypt_server(*proto.config);
 
                     proto.tls_wrap_mode = TLS_CRYPT_V2;
@@ -4335,17 +4347,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             tls_crypt_send.reset();
             tls_crypt_recv.reset();
 
-            // server context is used only to process incoming WKc's
+            // Server context, used only to process incoming WKc's. Left unkeyed:
+            // unwrap_tls_crypt_wkc() keys it, since only it knows which key the WKc needs.
             tls_crypt_server = c.tls_crypt_context->new_obj_recv();
-
-            if (!c.tls_crypt_v2_serverkey_id)
-            {
-                // the server key is composed by one key set only, therefore direction and
-                // mode should not be specified when slicing
-                tls_crypt_server->init(c.ssl_factory->libctx(),
-                                       c.tls_crypt_key.slice(OpenVPNStaticKey::HMAC),
-                                       c.tls_crypt_key.slice(OpenVPNStaticKey::CIPHER));
-            }
         }
 
         tls_crypt_metadata = c.tls_crypt_metadata_factory->new_obj();
@@ -4389,9 +4393,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             break;
         case TLS_CRYPT_V2:
             if (is_server())
-                // setup key to be used to unwrap WKc upon client connection.
-                // tls-crypt session key setup is postponed to reception of WKc
-                // from client
+                // Create the server context the client's WKc is unwrapped with,
+                // keyed only at unwrap time, when the WKc names its key. tls-crypt
+                // session key setup is postponed to reception of the WKc too.
                 reset_tls_crypt_server(c);
             else
                 reset_tls_crypt(c, c.tls_crypt_key);
