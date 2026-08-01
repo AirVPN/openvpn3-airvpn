@@ -1325,6 +1325,41 @@ TEST_F(PsidCookieTlsCryptV2Test, SessionWithoutACookieLayerJudgesTheRecordItself
     EXPECT_EQ(meta_factory->last->n_calls, 1u);
 }
 
+// Unwrapping a WKc says this server issued it, not that the sender holds the Kc inside: a
+// captured one unwraps just the same. The hook ran anyway, and since a failed packet leaves
+// the session un-keyed, an unauthenticated sender could drive it again and again.
+TEST_F(PsidCookieTlsCryptV2Test, UnauthenticatedWkcRunsNoMetadataHook)
+{
+    auto f = make_fixture();
+
+    // a WKc this server unwraps, on a frame not wrapped with the Kc it carries
+    unsigned char foreign_key_raw[OpenVPNStaticKey::KEY_SIZE];
+    pcookie_impl->pcfg_.prng->rand_bytes(foreign_key_raw, sizeof(foreign_key_raw));
+    BufferAllocated spoofed = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                              f.cookie_psid,
+                                                              wrap_wkc(foreign_key_raw, "v=1,type=ATTACKER", 0x00),
+                                                              wkc_v1_op_field());
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    EXPECT_EQ(session.recv(spoofed), 0u);
+    EXPECT_EQ(meta_factory->n_created, 0u);
+
+    // un-keyed again, so the second attempt judges no more than the first
+    EXPECT_EQ(session.recv(spoofed), 0u);
+    EXPECT_EQ(meta_factory->n_created, 0u);
+    EXPECT_FALSE(meta_factory->last);
+
+    // the real client still connects, its record seen once
+    BufferAllocated good = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                           f.cookie_psid,
+                                                           make_wkc("v=1,type=external"),
+                                                           wkc_v1_op_field());
+    EXPECT_GT(session.recv(good), 0u);
+    EXPECT_EQ(meta_factory->n_created, 1u);
+    EXPECT_EQ(meta_factory->last->payload_seen, "v=1,type=external");
+}
+
 // The factory is optional: TLSCryptMetadata::verify() accepts by default, so an embedder
 // with nothing to check has no reason to configure one. A session without it makes no
 // handler, runs no hook, and comes up all the same.

@@ -2488,9 +2488,9 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         /**
          * @brief The metadata record a WKc carried, for TLSCryptMetadata::verify()
          *
-         * Handed back rather than checked in place: whoever asked for the unwrap decides
-         * when its record is worth a handler, which on the psid cookie path is only once
-         * the cookie has proven this is a live handshake rather than a replayed packet.
+         * Handed back rather than checked in place: only the caller knows when the record
+         * has provenance, which for the session is once the frame has authenticated -- see
+         * verify_wkc_metadata().
          */
         struct WkcMetadata
         {
@@ -3838,6 +3838,33 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         }
 
         /**
+         * @brief Put the record a WKc carried to the embedder's hook, if it installed one
+         *
+         * Asked only once the WKc's Kc has authenticated the frame that carried it, which is
+         * the most this layer can say about where a record came from.
+         *
+         * @return whether the record is acceptable; a refusal ends the session.
+         */
+        bool verify_wkc_metadata(WkcMetadata &metadata)
+        {
+            if (!proto.config->tls_crypt_metadata_factory)
+                return true;
+
+            const TLSCryptMetadata::Ptr recorder = proto.config->tls_crypt_metadata_factory->new_obj();
+
+            if (recorder->verify(metadata.type, metadata.payload))
+                return true;
+
+            proto.stats->error(Error::TLS_CRYPT_META_FAIL);
+
+            // Unconditional, unlike the drops above: this packet authenticated, so the
+            // session ended is the one the record belongs to. The key stays -- the
+            // decapsulation left an ACK to be wrapped.
+            invalidate(Error::TLS_CRYPT_META_FAIL);
+            return false;
+        }
+
+        /**
          * @brief Decapsulate @p pkt with the wrap mode this session is in
          *
          * Split out of decapsulate() so that what the wrap mode decides stays separate from
@@ -3888,21 +3915,20 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                             return false;
                         }
 
-                        if (proto.config->tls_crypt_metadata_factory)
-                        {
-                            const TLSCryptMetadata::Ptr metadata = proto.config->tls_crypt_metadata_factory->new_obj();
-
-                            if (!metadata->verify(unwrapped.metadata.type, unwrapped.metadata.payload))
-                            {
-                                proto.stats->error(Error::TLS_CRYPT_META_FAIL);
-                                return false;
-                            }
-                        }
-
                         // The WKc holds up under the server key, so the client key inside it
                         // is one this server issued. Key the session with it.
                         proto.tls_crypt_client_key = std::move(unwrapped.client_key);
                         proto.reset_tls_crypt(*proto.config, proto.tls_crypt_client_key);
+
+                        // That says the WKc is ours, not that the sender holds the Kc inside:
+                        // a replayed one unwraps just as well. Only the frame verifying under
+                        // that Kc says so, hence decapsulate before judging the record.
+                        const bool authenticated = decapsulate_tls_crypt(pkt);
+
+                        if (pkt_from_peer && !verify_wkc_metadata(unwrapped.metadata))
+                            return false;
+
+                        return authenticated;
                     }
                     else if (!strip_resent_wkc(*pkt.buf, *proto.config))
                     {
