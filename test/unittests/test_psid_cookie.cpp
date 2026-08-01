@@ -1051,6 +1051,53 @@ TEST_F(PsidCookieTlsCryptV2OnlyTest, ControlNetValidateAcceptsTheWkcBearingPacke
     EXPECT_GT(session.recv(pkt), 0u);
 }
 
+// The same packet on a server holding a tls-auth key as well -- what PG deploys. Such a
+// session is still TLS_AUTH when the pre-filter runs, since only decapsulate() converts it,
+// so the exemption has to be recognised in that arm too.
+TEST_F(PsidCookieTlsCryptV2Test, ControlNetValidateAcceptsTheWkcBearingPacketOnATlsAuthServer)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    // the premise: this fixture keeps the tls-auth key
+    ASSERT_TRUE(pcookie_impl->pcfg_.tls_auth_enabled());
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+    const ProtoContext::PacketType pt = session.proto.packet_type(*bp);
+    ASSERT_TRUE(pt.is_control());
+    EXPECT_TRUE(session.proto.control_net_validate(pt, *bp));
+
+    // the pre-filter and the path it filters for have to agree
+    EXPECT_GT(session.recv(pkt), 0u);
+}
+
+// The exemption follows the opcode, not the mode: one carrying no WKc keys nothing and stays
+// judged with the tls-auth key. Same packet as above but for its op field.
+TEST_F(PsidCookieTlsCryptV2Test, ControlNetValidateStillJudgesNonWkcOpcodesOnATlsAuthServer)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          control_v1_op_field());
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+    const ProtoContext::PacketType pt = session.proto.packet_type(*bp);
+    ASSERT_TRUE(pt.is_control());
+
+    // tls-crypt wrapped, so the tls-auth key cannot vouch for it -- and nothing exempts it
+    EXPECT_FALSE(session.proto.control_net_validate(pt, *bp));
+}
+
 /**
  * @brief A tls-crypt v1 server: one key shared with every client, no tls-auth, no WKc
  *

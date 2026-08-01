@@ -2176,6 +2176,22 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             return opcode == CONTROL_HARD_RESET_CLIENT_V3 || opcode == CONTROL_WKC_V1;
         }
 
+        /**
+         * @brief May a packet with this opcode convert a tls-auth session to tls-crypt-v2?
+         *
+         * A server holding both keys starts every session in TLS_AUTH, and only
+         * decapsulate() converts it, once a WKc arrives. validate() runs ahead of that and
+         * has to agree on which packet may convert, so the test is shared.
+         */
+        static bool tls_crypt_v2_convertible(const ProtoContext &proto, const unsigned int opcode)
+        {
+            return proto.is_server()
+                   && proto.tls_wrap_mode == TLS_AUTH
+                   && !proto.psid_peer.defined()
+                   && proto.config->tls_crypt_v2_enabled()
+                   && opcode_carries_wkc(opcode);
+        }
+
         // validate the integrity of a packet
         static bool validate(const Buffer &net_buf, ProtoContext &proto, TimePtr now)
         {
@@ -2186,6 +2202,14 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 switch (proto.tls_wrap_mode)
                 {
                 case TLS_AUTH:
+                    if (tls_crypt_v2_convertible(proto, opcode_extract(recv[0])))
+                    {
+                        // Still TLS_AUTH only because decapsulate() has not converted the
+                        // session yet; the tls-auth key would reject every genuine
+                        // tls-crypt-v2 client.
+                        OVPN_LOG_VERBOSE("SKIPPING VALIDATION OF WKc-BEARING PACKET");
+                        return true;
+                    }
                     return validate_tls_auth(recv, proto, now);
                 case TLS_CRYPT_V2:
                     if (proto.is_server() && opcode_carries_wkc(opcode_extract(recv[0])))
@@ -3746,11 +3770,7 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
          */
         bool tls_crypt_v2_wanted(const Packet &pkt) const
         {
-            return proto.is_server()
-                   && proto.tls_wrap_mode == TLS_AUTH
-                   && !proto.psid_peer.defined()
-                   && proto.config->tls_crypt_v2_enabled()
-                   && opcode_carries_wkc(pkt.opcode);
+            return tls_crypt_v2_convertible(proto, pkt.opcode);
         }
 
         bool decapsulate(Packet &pkt) // called by ProtoStackBase
