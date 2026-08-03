@@ -28,8 +28,6 @@
 #include <openvpn/transport/server/transbase.hpp>
 #include <openvpn/server/servproto.hpp>
 
-#include <optional>
-
 namespace openvpn {
 
 /**
@@ -319,12 +317,10 @@ class PsidCookieImpl : public PsidCookie
         if (!ch.supports_early_negotiation(replay_packet_id))
             return Intercept::DECLINE_HANDLING;
 
-        auto pipes = init_tls_crypt_v2(pkt_buf);
+        TLSCryptInstance::Ptr send = init_tls_crypt_v2(pkt_buf, OpenVPNStaticKey::ENCRYPT);
 
-        if (!pipes)
+        if (!send)
             return Intercept::DROP_1ST;
-
-        auto [send, recv] = *pipes;
 
         // Create synthetic RESET packet payload.
         BufferAllocated payload;
@@ -379,12 +375,10 @@ class PsidCookieImpl : public PsidCookie
 
     Intercept process_clients_server_reset_ack_tls_crypt(Buffer &pkt_buf, const PsidCookieAddrInfoBase &pcaib)
     {
-        auto pipes = init_tls_crypt_v2(pkt_buf);
+        TLSCryptInstance::Ptr recv = init_tls_crypt_v2(pkt_buf, OpenVPNStaticKey::DECRYPT);
 
-        if (!pipes)
+        if (!recv)
             return Intercept::DROP_2ND;
-
-        auto [send, recv] = *pipes;
 
         static const size_t hmac_size = pcfg_.tls_crypt_context->digest_size();
 
@@ -509,37 +503,35 @@ class PsidCookieImpl : public PsidCookie
     }
 
     /**
-     * @brief Set up a couple of TLSCryptInstance (send, recv) from a TLS crypt V2 packet's WKc
+     * @brief Set up the one TLSCryptInstance a caller needs from a tls-crypt-v2 packet's WKc
      *
      * @param  pkt_buf The packet holding the WKc at the end.
-     * @return A pair of {send, recv} objects set up with the symmetric key. std::nullopt on error.
+     * @param  slice   OpenVPNStaticKey::ENCRYPT for the object that wraps this
+     *                 layer's reply, DECRYPT for the one that reads the client's
+     *                 packet.
+     * @return The object, keyed. Null on error.
      */
-    std::optional<std::pair<TLSCryptInstance::Ptr, TLSCryptInstance::Ptr>> init_tls_crypt_v2(Buffer &pkt_buf)
+    TLSCryptInstance::Ptr init_tls_crypt_v2(Buffer &pkt_buf, const unsigned int slice)
     {
-        TLSCryptInstance::Ptr send;
-        TLSCryptInstance::Ptr recv;
-
         TLSCryptInstance::Ptr tls_crypt_server = pcfg_.tls_crypt_context->new_obj_recv();
 
         if (ProtoContext::KeyContext::unwrap_tls_crypt_wkc(pkt_buf, pcfg_, *tls_crypt_server) != Error::SUCCESS)
-            return std::nullopt;
+            return nullptr;
 
         const unsigned int key_dir = pcfg_.ssl_factory->mode().is_server()
                                          ? OpenVPNStaticKey::NORMAL
                                          : OpenVPNStaticKey::INVERSE;
 
-        send = pcfg_.tls_crypt_context->new_obj_send();
-        recv = pcfg_.tls_crypt_context->new_obj_recv();
+        // ENCRYPT is the zero of the pair, so the bit is what there is to test
+        TLSCryptInstance::Ptr instance = (slice & OpenVPNStaticKey::DECRYPT)
+                                             ? pcfg_.tls_crypt_context->new_obj_recv()
+                                             : pcfg_.tls_crypt_context->new_obj_send();
 
-        send->init(pcfg_.ssl_factory->libctx(),
-                   pcfg_.wrapped_tls_crypt_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::ENCRYPT | key_dir),
-                   pcfg_.wrapped_tls_crypt_key.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::ENCRYPT | key_dir));
+        instance->init(pcfg_.ssl_factory->libctx(),
+                       pcfg_.wrapped_tls_crypt_key.slice(OpenVPNStaticKey::HMAC | slice | key_dir),
+                       pcfg_.wrapped_tls_crypt_key.slice(OpenVPNStaticKey::CIPHER | slice | key_dir));
 
-        recv->init(pcfg_.ssl_factory->libctx(),
-                   pcfg_.wrapped_tls_crypt_key.slice(OpenVPNStaticKey::HMAC | OpenVPNStaticKey::DECRYPT | key_dir),
-                   pcfg_.wrapped_tls_crypt_key.slice(OpenVPNStaticKey::CIPHER | OpenVPNStaticKey::DECRYPT | key_dir));
-
-        return std::pair{send, recv};
+        return instance;
     }
 
     static constexpr CryptoAlgs::Type digest_ = CryptoAlgs::Type::SHA256;
