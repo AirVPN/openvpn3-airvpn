@@ -53,6 +53,13 @@ class MemQBase
 
     void write_buf(const BufferPtr &bp)
     {
+        // An empty buffer has nothing to queue but would still make empty() lie, since that
+        // answers for the queue and not for what is in it: the queue would look ready while
+        // reading it yields nothing, and a reader with no bytes and no reason to wait takes
+        // that for the end of the stream.
+        if (bp->empty())
+            return;
+
         q.push_back(bp);
         length += bp->size();
     }

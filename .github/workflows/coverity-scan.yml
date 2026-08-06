@@ -21,12 +21,12 @@ jobs:
         run: sudo apt update && sudo apt install -y libcap-dev libfmt-dev libjsoncpp-dev liblzo2-dev liblz4-dev libssl-dev swig
       - name: Checkout OpenVPN 3
         if: steps.check_submit.outputs.cache-hit != 'true'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: openvpn3
       - name: Checkout asio
         if: steps.check_submit.outputs.cache-hit != 'true'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # versioning=regex:^asio-(?<major>\d+)-(?<minor>\d+)-(?<patch>\d+)$
           repository: chriskohlhoff/asio
@@ -34,13 +34,13 @@ jobs:
           path: asio
       - name: Checkout xxHash
         if: steps.check_submit.outputs.cache-hit != 'true'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # versioning=semver-coerced
           repository: Cyan4973/xxHash
           ref: v0.8.3
           path: xxHash
-      - uses: lukka/get-cmake@591817e96fcad43505fb4eae36172462abb3a42e # v4.3.3
+      - uses: lukka/get-cmake@fffaaafeea488556c2c12dad60690008bc1caacb # v4.4.2
         if: steps.check_submit.outputs.cache-hit != 'true'
 
       - name: Download Coverity Build Tool

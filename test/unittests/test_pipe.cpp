@@ -17,11 +17,10 @@ TEST(Misc, Pipe)
         // OPENVPN_LOG(argv.to_string());
         const int status = system_cmd("/usr/bin/sort", argv, nullptr, io, 0, nullptr);
 
-        ASSERT_EQ(0, status) << "bad sort status=" << status << " stderr=" << io.err;
+        EXPECT_EQ(0, status);
+        EXPECT_EQ("", io.err);
 
         const std::string expected = "eight\nfive\nfour\nnine\none\nseven\nsix\nten\nthree\ntwo\n";
-        ASSERT_EQ(io.out, expected) << "bad sort EXPECTED:\n"
-                                    << expected << "ACTUAL:\n"
-                                    << io.out;
+        EXPECT_EQ(io.out, expected);
     }
 }

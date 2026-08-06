@@ -920,8 +920,13 @@ static auto create_client_ssl_config(Frame::Ptr frame, ClientRandomAPI::Ptr rng,
     return cc;
 }
 
-static auto create_client_proto_context(ClientSSLAPI::Config::Ptr cc, Frame::Ptr frame, ClientRandomAPI::Ptr rng, MySessionStats::Ptr cli_stats, Time &time, const std::string &tls_crypt_v2_key_fn = "")
-
+static auto create_client_proto_context(ClientSSLAPI::Config::Ptr cc,
+                                        Frame::Ptr frame,
+                                        ClientRandomAPI::Ptr rng,
+                                        MySessionStats::Ptr cli_stats,
+                                        Time &time,
+                                        const std::string &tls_crypt_v2_key_fn = "",
+                                        bool tls_auth_only = false)
 {
     const std::string tls_auth_key = read_text(TEST_KEYCERT_DIR "tls-auth.key");
     const std::string tls_crypt_v2_client_key = tls_crypt_v2_key_fn.empty()
@@ -962,15 +967,27 @@ static auto create_client_proto_context(ClientSSLAPI::Config::Ptr cc, Frame::Ptr
     cp->tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::V1;
 #endif
 #ifdef USE_TLS_CRYPT_V2
-    cp->tls_crypt_factory.reset(new CryptoTLSCryptFactory<ClientCryptoAPI>());
-    cp->set_tls_crypt_algs();
+    if (tls_auth_only)
     {
-        TLSCryptV2ClientKey tls_crypt_v2_key(cp->tls_crypt_context);
-        tls_crypt_v2_key.parse(tls_crypt_v2_client_key);
-        tls_crypt_v2_key.extract_key(cp->tls_crypt_key);
-        tls_crypt_v2_key.extract_wkc(cp->wkc);
+        // A plain tls-auth client, for testing a server that holds a tls-crypt-v2 key as
+        // well: such a session must stay in TLS_AUTH mode from end to end.
+        cp->tls_auth_factory.reset(new CryptoOvpnHMACFactory<ClientCryptoAPI>());
+        cp->tls_auth_key.parse(tls_auth_key);
+        cp->set_tls_auth_digest(CryptoAlgs::lookup(PROTO_DIGEST));
+        cp->key_direction = 0;
     }
-    cp->tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::V2;
+    else
+    {
+        cp->tls_crypt_factory.reset(new CryptoTLSCryptFactory<ClientCryptoAPI>());
+        cp->set_tls_crypt_algs();
+        {
+            TLSCryptV2ClientKey tls_crypt_v2_key(cp->tls_crypt_context);
+            tls_crypt_v2_key.parse(tls_crypt_v2_client_key);
+            tls_crypt_v2_key.extract_key(cp->tls_crypt_key);
+            tls_crypt_v2_key.extract_wkc(cp->wkc);
+        }
+        cp->tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::V2;
+    }
 #endif
 #ifdef HANDSHAKE_WINDOW
     cp->handshake_window = Time::Duration::seconds(HANDSHAKE_WINDOW);
@@ -1010,6 +1027,8 @@ struct proto_test
     bool tls_version_mismatch = false;
     const std::string &tls_crypt_v2_key_fn = "";
     bool use_tls_auth_with_tls_crypt_v2 = false;
+    bool client_tls_auth_only = false;
+    bool spoof_hard_reset_v3 = false;
     bool force_resend_wkc = false;
     size_t control_payload = 378;
     size_t mssfix_ctrl = 0;
@@ -1051,7 +1070,7 @@ int test(const struct proto_test &t)
         ClientSSLAPI::Config::Ptr cc = create_client_ssl_config(frame, prng_cli, t.tls_version_mismatch);
         MySessionStats::Ptr cli_stats(new MySessionStats);
 
-        auto cp = create_client_proto_context(std::move(cc), frame, prng_cli, cli_stats, time, t.tls_crypt_v2_key_fn);
+        auto cp = create_client_proto_context(std::move(cc), frame, prng_cli, cli_stats, time, t.tls_crypt_v2_key_fn, t.client_tls_auth_only);
         if (t.use_tls_ekm)
             cp->dc.set_key_derivation(CryptoAlgs::KeyDerivation::TLS_EKM);
         if (t.mssfix_ctrl)
@@ -1190,6 +1209,26 @@ int test(const struct proto_test &t)
                 cli_proto.app_send_templ_init(message);
                 serv_proto.app_send_templ_init(message);
 #endif
+
+                if (t.spoof_hard_reset_v3)
+                {
+                    // What an off-path attacker can put on the wire: a
+                    // CONTROL_HARD_RESET_CLIENT_V3 opcode over garbage.
+                    // packet_type() weighs the opcode and the key id and nothing
+                    // else, so this reaches decapsulate() and asks a tls-auth
+                    // server to make itself a tls-crypt-v2 one. Nothing in it
+                    // authenticates, so the handshake below must still run its
+                    // course.
+                    BufferPtr bp = BufferAllocatedRc::Create(128, BufAllocFlags::GROW);
+                    bp->push_back(ProtoContext::op_compose(ProtoContext::CONTROL_HARD_RESET_CLIENT_V3, 0));
+                    for (size_t k = 0; k < 64; ++k)
+                        bp->push_back(static_cast<unsigned char>(k));
+
+                    const ProtoContext::PacketType pt = serv_proto.proto_context.packet_type(*bp);
+                    if (!pt.is_control())
+                        return 1;
+                    serv_proto.proto_context.control_net_recv(pt, std::move(bp));
+                }
 
                 if (t.force_resend_wkc)
                 {
@@ -1371,6 +1410,21 @@ TEST_F(ProtoUnitTest, BaseSingleThreadTlsCryptV2WithMissingEmbeddedServerkey)
 TEST_F(ProtoUnitTest, BaseSingleThreadTlsCryptV2WithTlsAuthAlsoActive)
 {
     int ret = test_retry(N_RETRIES, {.tls_crypt_v2_key_fn = "tls-crypt-v2-client-with-serverkey.key", .use_tls_auth_with_tls_crypt_v2 = true});
+    EXPECT_EQ(ret, 0);
+}
+
+// A server holding both keys becomes a tls-crypt-v2 one on the say-so of an opcode, which
+// costs an off-path attacker one forged datagram. Here the client is a plain tls-auth one,
+// so the session must stay in TLS_AUTH mode however loudly the forgery asks otherwise:
+// before the wrap mode was taken back, the spoofed packet left the server unable to
+// authenticate anything the real client went on to send.
+TEST_F(ProtoUnitTest, TlsAuthSessionSurvivesSpoofedTlsCryptV2Opcode)
+{
+    int ret = test_retry(N_RETRIES,
+                         {.tls_crypt_v2_key_fn = "tls-crypt-v2-client-with-serverkey.key",
+                          .use_tls_auth_with_tls_crypt_v2 = true,
+                          .client_tls_auth_only = true,
+                          .spoof_hard_reset_v3 = true});
     EXPECT_EQ(ret, 0);
 }
 

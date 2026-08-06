@@ -29,6 +29,8 @@
 
 namespace openvpn::OpenSSLPKI {
 
+using BIGNUM_ptr = std::unique_ptr<::BIGNUM, decltype(&::BN_free)>;
+
 /**
  *  Retrieve the complete X.509 Certificate Subject field
  *
@@ -137,14 +139,15 @@ static inline std::string x509_get_field(::X509 *cert, const int nid)
 {
     static const char nullc = '\0';
     std::string ret;
-    X509_NAME *x509_name = X509_get_subject_name(cert);
+
+    auto *x509_name = X509_get_subject_name(cert);
     int i = X509_NAME_get_index_by_NID(x509_name, nid, -1);
     if (i >= 0)
     {
-        X509_NAME_ENTRY *ent = X509_NAME_get_entry(x509_name, i);
+        const X509_NAME_ENTRY *ent = X509_NAME_get_entry(x509_name, i);
         if (ent)
         {
-            ASN1_STRING *val = X509_NAME_ENTRY_get_data(ent);
+            const ASN1_STRING *val = X509_NAME_ENTRY_get_data(ent);
             unsigned char *buf;
             buf = (unsigned char *)1; // bug in OpenSSL 0.9.6b ASN1_STRING_to_UTF8
                                       // requires this workaround
@@ -162,7 +165,9 @@ static inline std::string x509_get_field(::X509 *cert, const int nid)
         i = X509_get_ext_by_NID(cert, nid, -1);
         if (i >= 0)
         {
-            X509_EXTENSION *ext = X509_get_ext(cert, i);
+            /* auto is used here to get const with newer OpenSSL 4.0 and without const
+             * otherwise to match the call to X509V3_EXT_print */
+            auto *ext = X509_get_ext(cert, i);
             if (ext)
             {
                 BIO *bio = BIO_new(BIO_s_mem());
@@ -194,21 +199,28 @@ static inline std::string x509_get_field(::X509 *cert, const int nid)
  *
  * @return Returns the numeric representation of the certificate serial number
  *         as a std::string.
+ *
+ *         In case of failure, an empty string is returned.
  */
 static inline std::string x509_get_serial(::X509 *cert)
 {
     const ASN1_INTEGER *asn1_i = X509_get_serialNumber(cert);
-    BIGNUM *bignum = ASN1_INTEGER_to_BN(asn1_i, NULL);
-    char *openssl_serial = BN_bn2dec(bignum);
-    BN_free(bignum);
-
-    if (openssl_serial)
+    const OpenSSLPKI::BIGNUM_ptr bignum(ASN1_INTEGER_to_BN(asn1_i, nullptr), BN_free);
+    if (!bignum)
     {
-        const std::string ret = openssl_serial;
-        OPENSSL_free(openssl_serial);
-        return ret;
+        return {};
     }
-    return std::string();
+
+    char *openssl_serial = BN_bn2dec(bignum.get());
+
+    if (!openssl_serial)
+    {
+        return {};
+    }
+
+    const std::string ret = openssl_serial;
+    OPENSSL_free(openssl_serial);
+    return ret;
 }
 
 /**
@@ -219,11 +231,23 @@ static inline std::string x509_get_serial(::X509 *cert)
  *
  * @return Returns the hexadecimal representation of the certificate
  *         serial number as a std::string.
+ *
+ *         In case of failure, an empty string is returned.
  */
 static inline std::string x509_get_serial_hex(::X509 *cert)
 {
-    const ASN1_INTEGER *asn1_i = X509_get_serialNumber(cert);
-    return render_hex_sep(asn1_i->data, asn1_i->length, ':', false);
+    const ASN1_INTEGER *asn1_i = X509_get0_serialNumber(cert);
+    const OpenSSLPKI::BIGNUM_ptr serial(ASN1_INTEGER_to_BN(asn1_i, nullptr), BN_free);
+
+    if (!serial)
+        return {};
+
+    int numbytesoutput = BN_num_bytes(serial.get());
+
+    std::unique_ptr<unsigned char[]> buf(new unsigned char[numbytesoutput]);
+
+    BN_bn2binpad(serial.get(), buf.get(), numbytesoutput);
+    return render_hex_sep(buf.get(), numbytesoutput, ':', false);
 }
 
 /**

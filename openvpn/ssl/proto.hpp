@@ -2497,6 +2497,67 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
       }
 
         /**
+         * @brief Smallest tls-crypt frame a WKc can be appended to
+         *
+         * Header, auth tag, an empty ACK array and the reliable ID, with no ciphertext --
+         * a WKc can fill a packet by itself, see control_ciphertext_capacity().
+         */
+        static size_t tls_crypt_frame_size(const ProtoConfig &proto_config)
+        {
+            return TLSCryptContext::hmac_offset
+                   + proto_config.tls_crypt_context->digest_size()
+                   // the following is the tls-crypt payload
+                   + sizeof(char)  // length of ACK array
+                   + sizeof(id_t); // reliable ID
+        }
+
+        /**
+         * @brief What a WKc holds besides the client key and the metadata
+         *
+         * Its own trailing length field, the authentication tag ``T``, and the server key
+         * ID where one is configured. A WKc smaller than this cannot be parsed at all, so
+         * it is the floor an attacker-supplied length is held to.
+         */
+        static size_t wkc_overhead(const ProtoConfig &proto_config)
+        {
+            return sizeof(uint16_t)
+                   + proto_config.tls_crypt_context->digest_size()
+                   + (proto_config.tls_crypt_v2_serverkey_id ? sizeof(uint32_t) : 0);
+        }
+
+        /**
+         * @brief Read and validate the WKc length a tls-crypt-v2 packet ends with
+         *
+         * ``wkc_len`` is read straight from the last two bytes of the packet and is
+         * therefore fully attacker-controlled. It has to be validated before any pointer
+         * arithmetic uses it: the WKc must fit between the end of the tls-crypt frame and
+         * the end of the packet, and hold at least @p min_wkc_len bytes. Without this a
+         * bogus length underflows the unsigned size computations into a wild pointer,
+         * causing an out-of-bounds read during decryption -- an unauthenticated remote DoS.
+         *
+         * @return false if @p recv is too short to hold the tls-crypt frame and the
+         *         length field, or if ``wkc_len`` is smaller than @p min_wkc_len or
+         *         larger than the space behind the frame.
+         */
+        static bool trailing_wkc_len(const Buffer &recv,
+                                     const ProtoConfig &proto_config,
+                                     const size_t min_wkc_len,
+                                     uint16_t &wkc_len)
+        {
+            const size_t frame_size = tls_crypt_frame_size(proto_config);
+            const size_t orig_size = recv.size();
+
+            if (orig_size < (frame_size + sizeof(wkc_len)))
+                return false;
+
+            // avoid unaligned access
+            std::memcpy(&wkc_len, recv.c_data() + orig_size - sizeof(wkc_len), sizeof(wkc_len));
+            wkc_len = ntohs(wkc_len);
+
+            return wkc_len >= min_wkc_len && wkc_len <= (orig_size - frame_size);
+        }
+
+        /**
          * @brief  Extract and process the TLS crypt WKc information.
          * @param  recv                Buffer containing the raw packet.
          * @param  proto_config        Config object holding the settings needed for processing.
@@ -2528,58 +2589,36 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
             const unsigned char *orig_data = recv.data();
             const size_t orig_size = recv.size();
             const size_t hmac_size = proto_config.tls_crypt_context->digest_size();
-            const size_t tls_frame_size = OPCODE_SIZE + ProtoSessionID::SIZE
-                                          + PacketIDControl::size()
-                                          + hmac_size
-                                          // the following is the tls-crypt payload
-                                          + sizeof(char)  // length of ACK array
-                                          + sizeof(id_t); // reliable ID
-
-            // check that at least the authentication tag ``T`` is present
-            if (orig_size < (tls_frame_size + hmac_size))
-                return Error::CC_ERROR;
-
-            // the ``WKc`` is just appended after the standard tls-crypt frame
-            const unsigned char *wkc_raw = orig_data + tls_frame_size;
-            size_t wkc_raw_size = orig_size - tls_frame_size - sizeof(uint16_t);
-            // retrieve the ``WKc`` len from the bottom of the packet and convert it to Host Order
-            uint16_t wkc_len;
-            // avoid unaligned access
-            std::memcpy(&wkc_len, wkc_raw + wkc_raw_size, sizeof(wkc_len));
-            wkc_len = ntohs(wkc_len);
+            const size_t tls_frame_size = tls_crypt_frame_size(proto_config);
 
             uint32_t k_id = 0;
             const size_t serverkey_id_size = proto_config.tls_crypt_v2_serverkey_id ? sizeof(k_id) : 0;
 
-            // There's also a payload here, so the assumption that the difference in size
-            // from the TLS frame's end to the end of the packet constitutes the WKc no
-            // longer holds. We can only rely on wkc_len for P_CONTROL_WKC_V1 packets.
-            if (opcode_extract(orig_data[0]) != CONTROL_HARD_RESET_CLIENT_V3)
-            {
-                // ``wkc_len`` is read straight from the last two bytes of the received
-                // packet and is therefore fully attacker-controlled. It must be validated
-                // before being used in the pointer arithmetic below: the WKc has to fit
-                // between the end of the tls-crypt frame and the end of the packet, and be
-                // large enough to hold the auth tag, the optional server key ID and the
-                // trailing length field. Without this guard a bogus ``wkc_len`` underflows
-                // the (unsigned) size computations and turns ``wkc_raw`` into a wild
-                // pointer, causing an out-of-bounds read during decryption (an
-                // unauthenticated remote DoS). ``orig_size >= tls_frame_size + hmac_size``
-                // was already established above, so ``orig_size - tls_frame_size`` is safe.
-                if (wkc_len < (sizeof(uint16_t) + hmac_size + serverkey_id_size)
-                    || wkc_len > (orig_size - tls_frame_size))
-                    return Error::CC_ERROR;
-
-                wkc_raw = orig_data + orig_size - wkc_len;
-                wkc_raw_size = wkc_len - sizeof(uint16_t);
-            }
-
-            // For both packet types the WKc must be large enough to hold the auth tag and
-            // the optional server key ID, otherwise the server key ID read below or the
-            // ciphertext length passed to decrypt() (``wkc_raw_size - hmac_size -
-            // serverkey_id_size``) would underflow and read out of bounds.
-            if (wkc_raw_size < (hmac_size + serverkey_id_size))
+            // Establishes ``wkc_overhead() <= wkc_len <= orig_size - tls_frame_size``, so
+            // the WKc holds its own length field, the authentication tag ``T`` and the
+            // optional ``K_id``, and fits behind the tls-crypt frame. Both wkc_raw_size
+            // expressions below then come to at least ``hmac_size + serverkey_id_size``,
+            // which is what keeps the ``K_id`` read and the ciphertext length handed to
+            // decrypt() from underflowing.
+            uint16_t wkc_len;
+            if (!trailing_wkc_len(recv, proto_config, wkc_overhead(proto_config), wkc_len))
                 return Error::CC_ERROR;
+
+            // A CONTROL_HARD_RESET_CLIENT_V3 carries nothing but the ``WKc`` behind the
+            // tls-crypt frame, so its extent follows from the sizes; a P_CONTROL_WKC_V1
+            // carries a payload as well, and only ``wkc_len`` locates the ``WKc`` in it.
+            const unsigned char *wkc_raw;
+            size_t wkc_raw_size;
+            if (opcode_extract(orig_data[0]) == CONTROL_HARD_RESET_CLIENT_V3)
+            {
+                wkc_raw = orig_data + tls_frame_size;
+                wkc_raw_size = orig_size - tls_frame_size - sizeof(wkc_len);
+            }
+            else
+            {
+                wkc_raw = orig_data + orig_size - wkc_len;
+                wkc_raw_size = wkc_len - sizeof(wkc_len);
+            }
 
             if (proto_config.tls_crypt_v2_serverkey_id)
             {
@@ -2626,12 +2665,17 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                 plaintext.write(&k_id, sizeof(k_id));
             }
 
-            if (plaintext.max_size() <= 2 + serverkey_id_size)
+            // the ``len || K_id`` prefix written above is part of the authenticated
+            // plaintext, but the decrypted key material goes behind it
+            const size_t plaintext_prefix_size = sizeof(wkc_len) + serverkey_id_size;
+
+            const size_t plaintext_max_size = plaintext.max_size();
+            if (plaintext_max_size <= plaintext_prefix_size)
                 return Error::DECRYPT_ERROR;
 
             const size_t decrypt_bytes = tls_crypt_server.decrypt(wkc_raw,
-                                                                  plaintext.data() + 2 + serverkey_id_size,
-                                                                  plaintext.max_size() - 2 - serverkey_id_size,
+                                                                  plaintext.data() + plaintext_prefix_size,
+                                                                  plaintext_max_size - plaintext_prefix_size,
                                                                   wkc_raw + hmac_size,
                                                                   wkc_raw_size - hmac_size - serverkey_id_size);
             plaintext.inc_size(decrypt_bytes);
@@ -2715,10 +2759,16 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	return pid_ok;
       }
 
-      static bool validate_tls_crypt(Buffer& recv, ProtoContext& proto, TimePtr now)
-       {
-	const unsigned char *orig_data = recv.data();
-	const size_t orig_size = recv.size();
+        static bool validate_tls_crypt(Buffer &recv, ProtoContext &proto, TimePtr now)
+        {
+            // in TLS_CRYPT_V2 mode the receive context stays unset until a WKc has been
+            // unwrapped, so a packet reaching here before that has nothing to be judged
+            // with -- whichever opcodes validate() lets past it
+            if (!proto.tls_crypt_recv)
+                return false;
+
+            const unsigned char *orig_data = recv.data();
+            const size_t orig_size = recv.size();
 
             // advance buffer past initial op byte
             recv.advance(1);
@@ -3272,37 +3322,45 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	xmit_acks.prepend(buf, opcode == ACK_V1);
       }
 
-      bool verify_src_psid(const ProtoSessionID& src_psid)
-      {
-	if (proto.psid_peer.defined())
-	  {
-	    if (!proto.psid_peer.match(src_psid))
-	      {
-		proto.stats->error(Error::CC_ERROR);
-		if (proto.is_tcp())
-		  invalidate(Error::CC_ERROR);
-		return false;
-	      }
-	  }
-	else
-	  {
-	    proto.psid_peer = src_psid;
-	  }
-	return true;
-      }
+        bool verify_src_psid(const ProtoSessionID &src_psid)
+        {
+            if (proto.psid_peer.defined() && !proto.psid_peer.match(src_psid))
+            {
+                proto.stats->error(Error::CC_ERROR);
+                if (proto.is_tcp())
+                    invalidate(Error::CC_ERROR);
+                return false;
+            }
+            return true;
+        }
 
-      bool verify_dest_psid(Buffer& buf)
-      {
-	ProtoSessionID dest_psid(buf);
-	if (!proto.psid_self.match(dest_psid))
-	  {
-	    proto.stats->error(Error::CC_ERROR);
-	    if (proto.is_tcp())
-	      invalidate(Error::CC_ERROR);
-	    return false;
-	  }
-	return true;
-      }
+        /**
+         * @brief Adopt @p src_psid as our peer, and mark this packet as ours
+         *
+         * Reached only once a packet has verified under one of this session's keys and
+         * echoed the psid we chose. Pinning earlier let a packet that was then rejected
+         * name the peer anyway. Must precede any queued ACK: prepend_dest_psid_and_acks()
+         * throws without a peer psid.
+         */
+        void accept_peer(const ProtoSessionID &src_psid)
+        {
+            pkt_from_peer = true;
+            if (!proto.psid_peer.defined())
+                proto.psid_peer = src_psid;
+        }
+
+        bool verify_dest_psid(Buffer &buf)
+        {
+            ProtoSessionID dest_psid(buf);
+            if (!proto.psid_self.match(dest_psid))
+            {
+                proto.stats->error(Error::CC_ERROR);
+                if (proto.is_tcp())
+                    invalidate(Error::CC_ERROR);
+                return false;
+            }
+            return true;
+        }
 
       void gen_head_tls_auth(const unsigned int opcode, Buffer& buf)
       {
@@ -3326,18 +3384,24 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                                               PacketIDControl::size());
         }
 
-      void gen_head_tls_crypt(const unsigned int opcode, BufferAllocated& buf)
-      {
-	// in 'work' we store all the fields that are not supposed to be encrypted
-	proto.config->frame->prepare(Frame::ENCRYPT_WORK, work);
-	// make space for HMAC
-	work.prepend_alloc(proto.hmac_size);
-	// write tls-crypt packet ID
-	proto.ta_pid_send.write_next(work, true, now->seconds_since_epoch());
-	// write source PSID
-	proto.psid_self.prepend(work);
-	// write opcode
-	work.push_front(op_compose(opcode, key_id_));
+        void gen_head_tls_crypt(const unsigned int opcode, BufferAllocated &buf)
+        {
+            // The send context stays unset until a WKc has been unwrapped, and decapsulate()
+            // can put a session into TLS_CRYPT_V2 mode before that ever happens. Giving up
+            // this session is caught per session, where the dereference below would not be.
+            if (!proto.tls_crypt_send)
+                throw proto_error("gen_head_tls_crypt: no tls-crypt send context");
+
+            // in 'work' we store all the fields that are not supposed to be encrypted
+            proto.config->frame->prepare(Frame::ENCRYPT_WORK, work);
+            // make space for HMAC
+            work.prepend_alloc(proto.hmac_size);
+            // write tls-crypt packet ID
+            proto.ta_pid_send.write_next(work, true, now->seconds_since_epoch());
+            // write source PSID
+            proto.psid_self.prepend(work);
+            // write opcode
+            work.push_front(op_compose(opcode, key_id_));
 
 	// compute HMAC using header fields (from 'work') and plaintext
 	// payload (from 'buf')
@@ -3506,6 +3570,8 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                     return false;
             }
 
+            accept_peer(src_psid);
+
             // for CONTROL packets only, not ACK
             if (pkt.opcode != ACK_V1)
             {
@@ -3584,6 +3650,17 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 
         bool decapsulate_tls_crypt(Packet &pkt)
         {
+            // in TLS_CRYPT_V2 mode the receive context stays unset until a WKc has been
+            // unwrapped, so any other opcode reaching us before that has no key to be
+            // decrypted with
+            if (!proto.tls_crypt_recv)
+            {
+                proto.stats->error(Error::CC_ERROR);
+                if (proto.is_tcp())
+                    invalidate(Error::CC_ERROR);
+                return false;
+            }
+
             auto &recv = *pkt.buf;
             const unsigned char *orig_data = recv.data();
             const size_t orig_size = recv.size();
@@ -3661,11 +3738,13 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	      return false;
 	  }
 
-	// for CONTROL packets only, not ACK
-	if (pkt.opcode != ACK_V1)
-	  {
-	    // get message sequence number
-	    const id_t id = ReliableAck::read_id(recv);
+            accept_peer(src_psid);
+
+            // for CONTROL packets only, not ACK
+            if (pkt.opcode != ACK_V1)
+            {
+                // get message sequence number
+                const id_t id = ReliableAck::read_id(recv);
 
 	    // try to push message into reliable receive object
 	    const unsigned int rflags = rel_recv.receive(pkt, id);
@@ -3681,14 +3760,33 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
 	return false;
       }
 
+        /**
+         * @brief May this packet make a tls-auth server session a tls-crypt-v2 one?
+         *
+         * Only the opcode asks for the switch and packet_type() weighs nothing else, so a
+         * spoofed datagram gets a say. Hence: on offer only until a packet of our peer's
+         * has been accepted, and decapsulate() takes it back if this one is not.
+         */
+        bool tls_crypt_v2_wanted(const Packet &pkt) const
+        {
+            return proto.is_server()
+                   && proto.tls_wrap_mode == TLS_AUTH
+                   && !proto.psid_peer.defined()
+                   && proto.config->tls_crypt_v2_enabled()
+                   && (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3 || pkt.opcode == CONTROL_WKC_V1);
+        }
+
         bool decapsulate(Packet &pkt) // called by ProtoStackBase
         {
+            const bool detect_tls_crypt_v2 = tls_crypt_v2_wanted(pkt);
+            const size_t tls_auth_hmac_size = proto.hmac_size;
+            bool authenticated = false;
+
+            pkt_from_peer = false;
+
             try
             {
-                if (proto.is_server()
-                    && proto.tls_wrap_mode != TLS_CRYPT_V2
-                    && proto.config->tls_crypt_v2_enabled()
-                    && (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3 || pkt.opcode == CONTROL_WKC_V1))
+                if (detect_tls_crypt_v2)
                 {
                     // setup key to be used to unwrap WKc upon client connection.
                     // tls-crypt session key setup is postponed to reception of WKc
@@ -3698,62 +3796,112 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
                     proto.tls_wrap_mode = TLS_CRYPT_V2;
                     proto.hmac_size = proto.config->tls_crypt_context->digest_size();
 
-                    // init tls_crypt packet ID
-                    proto.ta_pid_send.init(EARLY_NEG_START);
+                    // init tls_crypt packet ID; the send half waits until the packet has
+                    // earned it, below, since putting the previous id back is not possible
                     proto.ta_pid_recv.init("SSL-CC", 0, proto.stats);
                 }
 
-                switch (proto.tls_wrap_mode)
-                {
-                case TLS_AUTH:
-                    return decapsulate_tls_auth(pkt);
-                case TLS_CRYPT_V2:
-                    if (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3)
-                    {
-                        // unwrap WKc and extract Kc (client key) from packet.
-                        // This way we can initialize the tls-crypt per-client contexts
-                        // (this happens on the server side only)
-                        OpenVPNStaticKey client_key;
-                        const Error::Type unwrap_wkc_result = unwrap_tls_crypt_wkc(*pkt.buf,
-                                                                                   *proto.config,
-                                                                                   *proto.tls_crypt_server,
-                                                                                   proto.tls_crypt_metadata);
-                        switch (unwrap_wkc_result)
-                        {
-                        case Error::DECRYPT_ERROR:
-                        case Error::HMAC_ERROR:
-                            proto.stats->error(unwrap_wkc_result);
-                            if (proto.is_tcp())
-                                invalidate(unwrap_wkc_result);
-                            return false;
-                        case Error::TLS_CRYPT_META_FAIL:
-                            proto.stats->error(unwrap_wkc_result);
-                            return false;
-                        case Error::SUCCESS:
-                            break;
-                        default:
-                            return false;
-                        }
-
-                        // WKc has been authenticated: it contains the client key followed
-                        // by the optional metadata. Let's initialize the tls-crypt context
-                        // with the client key
-                        proto.reset_tls_crypt(*proto.config, proto.config->wrapped_tls_crypt_key);
-                    }
-                    // now that the tls-crypt contexts have been initialized it is
-                    // possible to proceed with the standard tls-crypt decapsulation
-                    /* no break */
-                case TLS_CRYPT:
-                    return decapsulate_tls_crypt(pkt);
-                case TLS_PLAIN:
-                    return decapsulate_tls_plain(pkt);
-                }
+                authenticated = decapsulate_by_wrap_mode(pkt);
             }
             catch (const BufferException &)
             {
                 proto.stats->error(Error::BUFFER_ERROR);
                 if (proto.is_tcp())
                     invalidate(Error::BUFFER_ERROR);
+            }
+
+            if (detect_tls_crypt_v2)
+            {
+                if (!pkt_from_peer)
+                {
+                    // Not our peer's packet, so leave the session as tls-auth had it. The
+                    // receive packet id needs no undoing: reset() initialises it the same
+                    // way and nothing of our peer's has moved it.
+                    proto.tls_wrap_mode = TLS_AUTH;
+                    proto.hmac_size = tls_auth_hmac_size;
+                }
+                else
+                {
+                    /** tls-auth/tls-crypt packet id. We start with a different id here
+                     * to indicate EARLY_NEG_START/CONTROL_WKC_V1 support */
+                    proto.ta_pid_send.init(EARLY_NEG_START);
+                }
+            }
+
+            return authenticated;
+        }
+
+        /**
+         * @brief Decapsulate @p pkt with the wrap mode this session is in
+         *
+         * Split out of decapsulate() so that what the wrap mode decides stays separate from
+         * what every packet gets: the tls-crypt-v2 arm is the one with a step of its own,
+         * since on a server the key its frame is read with comes from the WKc the packet
+         * carries and from nowhere else.
+         *
+         * @return whether the packet yielded a message for the reliable receive layer. A
+         *  packet of our peer's carrying only ACKs authenticates and returns false, so this
+         *  is not the test for whether the sender is who it claims -- see pkt_from_peer.
+         */
+        bool decapsulate_by_wrap_mode(Packet &pkt)
+        {
+            switch (proto.tls_wrap_mode)
+            {
+            case TLS_AUTH:
+                return decapsulate_tls_auth(pkt);
+            case TLS_CRYPT_V2:
+                if (pkt.opcode == CONTROL_HARD_RESET_CLIENT_V3)
+                {
+                    // unwrap WKc and extract Kc (client key) from packet.
+                    // This way we can initialize the tls-crypt per-client contexts
+                    // (this happens on the server side only)
+                    //
+                    // A session the psid cookie layer created has no server context:
+                    // its WKc was unwrapped before the session existed, so a further
+                    // copy of the first packet has nothing left to unwrap it with. A
+                    // late duplicate of a packet we already acted on is not an error,
+                    // so drop it without counting one.
+                    if (!proto.tls_crypt_server)
+                    {
+                        OVPN_LOG_VERBOSE(proto.debug_prefix()
+                                         << " DROPPING HARD_RESET_V3 WITH NO SERVER CONTEXT");
+                        return false;
+                    }
+
+                    OpenVPNStaticKey client_key;
+                    const Error::Type unwrap_wkc_result = unwrap_tls_crypt_wkc(*pkt.buf,
+                                                                               *proto.config,
+                                                                               *proto.tls_crypt_server,
+                                                                               proto.tls_crypt_metadata);
+                    switch (unwrap_wkc_result)
+                    {
+                    case Error::DECRYPT_ERROR:
+                    case Error::HMAC_ERROR:
+                        proto.stats->error(unwrap_wkc_result);
+                        if (proto.is_tcp())
+                            invalidate(unwrap_wkc_result);
+                        return false;
+                    case Error::TLS_CRYPT_META_FAIL:
+                        proto.stats->error(unwrap_wkc_result);
+                        return false;
+                    case Error::SUCCESS:
+                        break;
+                    default:
+                        return false;
+                    }
+
+                    // WKc has been authenticated: it contains the client key followed
+                    // by the optional metadata. Let's initialize the tls-crypt context
+                    // with the client key
+                    proto.reset_tls_crypt(*proto.config, proto.config->wrapped_tls_crypt_key);
+                }
+                // now that the tls-crypt contexts have been initialized it is
+                // possible to proceed with the standard tls-crypt decapsulation
+                [[fallthrough]];
+            case TLS_CRYPT:
+                return decapsulate_tls_crypt(pkt);
+            case TLS_PLAIN:
+                return decapsulate_tls_plain(pkt);
             }
             return false;
         }
@@ -3810,23 +3958,25 @@ class ProtoContext : public logging::LoggingMixin<OPENVPN_DEBUG_PROTO,
         /* early negotiation enabled resending of wrapped tls-crypt-v2 client key
          * with third packet of the three-way handshake
          */
-      bool resend_wkc = false;
-      bool dirty;
-      bool key_limit_renegotiation_fired;
-      bool is_reliable;
-      Compress::Ptr compress;
-      CryptoDCInstance::Ptr crypto;
-      TLSPRFInstance::Ptr tlsprf;
-      Time construct_time;
-      Time reached_active_time_;
-      Time next_event_time;
-      EventType current_event;
-      EventType next_event;
-      std::deque<BufferPtr> app_pre_write_queue;
-      std::unique_ptr<DataChannelKey> data_channel_key;
-      BufferComposed app_recv_buf;
-      std::unique_ptr<DataLimit> data_limit;
-      BufferAllocated work;
+        bool resend_wkc = false;
+        //! Set per packet by accept_peer(), read by decapsulate()
+        bool pkt_from_peer = false;
+        bool dirty;
+        bool key_limit_renegotiation_fired;
+        bool is_reliable;
+        Compress::Ptr compress;
+        CryptoDCInstance::Ptr crypto;
+        TLSPRFInstance::Ptr tlsprf;
+        Time construct_time;
+        Time reached_active_time_;
+        Time next_event_time;
+        EventType current_event;
+        EventType next_event;
+        std::deque<BufferPtr> app_pre_write_queue;
+        std::unique_ptr<DataChannelKey> data_channel_key;
+        BufferComposed app_recv_buf;
+        std::unique_ptr<DataLimit> data_limit;
+        BufferAllocated work;
 
       // static member used by validate_tls_crypt()
       static BufferAllocated static_work;
