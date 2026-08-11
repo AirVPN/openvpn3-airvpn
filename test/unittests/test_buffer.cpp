@@ -593,3 +593,34 @@ TEST(Buffer, AppendAfterMoveSafe)
     // coverity[USE_AFTER_MOVE]
     EXPECT_EQ(buf, buf3);
 }
+
+// A buffer of no capacity holds no allocation, so a copy of no bytes into
+// or out of one hands memcpy() a nullptr.
+TEST(Buffer, ZeroLengthCopyOnUnallocatedBuffer)
+{
+    const BufferPtr empty = buf_from_string(std::string());
+    EXPECT_EQ(empty->size(), 0U);
+    EXPECT_EQ(empty->c_data_raw(), nullptr);
+
+    BufferAllocated buf;
+    unsigned char byte = 'x';
+
+    buf.write(&byte, 0);
+    buf.prepend(&byte, 0);
+    buf.read(&byte, 0);
+
+    EXPECT_EQ(buf.size(), 0U);
+    EXPECT_EQ(buf.capacity(), 0U);
+    EXPECT_EQ(buf.c_data_raw(), nullptr);
+    EXPECT_EQ(byte, 'x');
+}
+
+// Same for the zeroing a buffer asks for on construction: there is nothing to
+// zero, and memset() must not be asked to do it anyway.
+TEST(Buffer, ConstructZeroAtZeroCapacity)
+{
+    const BufferAllocated buf(0, BufAllocFlags::CONSTRUCT_ZERO);
+
+    EXPECT_EQ(buf.capacity(), 0U);
+    EXPECT_EQ(buf.c_data_raw(), nullptr);
+}
