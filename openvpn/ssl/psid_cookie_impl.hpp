@@ -306,6 +306,16 @@ class PsidCookieImpl : public PsidCookie
     {
         static const size_t hmac_size = pcfg_.tls_crypt_context->digest_size();
 
+        // Check the size before reading any of it. intercept() turns away only an empty
+        // datagram, and unlike the tls-auth path there is no hmac comparison ahead of this to
+        // vet the length on the way past -- the WKc is what authenticates a packet here, and
+        // that is not looked at until below.
+        static const size_t reqd_packet_size = TLSCryptContext::hmac_offset;
+        if (pkt_buf.size() < reqd_packet_size)
+        {
+            return Intercept::DROP_1ST;
+        }
+
         ConstBuffer recv_buf_copy(pkt_buf.c_data() + 1, pkt_buf.size() - 1, true);
 
         ProtoSessionID client_session_id(recv_buf_copy);
@@ -317,7 +327,10 @@ class PsidCookieImpl : public PsidCookie
         if (!ch.supports_early_negotiation(replay_packet_id))
             return Intercept::DECLINE_HANDLING;
 
-        TLSCryptInstance::Ptr send = init_tls_crypt_v2(pkt_buf, OpenVPNStaticKey::ENCRYPT);
+        // A shallow view, for the same reason the third packet's path takes one: the unwrap
+        // trims the WKc off the buffer it is handed, and this one is the caller's.
+        Buffer work_buf(pkt_buf);
+        TLSCryptInstance::Ptr send = init_tls_crypt_v2(work_buf, OpenVPNStaticKey::ENCRYPT);
 
         if (!send)
             return Intercept::DROP_1ST;
@@ -375,7 +388,14 @@ class PsidCookieImpl : public PsidCookie
 
     Intercept process_clients_server_reset_ack_tls_crypt(Buffer &pkt_buf, const PsidCookieAddrInfoBase &pcaib)
     {
-        TLSCryptInstance::Ptr recv = init_tls_crypt_v2(pkt_buf, OpenVPNStaticKey::DECRYPT);
+        // The unwrap below works on a shallow view over the same bytes, trimming the WKc
+        // off it to leave the tls-crypt frame the auth tag covers -- the size everything
+        // else here has to work on. pkt_buf keeps the packet as it arrived, so that the
+        // session created for this client finds the WKc where it expects it and keys
+        // itself.
+        Buffer work_buf(pkt_buf);
+
+        TLSCryptInstance::Ptr recv = init_tls_crypt_v2(work_buf, OpenVPNStaticKey::DECRYPT);
 
         if (!recv)
             return Intercept::DROP_2ND;
@@ -383,9 +403,9 @@ class PsidCookieImpl : public PsidCookie
         static const size_t hmac_size = pcfg_.tls_crypt_context->digest_size();
 
         const size_t head_size = OPCODE_SIZE + ProtoSessionID::SIZE + PacketIDControl::size();
-        const unsigned char *orig_data = pkt_buf.c_data();
+        const unsigned char *orig_data = work_buf.c_data();
 
-        ConstBuffer recv_buf_copy(pkt_buf.c_data() + 1, pkt_buf.size() - 1, true);
+        ConstBuffer recv_buf_copy(work_buf.c_data() + 1, work_buf.size() - 1, true);
 
         ProtoSessionID client_session_id(recv_buf_copy);
         recv_buf_copy.advance(PacketIDControl::size() + hmac_size);
@@ -413,6 +433,8 @@ class PsidCookieImpl : public PsidCookie
         if (work.size() < reqd_decrypted_size)
             return Intercept::DROP_2ND;
 
+        // The WKc's metadata is judged by the session, not here: it can count the answer
+        // against the session it concerns, and a replayed packet meets its replay window.
         return validate_3whs_ack_payload(work, client_session_id, pcaib)
                    ? Intercept::HANDLE_2ND
                    : Intercept::DROP_2ND;
@@ -513,14 +535,19 @@ class PsidCookieImpl : public PsidCookie
      */
     TLSCryptInstance::Ptr init_tls_crypt_v2(Buffer &pkt_buf, const unsigned int slice)
     {
+        // The record the WKc carries dies with this call: nothing here judges it, and the
+        // session created for this client unwraps the same WKc for itself.
+        ProtoContext::KeyContext::UnwrappedWkc unwrapped;
         TLSCryptInstance::Ptr tls_crypt_server = pcfg_.tls_crypt_context->new_obj_recv();
 
-        if (ProtoContext::KeyContext::unwrap_tls_crypt_wkc(pkt_buf, pcfg_, *tls_crypt_server) != Error::SUCCESS)
+        if (ProtoContext::KeyContext::unwrap_tls_crypt_wkc(pkt_buf, pcfg_, *tls_crypt_server, unwrapped) != Error::SUCCESS)
             return nullptr;
 
         const unsigned int key_dir = pcfg_.ssl_factory->mode().is_server()
                                          ? OpenVPNStaticKey::NORMAL
                                          : OpenVPNStaticKey::INVERSE;
+
+        const OpenVPNStaticKey &kc = unwrapped.client_key;
 
         // ENCRYPT is the zero of the pair, so the bit is what there is to test
         TLSCryptInstance::Ptr instance = (slice & OpenVPNStaticKey::DECRYPT)
@@ -528,8 +555,8 @@ class PsidCookieImpl : public PsidCookie
                                              : pcfg_.tls_crypt_context->new_obj_send();
 
         instance->init(pcfg_.ssl_factory->libctx(),
-                       pcfg_.wrapped_tls_crypt_key.slice(OpenVPNStaticKey::HMAC | slice | key_dir),
-                       pcfg_.wrapped_tls_crypt_key.slice(OpenVPNStaticKey::CIPHER | slice | key_dir));
+                       kc.slice(OpenVPNStaticKey::HMAC | slice | key_dir),
+                       kc.slice(OpenVPNStaticKey::CIPHER | slice | key_dir));
 
         return instance;
     }

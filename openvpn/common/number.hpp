@@ -56,7 +56,7 @@ inline bool parse_number(const char *str,
         }
         else if (!c || nondigit_term)
         {
-            retval = neg ? -ret : ret;
+            retval = neg ? T(-ret) : ret;
             return true;
         }
         else

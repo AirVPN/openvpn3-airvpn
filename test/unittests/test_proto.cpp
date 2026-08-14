@@ -926,7 +926,8 @@ static auto create_client_proto_context(ClientSSLAPI::Config::Ptr cc,
                                         MySessionStats::Ptr cli_stats,
                                         Time &time,
                                         const std::string &tls_crypt_v2_key_fn = "",
-                                        bool tls_auth_only = false)
+                                        bool tls_auth_only = false,
+                                        bool use_dynamic_tls_crypt = false)
 {
     const std::string tls_auth_key = read_text(TEST_KEYCERT_DIR "tls-auth.key");
     const std::string tls_crypt_v2_client_key = tls_crypt_v2_key_fn.empty()
@@ -988,6 +989,8 @@ static auto create_client_proto_context(ClientSSLAPI::Config::Ptr cc,
         }
         cp->tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::V2;
     }
+    if (use_dynamic_tls_crypt)
+        cp->enable_dynamic_tls_crypt();
 #endif
 #ifdef HANDSHAKE_WINDOW
     cp->handshake_window = Time::Duration::seconds(HANDSHAKE_WINDOW);
@@ -1030,6 +1033,7 @@ struct proto_test
     bool client_tls_auth_only = false;
     bool spoof_hard_reset_v3 = false;
     bool force_resend_wkc = false;
+    bool use_dynamic_tls_crypt = false;
     size_t control_payload = 378;
     size_t mssfix_ctrl = 0;
 };
@@ -1070,7 +1074,7 @@ int test(const struct proto_test &t)
         ClientSSLAPI::Config::Ptr cc = create_client_ssl_config(frame, prng_cli, t.tls_version_mismatch);
         MySessionStats::Ptr cli_stats(new MySessionStats);
 
-        auto cp = create_client_proto_context(std::move(cc), frame, prng_cli, cli_stats, time, t.tls_crypt_v2_key_fn, t.client_tls_auth_only);
+        auto cp = create_client_proto_context(std::move(cc), frame, prng_cli, cli_stats, time, t.tls_crypt_v2_key_fn, t.client_tls_auth_only, t.use_dynamic_tls_crypt);
         if (t.use_tls_ekm)
             cp->dc.set_key_derivation(CryptoAlgs::KeyDerivation::TLS_EKM);
         if (t.mssfix_ctrl)
@@ -1140,6 +1144,9 @@ int test(const struct proto_test &t)
         sp->tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::V2;
         sp->tls_crypt_v2_serverkey_id = !t.tls_crypt_v2_key_fn.empty();
         sp->tls_crypt_v2_serverkey_dir = TEST_KEYCERT_DIR;
+
+        if (t.use_dynamic_tls_crypt)
+            sp->enable_dynamic_tls_crypt();
 
         if (t.use_tls_auth_with_tls_crypt_v2)
         {
@@ -1235,18 +1242,23 @@ int test(const struct proto_test &t)
                     // Pretend the server asked the client to resend the
                     // tls-crypt-v2 WKc on the first control packet, so the
                     // client's ClientHello is emitted as CONTROL_WKC_V1 with
-                    // the WKc appended.  Drive only enough rounds for the
-                    // client to emit it, then verify it fits the control-channel
-                    // frame.  The handshake won't complete (a plain ProtoContext
-                    // server doesn't expect a WKc on a mid-handshake
-                    // CONTROL_WKC_V1), which is irrelevant to this check.
+                    // the WKc appended -- as is every retransmission of that
+                    // packet, which the noisy wire below produces plenty of.
+                    // The server has to take the WKc off each of them, so the
+                    // handshake completes like any other.
                     cli_proto.proto_context.force_resend_wkc();
-                    for (int k = 0; k < 60; ++k)
-                    {
-                        client_to_server.xfer(cli_proto, serv_proto);
-                        server_to_client.xfer(serv_proto, cli_proto);
-                        time += time_step;
-                    }
+                }
+
+                // message loop
+                for (j = 0; j < ITER; ++j)
+                {
+                    client_to_server.xfer(cli_proto, serv_proto);
+                    server_to_client.xfer(serv_proto, cli_proto);
+                    time += time_step;
+                }
+
+                if (t.force_resend_wkc)
+                {
                     // Frame control context above is Context(128, control_payload, ...).
                     // Even the WKc-bearing packet must stay within headroom +
                     // payload; without the reservation fix it overflows by
@@ -1262,15 +1274,6 @@ int test(const struct proto_test &t)
                                   << " > " << t.mssfix_ctrl << '\n';
                         return 1;
                     }
-                    return 0;
-                }
-
-                // message loop
-                for (j = 0; j < ITER; ++j)
-                {
-                    client_to_server.xfer(cli_proto, serv_proto);
-                    server_to_client.xfer(serv_proto, cli_proto);
-                    time += time_step;
                 }
             }
             catch (const std::exception &e)
@@ -1299,6 +1302,18 @@ int test(const struct proto_test &t)
                   << " SH=" << cli_proto.proto_context.slowest_handshake().raw() << '/' << serv_proto.proto_context.slowest_handshake().raw()
                   << " HE=" << cli_stats->get_error_count(Error::HANDSHAKE_TIMEOUT) << '/' << serv_stats->get_error_count(Error::HANDSHAKE_TIMEOUT)
                   << '\n';
+
+        if (t.use_dynamic_tls_crypt)
+        {
+            // The rekey is the first thing to use the derived key, and it is a control
+            // channel handshake like any other: if the two ends derived different keys,
+            // nothing either sends can authenticate and neither gets past its first one.
+            if (cli_proto.proto_context.negotiations() < 2 || serv_proto.proto_context.negotiations() < 2)
+            {
+                std::cerr << "dynamic tls-crypt: no rekey completed\n";
+                return 1;
+            }
+        }
 
 #ifdef STATS
         std::cerr << "-------- CLIENT STATS --------\n";
@@ -1428,6 +1443,61 @@ TEST_F(ProtoUnitTest, TlsAuthSessionSurvivesSpoofedTlsCryptV2Opcode)
     EXPECT_EQ(ret, 0);
 }
 
+// Dynamic tls-crypt rekeys the control channel with a key each end derives from the TLS
+// session -- so it needs keying material export, which our mbed TLS does not have -- and
+// mixes its own tls-crypt key into. A tls-crypt-v2 server's ProtoConfig holds
+// the server key it unwraps WKc's with, not the Kc inside them, so mixing that in derived a
+// key the client could not match and the rekey never completed. Both server key modes are
+// covered: with a server key in the config the server mixed in the wrong key, and with
+// serverkey_id it had none to mix in and skipped the step the client had taken.
+TEST_F(ProtoUnitTest, DynamicTlsCryptRekeysTlsCryptV2WithServerkeyInConfig)
+{
+    if (!openvpn::SSLLib::SSLAPI::support_key_material_export())
+        GTEST_SKIP_("our mbed TLS implementation does not support TLS EKM");
+
+    int ret = test_retry(N_RETRIES, {.use_dynamic_tls_crypt = true});
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(ProtoUnitTest, DynamicTlsCryptRekeysTlsCryptV2WithServerkeyId)
+{
+    if (!openvpn::SSLLib::SSLAPI::support_key_material_export())
+        GTEST_SKIP_("our mbed TLS implementation does not support TLS EKM");
+
+    int ret = test_retry(N_RETRIES, {.tls_crypt_v2_key_fn = "tls-crypt-v2-client-with-serverkey.key", .use_dynamic_tls_crypt = true});
+    EXPECT_EQ(ret, 0);
+}
+
+// The two above run tls-crypt-v2-only servers, where the config the key is picked from and
+// the mode the session is in cannot disagree. A server holding a tls-auth key as well --
+// what PG deploys -- is the case that can: reset_tls_wrap_mode() prefers TLS_AUTH, so such a
+// session starts as tls-auth and only decapsulate() converts it once the client's WKc
+// arrives. Picking the key to mix from the config then had the server mix tls_auth_key while
+// its tls-crypt-v2 client mixed Kc; the handshake came up fine and the session died at the
+// first rekey, hours in. Both server key modes, as above.
+TEST_F(ProtoUnitTest, DynamicTlsCryptRekeysTlsCryptV2OnTlsAuthServerWithServerkeyInConfig)
+{
+    if (!openvpn::SSLLib::SSLAPI::support_key_material_export())
+        GTEST_SKIP_("our mbed TLS implementation does not support TLS EKM");
+
+    int ret = test_retry(N_RETRIES,
+                         {.use_tls_auth_with_tls_crypt_v2 = true,
+                          .use_dynamic_tls_crypt = true});
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(ProtoUnitTest, DynamicTlsCryptRekeysTlsCryptV2OnTlsAuthServerWithServerkeyId)
+{
+    if (!openvpn::SSLLib::SSLAPI::support_key_material_export())
+        GTEST_SKIP_("our mbed TLS implementation does not support TLS EKM");
+
+    int ret = test_retry(N_RETRIES,
+                         {.tls_crypt_v2_key_fn = "tls-crypt-v2-client-with-serverkey.key",
+                          .use_tls_auth_with_tls_crypt_v2 = true,
+                          .use_dynamic_tls_crypt = true});
+    EXPECT_EQ(ret, 0);
+}
+
 // Regression test: when the tls-crypt-v2 WKc is appended to the first
 // ciphertext-bearing control packet (EARLY_NEG_FLAG_RESEND_WKC -> the client
 // emits CONTROL_WKC_V1), the SSL ciphertext placed into that packet must be
@@ -1515,6 +1585,20 @@ class TlsCryptV2WkcUnwrapTest : public testing::Test
         std::memcpy(buf.data() + size - sizeof(net_wkc_len), &net_wkc_len, sizeof(net_wkc_len));
         return buf;
     }
+
+    //! Smallest tls-crypt frame a WKc can follow, from the code under test
+    size_t frame_size() const
+    {
+        return ProtoContext::KeyContext::tls_crypt_frame_size(*pcfg);
+    }
+
+    //! Smallest WKc strip_resent_wkc() accepts, from the code under test: everything a
+    //! WKc carries besides the key, plus the key it wraps
+    uint16_t min_wkc_len() const
+    {
+        return static_cast<uint16_t>(ProtoContext::KeyContext::wkc_overhead(*pcfg)
+                                     + OpenVPNStaticKey::KEY_SIZE);
+    }
 };
 
 // wkc_len far larger than the packet: pre-fix this underflowed wkc_raw into a
@@ -1522,8 +1606,10 @@ class TlsCryptV2WkcUnwrapTest : public testing::Test
 TEST_F(TlsCryptV2WkcUnwrapTest, RejectsWkcLenLargerThanPacket)
 {
     BufferAllocated buf = make_wkc_v1_packet(200, 60000);
-    EXPECT_EQ(ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server),
+    ProtoContext::KeyContext::UnwrappedWkc unwrapped;
+    EXPECT_EQ(ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server, unwrapped),
               Error::CC_ERROR);
+    EXPECT_FALSE(unwrapped.client_key.defined());
 }
 
 // wkc_len smaller than the auth tag: pre-fix the decrypt ciphertext length
@@ -1531,8 +1617,96 @@ TEST_F(TlsCryptV2WkcUnwrapTest, RejectsWkcLenLargerThanPacket)
 TEST_F(TlsCryptV2WkcUnwrapTest, RejectsWkcLenSmallerThanAuthTag)
 {
     BufferAllocated buf = make_wkc_v1_packet(200, 4);
-    EXPECT_EQ(ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server),
+    ProtoContext::KeyContext::UnwrappedWkc unwrapped;
+    EXPECT_EQ(ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server, unwrapped),
               Error::CC_ERROR);
+    EXPECT_FALSE(unwrapped.client_key.defined());
+}
+
+// strip_resent_wkc() takes the WKc off a retransmitted CONTROL_WKC_V1 without
+// unwrapping it again.  It reads the same attacker-controlled trailing length
+// field as the unwrap above and needs the same guards, so exercise them here
+// too: a length that survives validation is used to trim the packet, and one
+// that doesn't must leave the packet alone and drop it.
+
+// A WKc's K_id names a file and the K_id is whatever the packet says it is, so a client whose
+// key we never had -- or a forgery -- points at a file that is not there. read_text() throws
+// open_file_error for it, which is not a BufferException, so it sailed past the only catch in
+// decapsulate() and out of the psid cookie layer's intercept(), from a path reached before
+// anything about the packet has been authenticated.
+TEST_F(TlsCryptV2WkcUnwrapTest, UnknownServerKeyIdIsAnErrorAndNotAnException)
+{
+    pcfg->tls_crypt_v2_serverkey_id = true;
+    pcfg->tls_crypt_v2_serverkey_dir = TEST_KEYCERT_DIR;
+
+    // room for a WKc behind a tls-crypt frame; the buffer is zero filled, so the K_id it
+    // carries is 0 and names <dir>/00/00000000.key
+    const uint16_t wkc_len = min_wkc_len();
+    BufferAllocated buf = make_wkc_v1_packet(frame_size() + wkc_len, wkc_len);
+
+    ProtoContext::KeyContext::UnwrappedWkc unwrapped;
+    Error::Type ret = Error::SUCCESS;
+    EXPECT_NO_THROW(
+        ret = ProtoContext::KeyContext::unwrap_tls_crypt_wkc(buf, *pcfg, *tls_crypt_server, unwrapped));
+    EXPECT_EQ(ret, Error::DECRYPT_ERROR);
+    EXPECT_FALSE(unwrapped.client_key.defined());
+}
+
+TEST_F(TlsCryptV2WkcUnwrapTest, StripsResentWkc)
+{
+    BufferAllocated buf = make_wkc_v1_packet(frame_size() + 300, 300);
+    EXPECT_TRUE(ProtoContext::KeyContext::strip_resent_wkc(buf, *pcfg));
+    // what is left is the frame the tls-crypt auth tag actually covers
+    EXPECT_EQ(buf.size(), frame_size());
+}
+
+TEST_F(TlsCryptV2WkcUnwrapTest, StripRejectsWkcLenLargerThanPacket)
+{
+    BufferAllocated buf = make_wkc_v1_packet(400, 60000);
+    EXPECT_FALSE(ProtoContext::KeyContext::strip_resent_wkc(buf, *pcfg));
+    EXPECT_EQ(buf.size(), 400u);
+}
+
+// a WKc too small to even hold the client key it is supposed to wrap
+TEST_F(TlsCryptV2WkcUnwrapTest, StripRejectsWkcLenSmallerThanClientKey)
+{
+    BufferAllocated buf = make_wkc_v1_packet(400, min_wkc_len() - 1);
+    EXPECT_FALSE(ProtoContext::KeyContext::strip_resent_wkc(buf, *pcfg));
+    EXPECT_EQ(buf.size(), 400u);
+}
+
+// one byte more than the packet can spare: trimming it would leave less than a
+// tls-crypt frame in front of the WKc
+TEST_F(TlsCryptV2WkcUnwrapTest, StripRejectsWkcLeavingNoTlsCryptFrame)
+{
+    BufferAllocated buf = make_wkc_v1_packet(400, static_cast<uint16_t>(400 - frame_size() + 1));
+    EXPECT_FALSE(ProtoContext::KeyContext::strip_resent_wkc(buf, *pcfg));
+    EXPECT_EQ(buf.size(), 400u);
+}
+
+// too short to hold a frame plus the trailing length field at all; the length
+// read itself must not happen
+TEST_F(TlsCryptV2WkcUnwrapTest, StripRejectsPacketShorterThanAFrame)
+{
+    BufferAllocated buf = make_wkc_v1_packet(frame_size() + 1, 300);
+    EXPECT_FALSE(ProtoContext::KeyContext::strip_resent_wkc(buf, *pcfg));
+}
+
+// with server key IDs in use -- how PG deploys tls-crypt-v2 -- the WKc carries a
+// 4 byte K_id as well, so the minimum grows by that much
+TEST_F(TlsCryptV2WkcUnwrapTest, StripAccountsForServerKeyId)
+{
+    pcfg->tls_crypt_v2_serverkey_id = true;
+    // the one place the number is spelled out rather than asked for: length field, a
+    // SHA-256 tag, K_id and the client key
+    ASSERT_EQ(min_wkc_len(), sizeof(uint16_t) + 32 + sizeof(uint32_t) + OpenVPNStaticKey::KEY_SIZE);
+
+    BufferAllocated too_small = make_wkc_v1_packet(400, min_wkc_len() - 1);
+    EXPECT_FALSE(ProtoContext::KeyContext::strip_resent_wkc(too_small, *pcfg));
+
+    BufferAllocated ok = make_wkc_v1_packet(400, min_wkc_len());
+    EXPECT_TRUE(ProtoContext::KeyContext::strip_resent_wkc(ok, *pcfg));
+    EXPECT_EQ(ok.size(), 400u - min_wkc_len());
 }
 #endif
 
