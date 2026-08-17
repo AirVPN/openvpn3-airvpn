@@ -198,7 +198,7 @@ class DataChannelEpoch
 
     DataChannelEpoch() = default;
 
-    DataChannelEpoch(decltype(cipher) cipher, openvpn::StaticKey e1send, openvpn::StaticKey e1recv, SSLLib::Ctx libctx = nullptr, uint16_t future_key_count = 16);
+    DataChannelEpoch(decltype(cipher) cipher, openvpn::StaticKey e1send, openvpn::StaticKey e1recv, SSLLib::Ctx libctx = nullptr, uint16_t future_key_count = 4);
 
     void replace_update_recv_key(std::uint16_t new_epoch, const SessionStats::Ptr &stats_arg);
 
