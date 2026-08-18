@@ -929,7 +929,7 @@ OPENVPN_CLIENT_EXPORT void OpenVPNClient::do_connect_async()
 OPENVPN_CLIENT_EXPORT void OpenVPNClient::connect_setup(Status &status, bool &session_started)
 {
     // set global MbedTLS debug level
-#if defined(USE_MBEDTLS) || defined(USE_MBEDTLS_APPLE_HYBRID)
+#ifdef USE_MBEDTLS
     mbedtls_debug_set_threshold(state->clientconf.sslDebugLevel); // fixme -- using a global method for this seems wrong
 #endif
 
@@ -961,7 +961,6 @@ OPENVPN_CLIENT_EXPORT void OpenVPNClient::connect_setup(Status &status, bool &se
 #endif
 
     // external PKI
-#ifndef USE_APPLE_SSL
     if (state->eval.externalPki && !state->clientconf.disableClientCert)
     {
         if (!state->clientconf.external_pki_alias.empty())
@@ -987,7 +986,6 @@ OPENVPN_CLIENT_EXPORT void OpenVPNClient::connect_setup(Status &status, bool &se
             return;
         }
     }
-#endif
 
 #ifdef USE_OPENSSL
     if (state->options.exists("allow-name-constraints"))

@@ -20,16 +20,7 @@
 // #include <openvpn/openssl/util/selftest.hpp>
 #endif
 
-#ifdef USE_APPLE_SSL
-// #include <openvpn/applecrypto/util/selftest.hpp>
-#endif
-
 #ifdef USE_MBEDTLS
-#include <openvpn/mbedtls/util/selftest.hpp>
-#endif
-
-#ifdef USE_MBEDTLS_APPLE_HYBRID
-// #include <openvpn/applecrypto/util/selftest.hpp>
 #include <openvpn/mbedtls/util/selftest.hpp>
 #endif
 
@@ -40,10 +31,7 @@ inline std::string crypto_self_test()
 #ifdef USE_OPENSSL
     // ret += crypto_self_test_openssl();
 #endif
-#ifdef USE_APPLE_SSL
-    // ret += crypto_self_test_apple();
-#endif
-#if defined(USE_MBEDTLS) || defined(USE_MBEDTLS_APPLE_HYBRID)
+#ifdef USE_MBEDTLS
     ret += crypto_self_test_mbedtls();
 #endif
     return ret;
