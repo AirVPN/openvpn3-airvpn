@@ -1012,6 +1012,178 @@ TEST_F(PsidCookieTlsCryptV2Test, FirstPacketIsLeftAsItArrived)
     EXPECT_EQ(buf_to_string(pkt), wire);
 }
 
+/**
+ * @brief A server holding a tls-crypt-v2 key and no tls-auth one
+ *
+ * Starts in TLS_CRYPT_V2, where the fixtures above hold both keys, start in TLS_AUTH and
+ * convert.
+ */
+class PsidCookieTlsCryptV2OnlyTest : public PsidCookieTlsCryptV2Test
+{
+  protected:
+    PsidCookieTlsCryptV2OnlyTest()
+    {
+        pcookie_impl->pcfg_.tls_auth_key.erase();
+    }
+};
+
+// The first packet a pre-filtering embedder sees is the one the receive context is keyed
+// from, so there is no key to check it with. Only CONTROL_HARD_RESET_CLIENT_V3 was exempt,
+// not the CONTROL_WKC_V1 a psid cookie layer leaves the session to key itself from.
+TEST_F(PsidCookieTlsCryptV2OnlyTest, ControlNetValidateAcceptsTheWkcBearingPacket)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+    const ProtoContext::PacketType pt = session.proto.packet_type(*bp);
+    ASSERT_TRUE(pt.is_control());
+    EXPECT_TRUE(session.proto.control_net_validate(pt, *bp));
+
+    // the pre-filter and the path it filters for have to agree
+    EXPECT_GT(session.recv(pkt), 0u);
+}
+
+// The same packet on a server holding a tls-auth key as well -- what PG deploys. Such a
+// session is still TLS_AUTH when the pre-filter runs, since only decapsulate() converts it,
+// so the exemption has to be recognised in that arm too.
+TEST_F(PsidCookieTlsCryptV2Test, ControlNetValidateAcceptsTheWkcBearingPacketOnATlsAuthServer)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          wkc_v1_op_field());
+
+    ASSERT_EQ(pcookie_impl->intercept(pkt, f.cli_addr), PsidCookie::Intercept::HANDLE_2ND);
+
+    // the premise: this fixture keeps the tls-auth key
+    ASSERT_TRUE(pcookie_impl->pcfg_.tls_auth_enabled());
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+    const ProtoContext::PacketType pt = session.proto.packet_type(*bp);
+    ASSERT_TRUE(pt.is_control());
+    EXPECT_TRUE(session.proto.control_net_validate(pt, *bp));
+
+    // the pre-filter and the path it filters for have to agree
+    EXPECT_GT(session.recv(pkt), 0u);
+}
+
+// The exemption follows the opcode, not the mode: one carrying no WKc keys nothing and stays
+// judged with the tls-auth key. Same packet as above but for its op field.
+TEST_F(PsidCookieTlsCryptV2Test, ControlNetValidateStillJudgesNonWkcOpcodesOnATlsAuthServer)
+{
+    auto f = make_fixture();
+    BufferAllocated pkt = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                          f.cookie_psid,
+                                                          make_wkc("v=1,type=external"),
+                                                          control_v1_op_field());
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+    const ProtoContext::PacketType pt = session.proto.packet_type(*bp);
+    ASSERT_TRUE(pt.is_control());
+
+    // tls-crypt wrapped, so the tls-auth key cannot vouch for it -- and nothing exempts it
+    EXPECT_FALSE(session.proto.control_net_validate(pt, *bp));
+}
+
+/**
+ * @brief A tls-crypt v1 server: one key shared with every client, no tls-auth, no WKc
+ *
+ * TLS_CRYPT is the one mode whose pre-filter can be reached with no peer pinned yet.
+ */
+class TlsCryptV1SessionTest : public PsidCookieTlsCryptV2Test
+{
+  protected:
+    TlsCryptV1SessionTest()
+    {
+        ProtoContext::ProtoConfig &pcfg = pcookie_impl->pcfg_;
+        pcfg.tls_auth_key.erase();
+        pcfg.tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::V1;
+        pcfg.tls_crypt_v2_serverkey_id = false;
+        pcfg.tls_crypt_v2_serverkey_dir.clear();
+        pcfg.tls_crypt_key = server_key_;
+    }
+
+    //! A CONTROL_V1 frame from @p cli_psid, wrapped with the shared key and echoing @p srv_psid
+    BufferAllocated v1_packet(const ProtoSessionID &cli_psid, const ProtoSessionID &srv_psid)
+    {
+        return wrap_third_packet(server_key_, cli_psid, srv_psid, BufferAllocated(), control_v1_op_field(), 0);
+    }
+};
+
+// A pre-filter's verdict must not depend on what it was handed before. It pinned the peer
+// psid from whatever packet reached it first, outside accept_peer(), so a holder of the
+// shared key could pin itself from a spoofed datagram and lock the real client out.
+TEST_F(TlsCryptV1SessionTest, ControlNetValidateDoesNotPinThePeer)
+{
+    auto f = make_fixture();
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    ProtoSessionID other_psid;
+    other_psid.randomize(*pcookie_impl->pcfg_.rng);
+
+    auto validate = [&](const BufferAllocated &pkt)
+    {
+        BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+        const ProtoContext::PacketType pt = session.proto.packet_type(*bp);
+        return pt.is_control() && session.proto.control_net_validate(pt, *bp);
+    };
+
+    // whichever arrives first, both are packets the pre-filter has no peer to judge against
+    EXPECT_TRUE(validate(v1_packet(other_psid, f.cookie_psid)));
+    EXPECT_TRUE(validate(v1_packet(f.cli_psid, f.cookie_psid)));
+}
+
+/**
+ * @brief A plain tls-auth server: no tls-crypt of either version
+ *
+ * Its pre-filter is validate_tls_auth().
+ */
+class TlsAuthSessionTest : public PsidCookieTlsCryptV2Test
+{
+  protected:
+    TlsAuthSessionTest()
+    {
+        ProtoContext::ProtoConfig &pcfg = pcookie_impl->pcfg_;
+        pcfg.tls_crypt_ = ProtoContext::ProtoConfig::TLSCrypt::None;
+        pcfg.tls_crypt_key.erase();
+        pcfg.tls_crypt_v2_serverkey_id = false;
+        pcfg.tls_crypt_v2_serverkey_dir.clear();
+    }
+};
+
+// match() is false against an undefined psid, so the pre-filter turned away every packet
+// until a peer was pinned -- including the one that would have pinned it.
+TEST_F(TlsAuthSessionTest, ControlNetValidateAcceptsAPacketBeforeAPeerIsPinned)
+{
+    auto f = make_fixture();
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    BufferAllocated pkt = build_third_packet_tls_auth(f.cli_psid,
+                                                      f.cookie_psid,
+                                                      /*acked_pktid_be=*/0,
+                                                      /*own_pktid_be=*/0,
+                                                      /*ack_count=*/1,
+                                                      ProtoContext::op_compose(ProtoContext::CONTROL_V1, 0));
+
+    BufferPtr bp = BufferAllocatedRc::Create(pkt.c_data(), pkt.size(), BufAllocFlags::GROW);
+    const ProtoContext::PacketType pt = session.proto.packet_type(*bp);
+    ASSERT_TRUE(pt.is_control());
+    EXPECT_TRUE(session.proto.control_net_validate(pt, *bp));
+}
+
 // intercept() turns away only an empty datagram, so every one whose first byte carries a
 // CONTROL_HARD_RESET_CLIENT_V3 opcode reaches the tls-crypt arm -- which read a psid and a
 // packet id off it before establishing there was that much packet. Two bytes from anywhere
@@ -1151,6 +1323,41 @@ TEST_F(PsidCookieTlsCryptV2Test, SessionWithoutACookieLayerJudgesTheRecordItself
 
     EXPECT_EQ(meta_factory->n_created, 1u);
     EXPECT_EQ(meta_factory->last->n_calls, 1u);
+}
+
+// Unwrapping a WKc says this server issued it, not that the sender holds the Kc inside: a
+// captured one unwraps just the same. The hook ran anyway, and since a failed packet leaves
+// the session un-keyed, an unauthenticated sender could drive it again and again.
+TEST_F(PsidCookieTlsCryptV2Test, UnauthenticatedWkcRunsNoMetadataHook)
+{
+    auto f = make_fixture();
+
+    // a WKc this server unwraps, on a frame not wrapped with the Kc it carries
+    unsigned char foreign_key_raw[OpenVPNStaticKey::KEY_SIZE];
+    pcookie_impl->pcfg_.prng->rand_bytes(foreign_key_raw, sizeof(foreign_key_raw));
+    BufferAllocated spoofed = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                              f.cookie_psid,
+                                                              wrap_wkc(foreign_key_raw, "v=1,type=ATTACKER", 0x00),
+                                                              wkc_v1_op_field());
+
+    CookieSession session(spf->clone_proto_config(), f.cookie_psid);
+
+    EXPECT_EQ(session.recv(spoofed), 0u);
+    EXPECT_EQ(meta_factory->n_created, 0u);
+
+    // un-keyed again, so the second attempt judges no more than the first
+    EXPECT_EQ(session.recv(spoofed), 0u);
+    EXPECT_EQ(meta_factory->n_created, 0u);
+    EXPECT_FALSE(meta_factory->last);
+
+    // the real client still connects, its record seen once
+    BufferAllocated good = build_third_packet_tls_crypt_v2(f.cli_psid,
+                                                           f.cookie_psid,
+                                                           make_wkc("v=1,type=external"),
+                                                           wkc_v1_op_field());
+    EXPECT_GT(session.recv(good), 0u);
+    EXPECT_EQ(meta_factory->n_created, 1u);
+    EXPECT_EQ(meta_factory->last->payload_seen, "v=1,type=external");
 }
 
 // The factory is optional: TLSCryptMetadata::verify() accepts by default, so an embedder

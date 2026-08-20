@@ -402,7 +402,7 @@ class PsidCookieImpl : public PsidCookie
 
         static const size_t hmac_size = pcfg_.tls_crypt_context->digest_size();
 
-        const size_t head_size = OPCODE_SIZE + ProtoSessionID::SIZE + PacketIDControl::size();
+        const size_t head_size = TLSCryptContext::hmac_offset;
         const unsigned char *orig_data = work_buf.c_data();
 
         ConstBuffer recv_buf_copy(work_buf.c_data() + 1, work_buf.size() - 1, true);

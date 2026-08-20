@@ -1329,7 +1329,8 @@ openvpn_io::const_buffer ConstBufferType<T>::const_buffer_limit(const size_t lim
 template <typename T>
 void ConstBufferType<T>::read(NCT *data, const size_t size)
 {
-    std::memcpy(data, read_alloc(size), size * sizeof(T));
+    if (size)
+        std::memcpy(data, read_alloc(size), size * sizeof(T));
 }
 
 template <typename T>
@@ -1559,7 +1560,8 @@ void ConstBufferType<T>::realign(size_t headroom)
 template <typename T>
 void ConstBufferType<T>::write(const T *data, const size_t size)
 {
-    std::memcpy(write_alloc(size), data, size * sizeof(T));
+    if (size)
+        std::memcpy(write_alloc(size), data, size * sizeof(T));
 }
 
 template <typename T>
@@ -1571,7 +1573,8 @@ void ConstBufferType<T>::write(const void *data, const size_t size)
 template <typename T>
 void ConstBufferType<T>::prepend(const T *data, const size_t size)
 {
-    std::memcpy(prepend_alloc(size), data, size * sizeof(T));
+    if (size)
+        std::memcpy(prepend_alloc(size), data, size * sizeof(T));
 }
 
 template <typename T>
@@ -1668,7 +1671,7 @@ BufferAllocatedType<T>::BufferAllocatedType(const size_t offset,
                                             const BufferFlags flags)
     : BufferType<T>(capacity ? new T[capacity] : nullptr, offset, size, capacity), flags_(flags)
 {
-    if (flags & BufAllocFlags::CONSTRUCT_ZERO)
+    if (capacity && (flags & BufAllocFlags::CONSTRUCT_ZERO))
         std::memset(data_raw(), 0, capacity * sizeof(T));
 }
 
