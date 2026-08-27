@@ -19,11 +19,6 @@
 #include <openvpn/openssl/util/rand.hpp>
 #endif
 
-#ifdef USE_APPLE_SSL
-#include <openvpn/applecrypto/crypto/api.hpp>
-#include <openvpn/applecrypto/util/rand.hpp>
-#endif
-
 #ifdef USE_MBEDTLS
 #include <mbedtls/platform.h>
 #include <mbedtls/debug.h> // for debug_set_threshold
@@ -32,11 +27,6 @@
 #ifdef OPENVPN_PLATFORM_UWP
 #include <openvpn/mbedtls/util/uwprand.hpp>
 #endif
-#endif
-
-#ifdef USE_MBEDTLS_APPLE_HYBRID
-#include <openvpn/applecrypto/crypto/api.hpp>
-#include <openvpn/mbedtls/util/rand.hpp>
 #endif
 
 namespace openvpn::SSLLib {
@@ -48,15 +38,6 @@ using RandomAPI = MbedTLSRandomWithUWPEntropy;
 #else
 using RandomAPI = MbedTLSRandom;
 #endif
-#elif defined(USE_MBEDTLS_APPLE_HYBRID)
-// Uses Apple framework for CryptoAPI and MbedTLS for SSLAPI and RandomAPI
-#define SSL_LIB_NAME "MbedTLSAppleHybrid"
-using CryptoAPI = AppleCryptoAPI;
-using RandomAPI = MbedTLSRandom;
-#elif defined(USE_APPLE_SSL)
-#define SSL_LIB_NAME "AppleSSL"
-typedef AppleCryptoAPI CryptoAPI;
-typedef AppleRandom RandomAPI;
 #elif defined(USE_OPENSSL)
 #define SSL_LIB_NAME "OpenSSL"
 using CryptoAPI = OpenSSLCryptoAPI;

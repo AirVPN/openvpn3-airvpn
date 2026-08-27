@@ -20,11 +20,6 @@
 #include <openvpn/openssl/util/pem.hpp>
 #endif
 
-#ifdef USE_APPLE_SSL
-#include <openvpn/applecrypto/crypto/api.hpp>
-#include <openvpn/applecrypto/ssl/sslctx.hpp>
-#endif
-
 #ifdef USE_MBEDTLS
 #include <mbedtls/platform.h>
 #include <mbedtls/debug.h> // for debug_set_threshold
@@ -33,25 +28,11 @@
 #include <openvpn/mbedtls/util/pem.hpp>
 #endif
 
-#ifdef USE_MBEDTLS_APPLE_HYBRID
-#include <openvpn/applecrypto/crypto/api.hpp>
-#include <openvpn/mbedtls/ssl/sslctx.hpp>
-#endif
-
 namespace openvpn::SSLLib {
 #ifdef USE_MBEDTLS
 #define SSL_LIB_NAME "MbedTLS"
 typedef MbedTLSContext SSLAPI;
 typedef MbedTLSPEM PEMAPI;
-#elif defined(USE_MBEDTLS_APPLE_HYBRID)
-// Uses Apple framework for CryptoAPI and MbedTLS for SSLAPI and RandomAPI
-#define SSL_LIB_NAME "MbedTLSAppleHybrid"
-typedef AppleCryptoAPI CryptoAPI;
-typedef MbedTLSContext SSLAPI;
-#elif defined(USE_APPLE_SSL)
-#define SSL_LIB_NAME "AppleSSL"
-typedef AppleCryptoAPI CryptoAPI;
-typedef AppleSSLContext SSLAPI;
 #elif defined(USE_OPENSSL)
 #define SSL_LIB_NAME "OpenSSL"
 using CryptoAPI = OpenSSLCryptoAPI;

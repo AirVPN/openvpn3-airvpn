@@ -1033,11 +1033,11 @@ class MySocketProtect : public SocketProtect
 #endif
     }
 
-    OPENVPN_CLIENT_EXPORT void OpenVPNClient::connect_setup(Status& status, bool& session_started)
-    {
-      // set global MbedTLS debug level
-#if defined(USE_MBEDTLS) || defined(USE_MBEDTLS_APPLE_HYBRID)
-      mbedtls_debug_set_threshold(state->clientconf.sslDebugLevel); // fixme -- using a global method for this seems wrong
+OPENVPN_CLIENT_EXPORT void OpenVPNClient::connect_setup(Status &status, bool &session_started)
+{
+    // set global MbedTLS debug level
+#ifdef USE_MBEDTLS
+    mbedtls_debug_set_threshold(state->clientconf.sslDebugLevel); // fixme -- using a global method for this seems wrong
 #endif
 
     // load options
@@ -1071,7 +1071,6 @@ class MySocketProtect : public SocketProtect
 #endif
 
     // external PKI
-#ifndef USE_APPLE_SSL
     if (state->eval.externalPki && !state->clientconf.disableClientCert)
     {
         if (!state->clientconf.external_pki_alias.empty())
@@ -1097,7 +1096,6 @@ class MySocketProtect : public SocketProtect
             return;
         }
     }
-#endif
 
 #ifdef USE_OPENSSL
       if (state->options.exists("allow-name-constraints"))

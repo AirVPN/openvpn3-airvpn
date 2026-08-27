@@ -173,15 +173,11 @@
 
 #include <openvpn/crypto/cryptodcsel.hpp>
 
-#ifdef USE_MBEDTLS_APPLE_HYBRID
-#define USE_MBEDTLS
+#if !(defined(USE_OPENSSL) || defined(USE_MBEDTLS))
+#error Must define one or more of USE_OPENSSL, USE_MBEDTLS.
 #endif
 
-#if !(defined(USE_OPENSSL) || defined(USE_MBEDTLS) || defined(USE_APPLE_SSL))
-#error Must define one or more of USE_OPENSSL, USE_MBEDTLS, USE_APPLE_SSL.
-#endif
-
-#if defined(USE_OPENSSL) && (defined(USE_MBEDTLS) || defined(USE_APPLE_SSL))
+#if defined(USE_OPENSSL) && defined(USE_MBEDTLS)
 #undef USE_OPENSSL
 #define USE_OPENSSL_SERVER
 #elif !defined(USE_OPENSSL) && defined(USE_MBEDTLS)
@@ -196,12 +192,6 @@
 #include <openvpn/openssl/crypto/api.hpp>
 #include <openvpn/openssl/ssl/sslctx.hpp>
 #include <openvpn/openssl/util/rand.hpp>
-#endif
-
-#if defined(USE_APPLE_SSL) || defined(USE_MBEDTLS_APPLE_HYBRID)
-#include <openvpn/applecrypto/crypto/api.hpp>
-#include <openvpn/applecrypto/ssl/sslctx.hpp>
-#include <openvpn/applecrypto/util/rand.hpp>
 #endif
 
 #if defined(USE_MBEDTLS) || defined(USE_MBEDTLS_SERVER)
@@ -228,19 +218,11 @@ using ServerRandomAPI = OpenSSLRandom;
 #error No server SSL implementation defined
 #endif
 
-// client SSL implementation can be OpenSSL, Apple SSL, or MbedTLS
+// client SSL implementation can be OpenSSL or MbedTLS
 #ifdef USE_MBEDTLS
-#if defined(USE_MBEDTLS_APPLE_HYBRID)
-typedef AppleCryptoAPI ClientCryptoAPI;
-#else
 typedef MbedTLSCryptoAPI ClientCryptoAPI;
-#endif
 typedef MbedTLSContext ClientSSLAPI;
 typedef MbedTLSRandom ClientRandomAPI;
-#elif defined(USE_APPLE_SSL)
-typedef AppleCryptoAPI ClientCryptoAPI;
-typedef AppleSSLContext ClientSSLAPI;
-typedef AppleRandom ClientRandomAPI;
 #elif defined(USE_OPENSSL)
 using ClientCryptoAPI = OpenSSLCryptoAPI;
 using ClientSSLAPI = OpenSSLContext;
@@ -903,13 +885,9 @@ static auto create_client_ssl_config(Frame::Ptr frame, ClientRandomAPI::Ptr rng,
     cc->set_mode(Mode(Mode::CLIENT));
     cc->set_frame(frame);
     cc->set_rng(rng);
-#ifdef USE_APPLE_SSL
-    cc->load_identity("etest");
-#else
     cc->load_ca(ca_crt, true);
     cc->load_cert(client_crt);
     cc->load_private_key(client_key);
-#endif
     if (tls_version_mismatch)
         cc->set_tls_version_max(TLSVersion::Type::V1_2);
     else
