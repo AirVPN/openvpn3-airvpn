@@ -1,4 +1,4 @@
-From cbe3c93e979615f61e24415067781fa6f0764007 Mon Sep 17 00:00:00 2001
+From e55f5861ac1f9458784fe0f4ddfdd9b62760f0fb Mon Sep 17 00:00:00 2001
 From: Frank Lichtenheld <frank@lichtenheld.com>
 Date: Mon, 20 Dec 2021 13:36:01 +0100
 Subject: [PATCH 6/6] reactive_socket_service_base: add constructor for
@@ -20,15 +20,15 @@ way.
 
 Signed-off-by: Frank Lichtenheld <frank@lichtenheld.com>
 ---
- asio/include/asio/detail/reactive_socket_service.hpp      | 3 ++-
- asio/include/asio/detail/reactive_socket_service_base.hpp | 8 ++++++++
+ include/asio/detail/reactive_socket_service.hpp      | 3 ++-
+ include/asio/detail/reactive_socket_service_base.hpp | 8 ++++++++
  2 files changed, 10 insertions(+), 1 deletion(-)
 
-diff --git a/asio/include/asio/detail/reactive_socket_service.hpp b/asio/include/asio/detail/reactive_socket_service.hpp
-index 9466ca77d..da168e3e9 100644
---- a/asio/include/asio/detail/reactive_socket_service.hpp
-+++ b/asio/include/asio/detail/reactive_socket_service.hpp
-@@ -65,7 +65,8 @@ public:
+diff --git a/include/asio/detail/reactive_socket_service.hpp b/include/asio/detail/reactive_socket_service.hpp
+index be84b522e..f21a0de69 100644
+--- a/include/asio/detail/reactive_socket_service.hpp
++++ b/include/asio/detail/reactive_socket_service.hpp
+@@ -66,7 +66,8 @@ public:
    {
      // Default constructor.
      implementation_type()
@@ -38,11 +38,11 @@ index 9466ca77d..da168e3e9 100644
      {
      }
  
-diff --git a/asio/include/asio/detail/reactive_socket_service_base.hpp b/asio/include/asio/detail/reactive_socket_service_base.hpp
-index 1e85374f2..aa5339572 100644
---- a/asio/include/asio/detail/reactive_socket_service_base.hpp
-+++ b/asio/include/asio/detail/reactive_socket_service_base.hpp
-@@ -54,6 +54,14 @@ public:
+diff --git a/include/asio/detail/reactive_socket_service_base.hpp b/include/asio/detail/reactive_socket_service_base.hpp
+index 74eed1fa4..5e37d1e62 100644
+--- a/include/asio/detail/reactive_socket_service_base.hpp
++++ b/include/asio/detail/reactive_socket_service_base.hpp
+@@ -55,6 +55,14 @@ public:
    // The implementation type of the socket.
    struct base_implementation_type
    {
@@ -58,5 +58,5 @@ index 1e85374f2..aa5339572 100644
      socket_type socket_;
  
 -- 
-2.34.1
+2.43.0
 
