@@ -1,4 +1,4 @@
-OpenVPN 3 AirVPN (Version 3.12 20260820)
+OpenVPN 3 AirVPN (Version 3.12 20260828)
 ========================================
 
 OpenVPN 3 AirVPN is a direct fork of the official master project (https://github.com/OpenVPN/openvpn3) with these extra features:
@@ -6,7 +6,7 @@ OpenVPN 3 AirVPN is a direct fork of the official master project (https://github
 * CHACHA20-POLY1305 cipher for both control and data channels
 * added cipher override to client configuration
 * added tcp-queue-limit override to client configuration
-* added data-ciphers option in openvpn profile in order to comply to OpenVPN 2.5
+* added data-ciphers option in openvpn profile to comply to OpenVPN 2.5
   new negotiable data cipher specifications
 * added support for DNS push ignore to Tunnel Builder
 * bug fixes and new features
