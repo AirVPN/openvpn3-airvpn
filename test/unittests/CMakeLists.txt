@@ -95,6 +95,7 @@ add_executable(coreUnitTests
         test_string.cpp
         test_buffer.cpp
         test_proto.cpp
+        test_peerid.cpp
 )
 
 # The compile flags for test_proto.cpp, prefixed with PROTO_ to avoid collision with other defines
@@ -131,6 +132,12 @@ endif ()
 if (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     add_libcap(coreUnitTests)
     target_sources(coreUnitTests PRIVATE test_sitnl.cpp)
+
+    # Socket buffer sizing (openvpn/common/sockopt.hpp,
+    # openvpn/transport/sockbuf.hpp). Reads net.core.{r,w}mem_max and uses
+    # libcap to gate the privileged SO_*BUFFORCE cases, so it belongs here
+    # rather than in the generic UNIX block.
+    target_sources(coreUnitTests PRIVATE test_sockbuf.cpp)
 endif ()
 
 if (UNIX)
@@ -149,6 +156,38 @@ if (UNIX)
       # for now, only for ovpn3 servers (i.e., pgserv)
       test_psid_cookie.cpp
       )
+endif ()
+
+# Linux-only: needs <linux/if_tun.h>, openvpn/dco/*, sitnl.hpp, and
+# libnl-genl-3.0, none of which exist on macOS/Android (both UNIX).
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(coreUnitTests PRIVATE
+      # O3 server engine (openvpn/server/{nulltun,simpleman,udptransserv,peerroutes,realtun}.hpp)
+      test_tunsink.cpp
+      test_simpleman.cpp
+      test_udptransserv.cpp
+      test_peerroutes.cpp
+      test_tunreal.cpp
+      test_netpolicy.cpp
+      test_handler_man.cpp
+      test_openvpn_server.cpp
+      test_dcoserv.cpp
+      # Config-file mapping for the reference server binary
+      # (test/ovpnserv/servconf.hpp).
+      test_servconf.cpp
+      )
+
+    # test_handler_man.cpp/test_openvpn_server.cpp/test_dcoserv.cpp pull in
+    # openvpn/server/dcoserv.hpp (kernel DCO, attempted opportunistically at
+    # runtime -- see that file's doc comment) unconditionally, same as
+    # ovpnserv itself. ENABLE_OVPNDCO selects KoRekey::OvpnDcoKey in
+    # kocrypto.hpp; it is not an opt-in build variant here the way
+    # CLI_OVPNDCO is for ovpncli.
+    target_compile_definitions(coreUnitTests PRIVATE -DENABLE_OVPNDCO)
+    find_package(PkgConfig)
+    pkg_search_module(LIBNL REQUIRED libnl-genl-3.0)
+    target_include_directories(coreUnitTests PRIVATE ${LIBNL_INCLUDE_DIRS})
+    target_link_libraries(coreUnitTests ${LIBNL_LIBRARIES})
 endif ()
 
 if (WIN32)

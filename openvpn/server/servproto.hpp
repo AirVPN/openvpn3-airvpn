@@ -161,7 +161,10 @@ class ServerProto
                 housekeeping_timer.cancel();
 
                 if (ManLink::send)
+                {
+                    ManLink::send->disconnect_notify(disconnect_cause);
                     ManLink::send->pre_stop();
+                }
 
                 // deliver final peer stats to management layer
                 if (TransportLink::send && ManLink::send)
@@ -211,16 +214,18 @@ class ServerProto
                 {
                     // data packet
                     ret = proto_context.data_decrypt(pt, buf);
+                    // The empty check is what keeps this inert for a
+                    // kernel-offloaded data channel.
                     if (!buf.empty())
                     {
 #ifdef OPENVPN_PACKET_LOG
                         log_packet(buf, false);
 #endif
                         // make packet appear as incoming on tun interface
-                        if (true) // fixme: was tun
+                        if (TunLink::send)
                         {
                             OPENVPN_LOG_SERVPROTO(instance_name() << " : TUN SEND[" << buf.size() << ']');
-                            // fixme -- code me
+                            TunLink::send->tun_send(buf);
                         }
                     }
 
@@ -251,7 +256,31 @@ class ServerProto
         // called with cleartext IP packets from routing layer
         void tun_recv(BufferAllocated &buf) override
         {
-            // fixme -- code me
+            // Classic (non-DCO) data path:
+            try
+            {
+                proto_context.update_now();
+
+                if (!buf.empty() && proto_context.data_channel_ready())
+                {
+                    proto_context.data_encrypt(buf);
+                    if (!buf.empty() && TransportLink::send)
+                    {
+                        OPENVPN_LOG_SERVPROTO(instance_name() << " : Transport SEND[" << buf.size() << ']');
+                        TransportLink::send->transport_send(buf);
+                    }
+                }
+
+                // do a lightweight flush
+                proto_context.flush(false);
+
+                // schedule housekeeping wakeup
+                set_housekeeping_timer();
+            }
+            catch (const std::exception &e)
+            {
+                error(e);
+            }
         }
 
         // Return true if keepalive parameter(s) are enabled.
@@ -362,6 +391,7 @@ class ServerProto
             else if (msg == "EXIT")
             {
                 OPENVPN_LOG("Client disconnecting from server, EXIT received");
+                disconnect_cause = DisconnectCause::CLIENT_EXIT;
                 disconnect_type = DT_HALT_RESTART;
                 disconnect_in(Time::Duration::seconds(1));
             }
@@ -728,8 +758,11 @@ class ServerProto
         {
             switch (err)
             {
-            case Error::KEV_NEGOTIATE_ERROR:
             case Error::KEEPALIVE_TIMEOUT:
+                disconnect_cause = DisconnectCause::KEEPALIVE_TIMEOUT;
+                error();
+                break;
+            case Error::KEV_NEGOTIATE_ERROR:
                 error();
                 break;
             default:
@@ -745,6 +778,11 @@ class ServerProto
             return "UNNAMED_CLIENT";
         }
 
+        void set_disconnect_cause(const DisconnectCause cause) override
+        {
+            disconnect_cause = cause;
+        }
+
         // higher values are higher priority
         enum DisconnectType
         {
@@ -755,6 +793,7 @@ class ServerProto
         };
 
         ProtoContext proto_context;
+        DisconnectCause disconnect_cause = DisconnectCause::UNKNOWN;
         int disconnect_type = DT_NONE;
         bool preserve_session_id = true;
 
