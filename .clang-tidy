@@ -1,0 +1,216 @@
+---
+CheckOptions:
+  # --- readability-identifier-naming ------------------------------------
+  # Measured over 28,579 unique identifiers in openvpn/, test/ and client/.
+  # snake_case for values and functions, CamelCase for types, UPPER_CASE for
+  # macros and enum constants.
+
+  # variables, parameters, functions
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.PointerParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.ConstantParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.ConstantPointerParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.ParameterPackCase
+    value: lower_case
+  - key: readability-identifier-naming.LocalVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.LocalPointerCase
+    value: lower_case
+  - key: readability-identifier-naming.LocalConstantCase
+    value: lower_case
+  - key: readability-identifier-naming.LocalConstantPointerCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalPointerCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: lower_case
+  - key: readability-identifier-naming.StaticConstantCase
+    value: lower_case
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalFunctionCase
+    value: lower_case
+
+  # methods
+  - key: readability-identifier-naming.PublicMethodCase
+    value: lower_case
+  - key: readability-identifier-naming.ProtectedMethodCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassMethodCase
+    value: lower_case
+  - key: readability-identifier-naming.VirtualMethodCase
+    value: lower_case
+  - key: readability-identifier-naming.ConstexprMethodCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMethodCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMethodIgnoredRegexp
+    value: '^[a-z][a-z0-9_]*_$'
+
+  # members: a trailing underscore marks private state and is permitted
+  - key: readability-identifier-naming.PublicMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PublicMemberIgnoredRegexp
+    value: '^[a-z][a-z0-9_]*_$'
+  - key: readability-identifier-naming.ProtectedMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.ProtectedMemberIgnoredRegexp
+    value: '^[a-z][a-z0-9_]*_$'
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberIgnoredRegexp
+    value: '^[a-z][a-z0-9_]*_$'
+  - key: readability-identifier-naming.ClassMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassMemberIgnoredRegexp
+    value: '^[a-z][a-z0-9_]*_$'
+  - key: readability-identifier-naming.ConstantMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.ConstantMemberIgnoredRegexp
+    value: '^[a-z][a-z0-9_]*_$'
+
+  # types
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.AbstractClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeTemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConceptCase
+    value: CamelCase
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  # exception types follow the STL convention; most come from OPENVPN_EXCEPTION
+  - key: readability-identifier-naming.ClassIgnoredRegexp
+    value: '^[a-z0-9_]*(error|err|exception|failed|expired|unavailable|uninitialized|exceeded|overflow)[a-z0-9_]*$|^(bad|no|not|too)_[a-z0-9_]+$'
+  - key: readability-identifier-naming.TypeAliasCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeAliasIgnoredRegexp
+    value: '^[A-Za-z0-9_]+_(t|ptr|type)$'
+
+  # constants
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+
+Checks:
+  # Start from nothing: every check below was reviewed explicitly.
+  - '-*'
+  - 'android-cloexec-*'
+  - 'bugprone-*'
+  # Left off (@leo):
+  # for C++20 use modernize-use-constraints and modernize-type-traits instead
+  - '-bugprone-incorrect-enable-if'
+  # Left off (@leo):
+  # running `$ git grep "noescape" $(git rev-list --all)` returned no results; I believe we don't use `noescape` attribute
+  #
+  # Finds pointers with the noescape attribute that are captured by an asynchronously-executed block. The block arguments in dispatch_async() and dispatch_after() are guaranteed to escape, so it is an error if a pointer with the noescape attribute is captured by one of these blocks.
+  - '-bugprone-no-escape'
+  # Left off (@leo):
+  # The check is disabled on C++17 and later.
+  - '-bugprone-signal-handler'
+  - 'concurrency-*'
+  - 'cppcoreguidelines-*'
+  # Left off (@leo):
+  # Alias of misc-explicit-constructor and google-explicit-constructor, google-explicit-constructor is turned on
+  - '-cppcoreguidelines-explicit-constructor'
+  # Left off (@leo):
+  # bugprone-narrowing-conversions is the same checker with different option defaults; its name is more readable
+  - '-cppcoreguidelines-narrowing-conversions'
+  # Left off (@leo):
+  # alias for misc-non-private-member-variables-in-classes
+  - '-cppcoreguidelines-non-private-member-variables-in-classes'
+  # Left off (@leo):
+  # We don't use Guideline Support Library and gsl::owner<T*> AFAIK
+  - '-cppcoreguidelines-owning-memory'
+  - 'google-*'
+  # Left off (@leo):
+  # applies to G++ 4.6 in C++11
+  - '-google-build-explicit-make-pair'
+  # Left off (@leo):
+  # misc-anonymous-namespace-in-header is the same checker with different option defaults; picked for the readable name
+  - '-google-build-namespaces'
+  - '-google-objc-*'
+  - '-google-readability-*'
+  # Enabled (@leo):
+  # can be useful, If you violate the rule, there may not be immediate consequences, but your test may (just may) break with a new compiler (or a new version of the compiler you are using) or with a new version of GoogleTest. Therefore it’s best to follow the rule.
+  - google-readability-avoid-underscore-in-googletest-name
+  # Enabled (@leo):
+  # TODO: can be useful, new code only
+  - google-readability-todo
+  # Enabled (@leo):
+  # can be useful, same checker as google-readability-namespace-comments with different option defaults;
+  - llvm-namespace-comment
+  - 'misc-*'
+  # Left off (@leo):
+  # alias `google-explicit-constructor` is turned on
+  - '-misc-explicit-constructor'
+  # Left off (@leo):
+  # TODO: sadly, we declare almost all class members public, but maybe in future?
+  - '-misc-non-private-member-variables-in-classes'
+  # Left off (@leo):
+  # cppcoreguidelines-c-copy-assignment-signature is the same checker with different option defaults; its name is more readable
+  - '-misc-unconventional-assign-operator'
+  - 'modernize-*'
+  # Left off (@leo):
+  # cppcoreguidelines-avoid-c-arrays is the same checker with different option defaults; its name is more readable
+  - '-modernize-avoid-c-arrays'
+  # Left off (@leo):
+  # cppcoreguidelines-macro-to-enum is the same checker with different option defaults; its name is more readable
+  - '-modernize-macro-to-enum'
+  # Left off (@leo):
+  # We don't use DISALLOW_COPY_AND_ASSIGN macro
+  - '-modernize-replace-disallow-copy-and-assign-macro'
+  # Left off (@leo):
+  # removed in C++17;
+  #
+  # This check will find occurrences of std::random_shuffle and replace it with std::shuffle. In C++17 std::random_shuffle will no longer be available and thus we need to replace it.
+  - '-modernize-replace-random-shuffle'
+  # Left off (@leo):
+  # cppcoreguidelines-use-default-member-init is the same checker with different option defaults; its name is more readable
+  - '-modernize-use-default-member-init'
+  # Left off (@leo):
+  # TODO: we don't follow this convention yet, maybe in the future
+  - '-modernize-use-nodiscard'
+  # Left off (@leo):
+  # cppcoreguidelines-explicit-virtual-functions is the same checker with different option defaults; its name is more readable
+  - '-modernize-use-override'
+  # Left off (@leo):
+  # uses C++23’s std::print or std::println
+  - '-modernize-use-std-print'
+  # Left off (@leo):
+  # neither we use nor enforce auto f1() -> int; convention
+  - '-modernize-use-trailing-return-type'
+  # Left off (@leo):
+  # removed in C++20
+  #
+  # This check will warn on calls to std::uncaught_exception and replace them with calls to std::uncaught_exceptions, since std::uncaught_exception was deprecated in C++17.
+  - '-modernize-use-uncaught-exceptions'
+  - 'performance-*'
+  - '-performance-noexcept-*'
+  # Left off (@leo):
+  # alias `performance-faster-string-find` is turned on
+  - '-performance-prefer-single-char-overloads'
+  - 'portability-*'
+  # Left off (@leo):
+  # TODO: maybe in future
+  - '-portability-restrict-system-includes'
+  # Left off (@leo):
+  # SIMD specific, not applicable
+  - '-portability-simd-intrinsics'
+  - 'readability-*'
+  # Left off (@leo):
+  # cppcoreguidelines-avoid-magic-numbers is the same checker with different option defaults; its name is more readable
+  - '-readability-magic-numbers'
+# Vendored third-party code with its own naming conventions:
+# openvpn/common/unicode-impl.hpp is Copyright 2001-2004 Unicode, Inc.
+ExcludeHeaderFilterRegex: 'openvpn/common/unicode-impl\.hpp'
+WarningsAsErrors: ''
+...
