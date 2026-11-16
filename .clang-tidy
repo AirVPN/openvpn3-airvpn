@@ -209,6 +209,10 @@ Checks:
   # Left off (@leo):
   # cppcoreguidelines-avoid-magic-numbers is the same checker with different option defaults; its name is more readable
   - '-readability-magic-numbers'
+  # Left off (@flichtenheld):
+  # Developers decided that they do not want to enforce this
+  # and it is too noisy to leave in unenforced
+  - '-readability-braces-around-statements'
 # Vendored third-party code with its own naming conventions:
 # openvpn/common/unicode-impl.hpp is Copyright 2001-2004 Unicode, Inc.
 ExcludeHeaderFilterRegex: 'openvpn/common/unicode-impl\.hpp'
