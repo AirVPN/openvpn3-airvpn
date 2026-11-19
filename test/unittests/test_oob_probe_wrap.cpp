@@ -9,14 +9,16 @@
 //    SPDX-License-Identifier: MPL-2.0 OR AGPL-3.0-only WITH openvpn3-openssl-exception
 //
 
-// Tests for ProtoContext::ProbeWrap -- wrapping an out-of-band SERVER_PROBE and
-// unwrapping the matching PROBE_REPLY with each control-channel protection mode
+// Tests for ProtoContext::ProbeWrap -- wrapping a probe request and
+// unwrapping the matching probe reply with each control-channel protection mode
 // (tls-auth, tls-crypt, tls-crypt-v2, plaintext), built standalone from a
 // ProtoConfig without an established session. Each test wraps as the client, then
 // plays the server with the low-level static helpers (ProtoContext::build_* /
 // unwrap_*), verifying the framing round-trips and the OOB payload survives.
 
 #include "test_common.hpp"
+
+#include <gtest/gtest.h>
 
 #include <openvpn/common/file.hpp>
 #include <openvpn/ssl/sslchoose.hpp>
@@ -156,14 +158,14 @@ class ServerSim
         switch (mode)
         {
         case WrapMode::AUTH:
-            ProtoContext::wrap_tls_auth(ProtoContext::CONTROL_OOB_V1, buf, pid_send, now_secs, hmac_size, psid_self, 0, *ta_send);
+            ProtoContext::wrap_tls_auth(ProtoContext::CONTROL_V2, buf, pid_send, now_secs, hmac_size, psid_self, 0, *ta_send);
             break;
         case WrapMode::CRYPT:
         case WrapMode::CRYPT_V2:
-            ProtoContext::wrap_tls_crypt(ProtoContext::CONTROL_OOB_V1, buf, work, *config->frame, pid_send, now_secs, hmac_size, psid_self, 0, *tc_send, nullptr);
+            ProtoContext::wrap_tls_crypt(ProtoContext::CONTROL_V2, buf, work, *config->frame, pid_send, now_secs, hmac_size, psid_self, 0, *tc_send, nullptr);
             break;
         case WrapMode::PLAIN:
-            ProtoContext::wrap_tls_plain(ProtoContext::CONTROL_OOB_V1, buf, psid_self, 0);
+            ProtoContext::wrap_tls_plain(ProtoContext::CONTROL_V2, buf, psid_self, 0);
             break;
         }
     }
@@ -187,8 +189,8 @@ BufferAllocated make_msg_buffer()
     return buf;
 }
 
-// client SERVER_PROBE -> server unwrap -> server PROBE_REPLY -> client unwrap
-void run_roundtrip(WrapMode m)
+// client probe request -> server unwrap -> server probe reply -> client unwrap
+void run_roundtrip(WrapMode mode) // NOLINT(readability-function-cognitive-complexity) -- a linear round-trip, the count is gtest macro expansion
 {
     Frame::Ptr frame(new Frame(Frame::Context(512, 2048, 512, 0, 16, BufAllocFlags::NO_FLAGS)));
     // Use the SSL library's own RNG: mbedTLS requires an MbedTLSRandom for the
@@ -196,17 +198,21 @@ void run_roundtrip(WrapMode m)
     // tests assert round-trip correctness, not specific random bytes.
     StrongRandomAPI::Ptr rng(new SSLLib::RandomAPI());
     Time time = Time::now();
-    auto cp = make_config(m, frame, rng, time);
+    auto cp = make_config(mode, frame, rng, time);
     SessionStats::Ptr stats(new SessionStats());
 
     ProtoContext::ProbeWrap client(cp, stats);
-    ServerSim server(cp, m, stats);
+    ServerSim server(cp, mode, stats);
 
-    // ---- client wraps a SERVER_PROBE ----
-    const oob::ProbeParameter param{.timestamp = 0x1122334455667788ULL, .flags = 0};
+    // ---- client wraps a probe request ----
+    const oob::ProbeRequest req{
+        .request_id = 0x0123456789abcdefULL,
+        .timestamp = 0x1122334455667788ULL,
+        .flags = 0,
+    };
 
     BufferAllocated probe = make_msg_buffer();
-    ASSERT_TRUE(oob::server_probe_write(probe, param));
+    ASSERT_TRUE(req.write(probe));
     BufferAllocated cwork;
     client.wrap(probe, cwork);
 
@@ -217,21 +223,25 @@ void run_roundtrip(WrapMode m)
     ASSERT_EQ(server.unwrap(probe, swork, src, pid), ProtoContext::UnwrapStatus::OK);
     EXPECT_TRUE(src.match(client.self_psid()));
 
-    const auto got_param = oob::server_probe_read(probe);
-    ASSERT_TRUE(got_param);
-    EXPECT_EQ(got_param->timestamp, param.timestamp);
-    EXPECT_EQ(got_param->flags, param.flags);
+    const auto got_req_opt = oob::probe_request_find(probe);
+    ASSERT_TRUE(got_req_opt);
+    const auto &got_req = *got_req_opt; // NOLINT(bugprone-unchecked-optional-access) -- guarded by the ASSERT_TRUE above
+    EXPECT_EQ(got_req.request_id, req.request_id);
+    EXPECT_EQ(got_req.timestamp, req.timestamp);
+    EXPECT_EQ(got_req.flags, req.flags);
 
-    // ---- server wraps a PROBE_REPLY ----
-    const oob::ProbeReply reply{.peer_session_id = client.self_psid(),
-                                .priority = 3,
-                                .weight = 7,
-                                .max_latency_diff = 0,
-                                .connect_lifetime = 60,
-                                .flags = 0};
+    // ---- server wraps a probe reply ----
+    const oob::ProbeReply reply{
+        .request_id = req.request_id,
+        .priority = 3,
+        .weight = 7,
+        .max_latency_diff = 0,
+        .connect_lifetime = 60,
+        .flags = 0,
+    };
 
     BufferAllocated rbuf = make_msg_buffer();
-    ASSERT_TRUE(oob::client_reply_write(rbuf, reply));
+    ASSERT_TRUE(reply.write(rbuf));
     BufferAllocated rwork;
     server.wrap_reply(rbuf, rwork);
 
@@ -242,12 +252,13 @@ void run_roundtrip(WrapMode m)
     ASSERT_EQ(client.unwrap(rbuf, cwork2, rsrc, rpid), ProtoContext::UnwrapStatus::OK);
     EXPECT_TRUE(rsrc.match(server.psid_self));
 
-    const auto got_reply = oob::client_reply_read(rbuf);
-    ASSERT_TRUE(got_reply);
-    EXPECT_TRUE(got_reply->peer_session_id.match(client.self_psid()));
-    EXPECT_EQ(got_reply->priority, reply.priority);
-    EXPECT_EQ(got_reply->weight, reply.weight);
-    EXPECT_EQ(got_reply->connect_lifetime, reply.connect_lifetime);
+    const auto got_reply_opt = oob::probe_reply_find(rbuf);
+    ASSERT_TRUE(got_reply_opt);
+    const auto &got_reply = *got_reply_opt; // NOLINT(bugprone-unchecked-optional-access) -- guarded by the ASSERT_TRUE above
+    EXPECT_EQ(got_reply.request_id, reply.request_id);
+    EXPECT_EQ(got_reply.priority, reply.priority);
+    EXPECT_EQ(got_reply.weight, reply.weight);
+    EXPECT_EQ(got_reply.connect_lifetime, reply.connect_lifetime);
 }
 
 } // namespace
@@ -283,16 +294,15 @@ TEST(OobProbeWrap, tls_crypt_v2_probe_appends_wkc)
 
     ProtoContext::ProbeWrap client(cp, stats);
 
-    const oob::ProbeParameter param{.timestamp = 0xdeadbeefcafef00dULL, .flags = 0};
+    const oob::ProbeRequest req{.timestamp = 0xdeadbeefcafef00dULL, .flags = 0};
 
     BufferAllocated probe = make_msg_buffer();
-    ASSERT_TRUE(oob::server_probe_write(probe, param));
+    ASSERT_TRUE(req.write(probe));
     BufferAllocated cwork;
     client.wrap(probe, cwork);
 
-    // opcode is CONTROL_OOB_WKC_V1 with key-id 0
-    const unsigned char expected_op =
-        static_cast<unsigned char>(ProtoContext::CONTROL_OOB_WKC_V1 << ProtoContext::OPCODE_SHIFT);
+    // opcode is CONTROL_WKC_V2 with key-id 0
+    const unsigned char expected_op = ProtoContext::op_compose(ProtoContext::CONTROL_WKC_V2, 0);
     ASSERT_GE(probe.size(), wkc_size);
     EXPECT_EQ(probe.c_data()[0], expected_op);
 
@@ -311,9 +321,10 @@ TEST(OobProbeWrap, tls_crypt_v2_probe_appends_wkc)
     ASSERT_EQ(server.unwrap(stripped, swork, src, pid), ProtoContext::UnwrapStatus::OK);
     EXPECT_TRUE(src.match(client.self_psid()));
 
-    const auto got_param = oob::server_probe_read(stripped);
-    ASSERT_TRUE(got_param);
-    EXPECT_EQ(got_param->timestamp, param.timestamp);
+    const auto got_req_opt = oob::probe_request_find(stripped);
+    ASSERT_TRUE(got_req_opt);
+    const auto &got_req = *got_req_opt; // NOLINT(bugprone-unchecked-optional-access) -- guarded by the ASSERT_TRUE above
+    EXPECT_EQ(got_req.timestamp, req.timestamp);
 }
 
 namespace {

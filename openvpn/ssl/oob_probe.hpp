@@ -11,15 +11,14 @@
 
 /**
  * @file
- * Encoding/decoding of out-of-band (CONTROL_OOB_V1) control messages, used for
- * server latency probing and best-server selection.
+ * Encoding and decoding of the server probe TLVs, carried in a CONTROL_V2
+ * control message and used for latency probing and best-server selection.
  *
- * An OOB message payload starts with a 16-bit message type (the 0x1xx space:
- * SERVER_PROBE, PROBE_REPLY, ...) followed by a sequence of TLV entries. Each TLV
- * starts with a 4-byte header: a 16-bit field whose most significant bit is the
- * "optional" flag and whose remaining 15 bits are the type (the 0x2xx space),
- * followed by a 16-bit length. Unknown/trailing bytes are ignored on read, so the
- * format is forward-compatible.
+ * A CONTROL_V2 payload is a bare sequence of TLVs, with no message type ahead of
+ * them. Each TLV starts with a 4-byte header: a 16-bit field whose most
+ * significant bit is the "optional" flag and whose remaining 15 bits are the
+ * type, followed by a 16-bit length of the value. The type space is shared with
+ * the other TLV-carrying control messages.
  *
  * All multi-byte integers are big-endian (network byte order), matching the
  * community C implementation (buf_write_u16 = htons, etc.) for on-the-wire
@@ -32,12 +31,10 @@
 #define OPENVPN_SSL_OOB_PROBE_H
 
 #include <cstdint>
-#include <cstring>
 #include <optional>
 
 #include <openvpn/buffer/buffer.hpp>
 #include <openvpn/buffer/bufbe.hpp>
-#include <openvpn/ssl/psid.hpp>
 
 namespace openvpn::oob {
 
@@ -49,53 +46,35 @@ using BufferBE::write_u16;
 using BufferBE::write_u32;
 using BufferBE::write_u64;
 
-//! OOB message types: the 16-bit value at the start of an OOB payload.
-enum : std::uint16_t
-{
-    MSG_SERVER_PROBE = 0x100,
-    MSG_PROBE_REPLY = 0x101,
-};
+//! TLV header bit layout of the first 16-bit field, and the probe TLV types. The
+//! shared type space puts 0x1 on the early negotiation flags of
+//! CONTROL_HARD_RESET_SERVER_V2.
+inline constexpr std::uint16_t tlv_optional_flag = 0x8000;
+inline constexpr std::uint16_t tlv_type_mask = 0x7fff;
+inline constexpr std::uint16_t tlv_probe_request = 0x2;
+inline constexpr std::uint16_t tlv_probe_reply = 0x3;
 
-//! TLV header bit layout of the first 16-bit field, and the TLV type space (0x2xx).
-enum : std::uint16_t
-{
-    TLV_OPTIONAL_FLAG = 0x8000,
-    TLV_TYPE_MASK = 0x7fff,
-    TLV_PROBE_PARAMETER = 0x200,
-    TLV_PROBE_REPLY = 0x201,
-};
+//! probe request flags. probe_only says the client wants the latency alone and
+//! will not continue into a handshake, so the server may forget the exchange at
+//! once and must answer with connect_lifetime = 0.
+inline constexpr std::uint32_t request_flag_probe_only = 0x1;
 
-/**
- * probe_reply flags (the reply TLV's 32-bit flags field).
- *
- * bit 0 (RESEND_WKC): the client must resend the wrapped client key (via
- * CONTROL_WKC_V1) when it completes the handshake using this reply as a shortcut.
- * Set by a tls-crypt-v2 server, which is stateless and discarded the WKc.
- */
-enum : std::uint32_t
-{
-    REPLY_FLAG_RESEND_WKC = 0x1,
-};
+//! probe reply flags. The last three describe the remote's other resolved
+//! addresses, so a client can tell whether probing them is worth a packet.
+//! set by a stateless tls-crypt-v2 server, which discarded the WKc: complete
+//! the handshake with CONTROL_WKC_V1 rather than CONTROL_V1
+inline constexpr std::uint16_t reply_flag_resend_wkc = 0x1;
+//! they are the same server, no need to probe them
+inline constexpr std::uint16_t reply_flag_addrs_equal = 0x2;
+//! connect_lifetime holds for them too; says nothing without addrs_equal
+inline constexpr std::uint16_t reply_flag_lifetime_shared = 0x4;
+//! they are distinct servers, so probe them as well
+inline constexpr std::uint16_t reply_flag_probe_more = 0x8;
 
-// ---- message + TLV headers ----------------------------------------------------
+// ---- TLV header ---------------------------------------------------------------
 
-//! Write an OOB message-type header (the 16-bit type preceding the TLVs).
-inline bool msg_write_header(Buffer &buf, std::uint16_t msg_type)
-{
-    return write_u16(buf, msg_type);
-}
-
-/**
- * Read and verify an OOB message-type header, advancing past it.
- * @param buf                buffer positioned at the OOB message payload
- * @param expected_msg_type  the message type the payload must carry
- * @return true if a message type was read and equals @p expected_msg_type
- */
-inline bool msg_read_header(Buffer &buf, std::uint16_t expected_msg_type)
-{
-    std::uint16_t msg_type;
-    return read_u16(buf, msg_type) && msg_type == expected_msg_type;
-}
+//! a TLV header is a 16-bit type/optional field plus a 16-bit value length
+inline constexpr std::size_t tlv_header_len = 4;
 
 //! A decoded TLV header.
 struct TlvHeader
@@ -105,12 +84,24 @@ struct TlvHeader
     std::uint16_t value_len; //!< the declared value length
 };
 
-//! Write a TLV header (type + optional flag + value length) to @p buf.
+//! Write a TLV header (type + optional flag + value length) to @p buf. Nothing is
+//! written unless the header and the @p value_len bytes that follow it both fit,
+//! since a header promises a value: a failed write leaves no partial TLV behind.
 inline bool tlv_write_header(Buffer &buf, std::uint16_t type, bool optional, std::uint16_t value_len)
 {
-    std::uint16_t field = type & TLV_TYPE_MASK;
+    if (type > tlv_type_mask) // the type has 15 bits, the top one is the flag
+    {
+        return false;
+    }
+    if (buf.remaining() < tlv_header_len + static_cast<std::size_t>(value_len))
+    {
+        return false;
+    }
+    std::uint16_t field = type;
     if (optional)
-        field |= TLV_OPTIONAL_FLAG;
+    {
+        field |= tlv_optional_flag;
+    }
     return write_u16(buf, field) && write_u16(buf, value_len);
 }
 
@@ -123,9 +114,11 @@ inline std::optional<TlvHeader> tlv_read_header(Buffer &buf)
     std::uint16_t field, value_len;
     if (!read_u16(buf, field) || !read_u16(buf, value_len))
         return std::nullopt;
-    return TlvHeader{.type = static_cast<std::uint16_t>(field & TLV_TYPE_MASK),
-                     .optional = (field & TLV_OPTIONAL_FLAG) != 0,
-                     .value_len = value_len};
+    return TlvHeader{
+        .type = static_cast<std::uint16_t>(field & tlv_type_mask),
+        .optional = (field & tlv_optional_flag) != 0,
+        .value_len = value_len,
+    };
 }
 
 /**
@@ -146,160 +139,184 @@ inline bool skip_trailing(Buffer &buf, std::uint16_t value_len, std::size_t cons
 }
 
 /**
- * Scan for the first TLV of type @p wanted_type, skipping optional other/future
- * types. On success @p buf is left positioned at that TLV's value.
- * @param buf         buffer positioned at a TLV header
- * @param wanted_type the TLV type to find
- * @return the found TLV's declared value length, or std::nullopt if the type is
- *         not present, a header/length is malformed, or a TLV we do not
- *         understand is not marked optional
+ * Scan @p buf for the TLV of type @p wanted_type, skipping any other type that is
+ * marked optional. On success @p buf is left at that TLV's value and its declared
+ * length is returned.
+ *
+ * The whole sequence is walked even once the wanted TLV has been found, because
+ * a mandatory TLV we do not understand invalidates the message wherever it sits,
+ * as does a second TLV of @p wanted_type. The scan runs on a copy of the buffer
+ * view, so a message we refuse never leaves @p buf inside a value.
  */
 inline std::optional<std::uint16_t> find_tlv(Buffer &buf, std::uint16_t wanted_type)
 {
-    while (buf.size() >= 4) // a TLV header is 4 bytes
+    Buffer scan(buf); // walk the sequence without moving buf off the match
+    std::optional<std::uint16_t> found_len;
+    std::size_t found_offset = 0;
+
+    while (!scan.empty())
     {
-        const auto hdr = tlv_read_header(buf);
+        const auto hdr = tlv_read_header(scan);
         if (!hdr)
-            return std::nullopt;
+        {
+            return std::nullopt; // fewer bytes left than a TLV header
+        }
         if (hdr->type == wanted_type)
-            return hdr->value_len;
-        // Only an optional TLV may be ignored when we do not understand it. A
-        // mandatory one carries something the sender requires us to act on, so
-        // the message as a whole is not ours to interpret.
-        if (!hdr->optional)
+        {
+            if (found_len)
+            {
+                return std::nullopt; // the TLV may occur only once
+            }
+            found_len = hdr->value_len;
+            found_offset = buf.size() - scan.size(); // start of its value
+        }
+        else if (!hdr->optional)
+        {
             return std::nullopt;
-        if (buf.size() < hdr->value_len)
-            return std::nullopt;
-        buf.advance(hdr->value_len); // optional and unknown: skip its value
+        }
+        if (scan.size() < hdr->value_len)
+        {
+            return std::nullopt; // the header claims more than is there
+        }
+        scan.advance(hdr->value_len);
     }
-    return std::nullopt;
+
+    if (found_len)
+    {
+        buf.advance(found_offset);
+    }
+    return found_len;
 }
 
-// ---- probe_parameter / probe_reply TLVs -----------------------------------------
+// ---- probe request / probe reply TLVs -----------------------------------------
 
-//! probe parameter TLV (sent by the client in a SERVER_PROBE).
-struct ProbeParameter
+//! probe request TLV, sent by a client to probe a server.
+struct ProbeRequest
 {
-    //! minimum on-wire value length (u64 timestamp + u32 flags, excluding the
-    //! 4-byte TLV header); may be longer on the wire for forward compatibility
-    static constexpr std::size_t WIRE_LEN = 12;
+    //! minimum on-wire value length (u64 request_id + u64 timestamp + u32 flags,
+    //! excluding the 4-byte TLV header); may be longer on the wire for forward
+    //! compatibility
+    static constexpr std::size_t wire_len = 20;
 
-    std::uint64_t timestamp = 0; //!< client clock as a UNIX timestamp
-    std::uint32_t flags = 0;     //!< client capability flags, currently must be 0
+    //! Identifies this probe and is the only thing binding a reply to it, so it
+    //! must come from a cryptographically secure RNG and be new for every request
+    //! transmitted, retries included.
+    std::uint64_t request_id = 0;
+    //! Client clock, UNIX seconds. The server bounds how old a request it will
+    //! answer by it, and with that how long a captured one can be replayed.
+    std::uint64_t timestamp = 0;
+    std::uint32_t flags = 0; //!< request_flag_*
 
-    //! Append this parameter as a complete TLV (header + value) to @p buf.
+    //! Append this request as a complete TLV (header + value) to @p buf.
     bool write(Buffer &buf) const
     {
-        return tlv_write_header(buf, TLV_PROBE_PARAMETER, false, WIRE_LEN)
+        return tlv_write_header(buf, tlv_probe_request, false, wire_len)
+               && write_u64(buf, request_id)
                && write_u64(buf, timestamp)
                && write_u32(buf, flags);
     }
 
     /**
-     * Read a probe_parameter TLV value of @p value_len bytes from @p buf. The TLV
+     * Read a probe request TLV value of @p value_len bytes from @p buf. The TLV
      * header must already have been consumed. @p value_len bytes are consumed on
      * success, including any trailing bytes beyond the fields understood here.
      */
-    static std::optional<ProbeParameter> read(Buffer &buf, std::uint16_t value_len)
+    static std::optional<ProbeRequest> read(Buffer &buf, std::uint16_t value_len)
     {
-        if (value_len < WIRE_LEN)
+        if (value_len < wire_len)
+        {
             return std::nullopt;
-        ProbeParameter p;
-        if (!read_u64(buf, p.timestamp) || !read_u32(buf, p.flags))
+        }
+        ProbeRequest req;
+        if (!read_u64(buf, req.request_id) || !read_u64(buf, req.timestamp) || !read_u32(buf, req.flags))
+        {
             return std::nullopt;
-        if (!skip_trailing(buf, value_len, WIRE_LEN))
+        }
+        if (!skip_trailing(buf, value_len, wire_len))
+        {
             return std::nullopt;
-        return p;
+        }
+        return req;
     }
 };
 
-//! probe reply TLV (sent by the server in a PROBE_REPLY).
+//! probe reply TLV, a server's answer to a probe request.
 struct ProbeReply
 {
-    //! minimum on-wire value length (psid(8) + u16*4 + u32, excluding the
+    //! minimum on-wire value length (u64 request_id + u16*5, excluding the
     //! 4-byte TLV header); may be longer on the wire for forward compatibility
-    static constexpr std::size_t WIRE_LEN = 20;
+    static constexpr std::size_t wire_len = 18;
 
-    ProtoSessionID peer_session_id;     //!< echoes the session id of the request
+    std::uint64_t request_id = 0;       //!< echoes the request_id of the request
     std::uint16_t priority = 0;         //!< DNS-SRV style priority (lower preferred)
     std::uint16_t weight = 0;           //!< DNS-SRV style weight
     std::uint16_t max_latency_diff = 0; //!< candidate-band margin (ms); 0 = client default
-    std::uint16_t connect_lifetime = 0; //!< seconds the reply is valid as a handshake shortcut
-    std::uint32_t flags = 0;            //!< server behaviour flags (REPLY_FLAG_*)
+    //! Seconds from the moment the client sent its request for which the server
+    //! still treats this exchange as the first two packets of the handshake, so
+    //! the client may send the third straight away. 0 means it cannot.
+    std::uint16_t connect_lifetime = 0;
+    std::uint16_t flags = 0; //!< reply_flag_*
 
     //! Append this reply as a complete TLV (header + value) to @p buf.
     bool write(Buffer &buf) const
     {
-        if (!tlv_write_header(buf, TLV_PROBE_REPLY, false, WIRE_LEN))
-            return false;
-        if (buf.remaining() < ProtoSessionID::SIZE)
-            return false;
-        peer_session_id.write(buf);
-        return write_u16(buf, priority)
+        return tlv_write_header(buf, tlv_probe_reply, false, wire_len)
+               && write_u64(buf, request_id)
+               && write_u16(buf, priority)
                && write_u16(buf, weight)
                && write_u16(buf, max_latency_diff)
                && write_u16(buf, connect_lifetime)
-               && write_u32(buf, flags);
+               && write_u16(buf, flags);
     }
 
-    //! Read a probe_reply TLV value of @p value_len bytes; see ProbeParameter::read().
+    //! Read a probe reply TLV value of @p value_len bytes; see ProbeRequest::read().
+    //! The two flag combinations the protocol rules out are rejected here, neither
+    //! being something a client could act on.
     static std::optional<ProbeReply> read(Buffer &buf, std::uint16_t value_len)
     {
-        if (value_len < WIRE_LEN)
+        if (value_len < wire_len)
+        {
             return std::nullopt;
-        if (buf.size() < ProtoSessionID::SIZE)
+        }
+        ProbeReply reply;
+        if (!read_u64(buf, reply.request_id) || !read_u16(buf, reply.priority) || !read_u16(buf, reply.weight)
+            || !read_u16(buf, reply.max_latency_diff) || !read_u16(buf, reply.connect_lifetime)
+            || !read_u16(buf, reply.flags))
+        {
             return std::nullopt;
-        ProbeReply r;
-        r.peer_session_id.read(buf);
-        if (!read_u16(buf, r.priority) || !read_u16(buf, r.weight) || !read_u16(buf, r.max_latency_diff)
-            || !read_u16(buf, r.connect_lifetime) || !read_u32(buf, r.flags))
+        }
+        if (!skip_trailing(buf, value_len, wire_len))
+        {
             return std::nullopt;
-        if (!skip_trailing(buf, value_len, WIRE_LEN))
+        }
+        if ((reply.flags & reply_flag_addrs_equal) != 0 && (reply.flags & reply_flag_probe_more) != 0)
+        {
             return std::nullopt;
-        return r;
+        }
+        if ((reply.flags & reply_flag_lifetime_shared) != 0 && (reply.flags & reply_flag_addrs_equal) == 0)
+        {
+            return std::nullopt;
+        }
+        return reply;
     }
 };
 
-// ---- full SERVER_PROBE / PROBE_REPLY messages ---------------------------------
+// ---- finding a probe TLV in a received payload --------------------------------
 
-//! Write a complete SERVER_PROBE (message header + probe_parameter TLV). Client.
-inline bool server_probe_write(Buffer &buf, const ProbeParameter &param)
+//! Find and parse the probe request TLV of a received CONTROL_V2 payload, which
+//! find_tlv() requires to hold exactly one. Server side; consumes @p buf.
+inline std::optional<ProbeRequest> probe_request_find(Buffer &buf)
 {
-    return msg_write_header(buf, MSG_SERVER_PROBE) && param.write(buf);
-}
-
-/**
- * Read a received SERVER_PROBE: verify the message header, then scan for the
- * probe_parameter TLV (tolerating other/future TLVs). Consumes @p buf as it reads.
- * @return the parameter if the header matched and a well-formed probe_parameter
- *         was found, std::nullopt otherwise
- */
-inline std::optional<ProbeParameter> server_probe_read(Buffer &buf)
-{
-    if (!msg_read_header(buf, MSG_SERVER_PROBE))
-        return std::nullopt;
-    const auto value_len = find_tlv(buf, TLV_PROBE_PARAMETER);
+    const auto value_len = find_tlv(buf, tlv_probe_request);
     if (!value_len)
         return std::nullopt;
-    return ProbeParameter::read(buf, *value_len);
+    return ProbeRequest::read(buf, *value_len);
 }
 
-//! Write a complete PROBE_REPLY (message header + probe_reply TLV). Server.
-inline bool client_reply_write(Buffer &buf, const ProbeReply &reply)
+//! The client-side counterpart of probe_request_find().
+inline std::optional<ProbeReply> probe_reply_find(Buffer &buf)
 {
-    return msg_write_header(buf, MSG_PROBE_REPLY) && reply.write(buf);
-}
-
-/**
- * Read a received PROBE_REPLY: the client-side counterpart of server_probe_read().
- * @return the reply if the header matched and a well-formed probe_reply was
- *         found, std::nullopt otherwise
- */
-inline std::optional<ProbeReply> client_reply_read(Buffer &buf)
-{
-    if (!msg_read_header(buf, MSG_PROBE_REPLY))
-        return std::nullopt;
-    const auto value_len = find_tlv(buf, TLV_PROBE_REPLY);
+    const auto value_len = find_tlv(buf, tlv_probe_reply);
     if (!value_len)
         return std::nullopt;
     return ProbeReply::read(buf, *value_len);
